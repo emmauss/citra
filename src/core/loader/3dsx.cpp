@@ -5,11 +5,15 @@
 #include <algorithm>
 #include <vector>
 
+#include "common/logging/log.h"
+
 #include "core/file_sys/archive_romfs.h"
+#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/resource_limit.h"
+#include "core/hle/service/fs/archive.h"
 #include "core/loader/elf.h"
 #include "core/loader/ncch.h"
-#include "core/hle/service/fs/archive.h"
-#include "core/mem_map.h"
+#include "core/memory.h"
 
 #include "3dsx.h"
 
@@ -227,8 +231,16 @@ ResultStatus AppLoader_THREEDSX::Load() {
     if (!file->IsOpen())
         return ResultStatus::Error;
 
-    Load3DSXFile(*file, 0x00100000);
-    Kernel::LoadExec(0x00100000);
+    Kernel::g_current_process = Kernel::Process::Create(filename, 0);
+    Kernel::g_current_process->svc_access_mask.set();
+    Kernel::g_current_process->address_mappings = default_address_mappings;
+    
+    // Attach the default resource limit (APPLICATION) to the process
+    Kernel::g_current_process->resource_limit = Kernel::ResourceLimit::GetForCategory(Kernel::ResourceLimitCategory::APPLICATION);
+
+    Load3DSXFile(*file, Memory::PROCESS_IMAGE_VADDR);
+
+    Kernel::g_current_process->Run(Memory::PROCESS_IMAGE_VADDR, 48, Kernel::DEFAULT_STACK_SIZE);
 
     is_loaded = true;
     return ResultStatus::Success;

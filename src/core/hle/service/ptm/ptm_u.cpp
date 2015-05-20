@@ -2,7 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "common/make_unique.h"
+#include "common/logging/log.h"
 
 #include "core/hle/hle.h"
 #include "core/hle/service/ptm/ptm.h"
@@ -10,68 +10,6 @@
 
 namespace Service {
 namespace PTM {
-
-/**
- * PTM_U::GetAdapterState service function
- *  Outputs:
- *      1 : Result of function, 0 on success, otherwise error code
- *      2 : Output of function, 0 = not charging, 1 = charging.
- */
-static void GetAdapterState(Service::Interface* self) {
-    u32* cmd_buff = Kernel::GetCommandBuffer();
-
-    cmd_buff[1] = RESULT_SUCCESS.raw;
-    cmd_buff[2] = GetAdapterState();
-
-    LOG_WARNING(Service_PTM, "(STUBBED) called");
-}
-
-/*
- * PTM_User::GetShellState service function.
- *  Outputs:
- *      1 : Result of function, 0 on success, otherwise error code
- *      2 : Whether the 3DS's physical shell casing is open (1) or closed (0)
- */
-static void GetShellState(Service::Interface* self) {
-    u32* cmd_buff = Kernel::GetCommandBuffer();
-
-    cmd_buff[1] = RESULT_SUCCESS.raw;
-    cmd_buff[2] = GetShellState();
-}
-
-/**
- * PTM_U::GetBatteryLevel service function
- *  Outputs:
- *      1 : Result of function, 0 on success, otherwise error code
- *      2 : Battery level, 5 = completely full battery, 4 = mostly full battery,
- *          3 = half full battery, 2 =  low battery, 1 = critical battery.
- */
-static void GetBatteryLevel(Service::Interface* self) {
-    u32* cmd_buff = Kernel::GetCommandBuffer();
-
-    cmd_buff[1] = RESULT_SUCCESS.raw;
-    cmd_buff[2] = static_cast<u32>(GetBatteryLevel());
-
-    LOG_WARNING(Service_PTM, "(STUBBED) called");
-}
-
-/**
- * PTM_U::GetBatteryChargeState service function
- *  Outputs:
- *      1 : Result of function, 0 on success, otherwise error code
- *      2 : Output of function, 0 = not charging, 1 = charging.
- */
-static void GetBatteryChargeState(Service::Interface* self) {
-    u32* cmd_buff = Kernel::GetCommandBuffer();
-
-    // TODO(purpasmart96): This function is only a stub,
-    // it returns a valid result without implementing full functionality.
-
-    cmd_buff[1] = RESULT_SUCCESS.raw;
-    cmd_buff[2] = GetAdapterState();
-
-    LOG_WARNING(Service_PTM, "(STUBBED) called");
-}
 
 const Interface::FunctionInfo FunctionTable[] = {
     {0x00010002, nullptr,               "RegisterAlarmClient"},

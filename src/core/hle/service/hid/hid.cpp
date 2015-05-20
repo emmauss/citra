@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "common/logging/log.h"
+
 #include "core/hle/service/service.h"
 #include "core/hle/service/hid/hid.h"
 #include "core/hle/service/hid/hid_spvr.h"
@@ -46,7 +48,7 @@ static u32 next_touch_index;
 //     * Set PadData.current_state.circle_right = 1 if current PadEntry.circle_pad_y <= -41
 
 void Update() {
-    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer().ValueOr(nullptr));
+    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer());
     const PadState state = VideoCore::g_emu_window->GetPadState();
 
     if (mem == nullptr) {
@@ -161,7 +163,9 @@ void Init() {
     AddService(new HID_U_Interface);
     AddService(new HID_SPVR_Interface);
 
-    shared_mem = SharedMemory::Create("HID:SharedMem");
+    using Kernel::MemoryPermission;
+    shared_mem = SharedMemory::Create(0x1000, MemoryPermission::ReadWrite,
+            MemoryPermission::Read, "HID:SharedMem");
 
     next_pad_index = 0;
     next_touch_index = 0;

@@ -10,9 +10,10 @@
 #include "common/logging/log.h"
 #include "common/profiler.h"
 
-#include "core/mem_map.h"
+#include "core/memory.h"
 #include "core/hle/svc.h"
 #include "core/arm/disassembler/arm_disasm.h"
+#include "core/arm/dyncom/arm_dyncom_dec.h"
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
 #include "core/arm/dyncom/arm_dyncom_thumb.h"
 #include "core/arm/dyncom/arm_dyncom_run.h"
@@ -66,6 +67,67 @@ static void add_exclusive_addr(ARMul_State* state, ARMword addr){
 
 static void remove_exclusive(ARMul_State* state, ARMword addr){
     state->exclusive_tag = 0xFFFFFFFF;
+}
+
+static int CondPassed(ARMul_State* cpu, unsigned int cond) {
+    const u32 NFLAG = cpu->NFlag;
+    const u32 ZFLAG = cpu->ZFlag;
+    const u32 CFLAG = cpu->CFlag;
+    const u32 VFLAG = cpu->VFlag;
+
+    int temp = 0;
+
+    switch (cond) {
+    case 0x0:
+        temp = ZFLAG;
+        break;
+    case 0x1: // NE
+        temp = !ZFLAG;
+        break;
+    case 0x2: // CS
+        temp = CFLAG;
+        break;
+    case 0x3: // CC
+        temp = !CFLAG;
+        break;
+    case 0x4: // MI
+        temp = NFLAG;
+        break;
+    case 0x5: // PL
+        temp = !NFLAG;
+        break;
+    case 0x6: // VS
+        temp = VFLAG;
+        break;
+    case 0x7: // VC
+        temp = !VFLAG;
+        break;
+    case 0x8: // HI
+        temp = (CFLAG && !ZFLAG);
+        break;
+    case 0x9: // LS
+        temp = (!CFLAG || ZFLAG);
+        break;
+    case 0xa: // GE
+        temp = ((!NFLAG && !VFLAG) || (NFLAG && VFLAG));
+        break;
+    case 0xb: // LT
+        temp = ((NFLAG && !VFLAG) || (!NFLAG && VFLAG));
+        break;
+    case 0xc: // GT
+        temp = ((!NFLAG && !VFLAG && !ZFLAG) || (NFLAG && VFLAG && !ZFLAG));
+        break;
+    case 0xd: // LE
+        temp = ((NFLAG && !VFLAG) || (!NFLAG && VFLAG)) || ZFLAG;
+        break;
+    case 0xe: // AL
+        temp = 1;
+        break;
+    case 0xf:
+        temp = 1;
+        break;
+    }
+    return temp;
 }
 
 static unsigned int DPO(Immediate)(ARMul_State* cpu, unsigned int sht_oper) {
@@ -224,13 +286,11 @@ static unsigned int DPO(RotateRightByRegister)(ARMul_State* cpu, unsigned int sh
 
 typedef void (*get_addr_fp_t)(ARMul_State *cpu, unsigned int inst, unsigned int &virt_addr, unsigned int rw);
 
-typedef struct _ldst_inst {
+struct ldst_inst {
     unsigned int inst;
     get_addr_fp_t get_addr;
-} ldst_inst;
+};
 #define DEBUG_MSG LOG_DEBUG(Core_ARM11, "inst is %x", inst); CITRA_IGNORE_EXIT(0)
-
-int CondPassed(ARMul_State* cpu, unsigned int cond);
 
 #define LnSWoUB(s)   glue(LnSWoUB, s)
 #define MLnS(s)      glue(MLnS, s)
@@ -647,255 +707,248 @@ static void LnSWoUB(ScaledRegisterOffset)(ARMul_State* cpu, unsigned int inst, u
     virt_addr = addr;
 }
 
-typedef struct _arm_inst {
+struct arm_inst {
     unsigned int idx;
     unsigned int cond;
     int br;
     int load_r15;
     char component[0];
-} arm_inst;
+};
 
-typedef struct generic_arm_inst {
+struct generic_arm_inst {
     u32 Ra;
     u32 Rm;
     u32 Rn;
     u32 Rd;
     u8 op1;
     u8 op2;
-} generic_arm_inst;
+};
 
-typedef struct _adc_inst {
+struct adc_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} adc_inst;
+};
 
-typedef struct _add_inst {
+struct add_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} add_inst;
+};
 
-typedef struct _orr_inst {
+struct orr_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} orr_inst;
+};
 
-typedef struct _and_inst {
+struct and_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} and_inst;
+};
 
-typedef struct _eor_inst {
+struct eor_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} eor_inst;
+};
 
-typedef struct _bbl_inst {
+struct bbl_inst {
     unsigned int L;
     int signed_immed_24;
     unsigned int next_addr;
     unsigned int jmp_addr;
-} bbl_inst;
+};
 
-typedef struct _bx_inst {
+struct bx_inst {
     unsigned int Rm;
-} bx_inst;
+};
 
-typedef struct _blx_inst {
+struct blx_inst {
     union {
         int32_t signed_immed_24;
         uint32_t Rm;
     } val;
     unsigned int inst;
-} blx_inst;
+};
 
-typedef struct _clz_inst {
+struct clz_inst {
     unsigned int Rm;
     unsigned int Rd;
-} clz_inst;
+};
 
-typedef struct _cps_inst {
+struct cps_inst {
     unsigned int imod0;
     unsigned int imod1;
     unsigned int mmod;
     unsigned int A, I, F;
     unsigned int mode;
-} cps_inst;
+};
 
-typedef struct _clrex_inst {
-} clrex_inst;
+struct clrex_inst {
+};
 
-typedef struct _cpy_inst {
+struct cpy_inst {
     unsigned int Rm;
     unsigned int Rd;
-} cpy_inst;
+};
 
-typedef struct _bic_inst {
+struct bic_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} bic_inst;
+};
 
-typedef struct _sub_inst {
+struct sub_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} sub_inst;
+};
 
-typedef struct _tst_inst {
+struct tst_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} tst_inst;
+};
 
-typedef struct _cmn_inst {
+struct cmn_inst {
     unsigned int I;
     unsigned int Rn;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} cmn_inst;
+};
 
-typedef struct _teq_inst {
+struct teq_inst {
     unsigned int I;
     unsigned int Rn;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} teq_inst;
+};
 
-typedef struct _stm_inst {
+struct stm_inst {
     unsigned int inst;
-} stm_inst;
+};
 
 struct bkpt_inst {
     u32 imm;
 };
 
-struct blx1_inst {
-    unsigned int addr;
+struct stc_inst {
 };
 
-struct blx2_inst {
-    unsigned int Rm;
+struct ldc_inst {
 };
 
-typedef struct _stc_inst {
-} stc_inst;
-
-typedef struct _ldc_inst {
-} ldc_inst;
-
-typedef struct _swi_inst {
+struct swi_inst {
     unsigned int num;
-} swi_inst;
+};
 
-typedef struct _cmp_inst {
+struct cmp_inst {
     unsigned int I;
     unsigned int Rn;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} cmp_inst;
+};
 
-typedef struct _mov_inst {
+struct mov_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} mov_inst;
+};
 
-typedef struct _mvn_inst {
+struct mvn_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} mvn_inst;
+};
 
-typedef struct _rev_inst {
+struct rev_inst {
     unsigned int Rd;
     unsigned int Rm;
     unsigned int op1;
     unsigned int op2;
-} rev_inst;
+};
 
-typedef struct _rsb_inst {
+struct rsb_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} rsb_inst;
+};
 
-typedef struct _rsc_inst {
+struct rsc_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} rsc_inst;
+};
 
-typedef struct _sbc_inst {
+struct sbc_inst {
     unsigned int I;
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int shifter_operand;
     shtop_fp_t shtop_func;
-} sbc_inst;
+};
 
-typedef struct _mul_inst {
+struct mul_inst {
     unsigned int S;
     unsigned int Rd;
     unsigned int Rs;
     unsigned int Rm;
-} mul_inst;
+};
 
-typedef struct _smul_inst {
+struct smul_inst {
     unsigned int Rd;
     unsigned int Rs;
     unsigned int Rm;
     unsigned int x;
     unsigned int y;
-} smul_inst;
+};
 
-typedef struct _umull_inst {
+struct umull_inst {
     unsigned int S;
     unsigned int RdHi;
     unsigned int RdLo;
     unsigned int Rs;
     unsigned int Rm;
-} umull_inst;
-typedef struct _smlad_inst {
+};
+
+struct smlad_inst {
     unsigned int m;
     unsigned int Rm;
     unsigned int Rd;
@@ -903,58 +956,58 @@ typedef struct _smlad_inst {
     unsigned int Rn;
     unsigned int op1;
     unsigned int op2;
-} smlad_inst;
+};
 
-typedef struct _smla_inst {
+struct smla_inst {
     unsigned int x;
     unsigned int y;
     unsigned int Rm;
     unsigned int Rd;
     unsigned int Rs;
     unsigned int Rn;
-} smla_inst;
+};
 
-typedef struct smlalxy_inst {
+struct smlalxy_inst {
     unsigned int x;
     unsigned int y;
     unsigned int RdLo;
     unsigned int RdHi;
     unsigned int Rm;
     unsigned int Rn;
-} smlalxy_inst;
+};
 
-typedef struct ssat_inst {
+struct ssat_inst {
     unsigned int Rn;
     unsigned int Rd;
     unsigned int imm5;
     unsigned int sat_imm;
     unsigned int shift_type;
-} ssat_inst;
+};
 
-typedef struct umaal_inst {
+struct umaal_inst {
     unsigned int Rn;
     unsigned int Rm;
     unsigned int RdHi;
     unsigned int RdLo;
-} umaal_inst;
+};
 
-typedef struct _umlal_inst {
+struct umlal_inst {
     unsigned int S;
     unsigned int Rm;
     unsigned int Rs;
     unsigned int RdHi;
     unsigned int RdLo;
-} umlal_inst;
+};
 
-typedef struct _smlal_inst {
+struct smlal_inst {
     unsigned int S;
     unsigned int Rm;
     unsigned int Rs;
     unsigned int RdHi;
     unsigned int RdLo;
-} smlal_inst;
+};
 
-typedef struct smlald_inst {
+struct smlald_inst {
     unsigned int RdLo;
     unsigned int RdHi;
     unsigned int Rm;
@@ -962,17 +1015,17 @@ typedef struct smlald_inst {
     unsigned int swap;
     unsigned int op1;
     unsigned int op2;
-} smlald_inst;
+};
 
-typedef struct _mla_inst {
+struct mla_inst {
     unsigned int S;
     unsigned int Rn;
     unsigned int Rd;
     unsigned int Rs;
     unsigned int Rm;
-} mla_inst;
+};
 
-typedef struct _mrc_inst {
+struct mrc_inst {
     unsigned int opcode_1;
     unsigned int opcode_2;
     unsigned int cp_num;
@@ -980,9 +1033,9 @@ typedef struct _mrc_inst {
     unsigned int crm;
     unsigned int Rd;
     unsigned int inst;
-} mrc_inst;
+};
 
-typedef struct _mcr_inst {
+struct mcr_inst {
     unsigned int opcode_1;
     unsigned int opcode_2;
     unsigned int cp_num;
@@ -990,69 +1043,77 @@ typedef struct _mcr_inst {
     unsigned int crm;
     unsigned int Rd;
     unsigned int inst;
-} mcr_inst;
+};
 
-typedef struct _mrs_inst {
+struct mcrr_inst {
+    unsigned int opcode_1;
+    unsigned int cp_num;
+    unsigned int crm;
+    unsigned int rt;
+    unsigned int rt2;
+};
+
+struct mrs_inst {
     unsigned int R;
     unsigned int Rd;
-} mrs_inst;
+};
 
-typedef struct _msr_inst {
+struct msr_inst {
     unsigned int field_mask;
     unsigned int R;
     unsigned int inst;
-} msr_inst;
+};
 
-typedef struct _pld_inst {
-} pld_inst;
+struct pld_inst {
+};
 
-typedef struct _sxtb_inst {
+struct sxtb_inst {
     unsigned int Rd;
     unsigned int Rm;
     unsigned int rotate;
-} sxtb_inst;
+};
 
-typedef struct _sxtab_inst {
+struct sxtab_inst {
     unsigned int Rd;
     unsigned int Rn;
     unsigned int Rm;
     unsigned rotate;
-} sxtab_inst;
+};
 
-typedef struct _sxtah_inst {
+struct sxtah_inst {
     unsigned int Rd;
     unsigned int Rn;
     unsigned int Rm;
     unsigned int rotate;
-} sxtah_inst;
+};
 
-typedef struct _sxth_inst {
+struct sxth_inst {
     unsigned int Rd;
     unsigned int Rm;
     unsigned int rotate;
-} sxth_inst;
+};
 
-typedef struct _uxtab_inst {
+struct uxtab_inst {
     unsigned int Rn;
     unsigned int Rd;
     unsigned int rotate;
     unsigned int Rm;
-} uxtab_inst;
+};
 
-typedef struct _uxtah_inst {
+struct uxtah_inst {
     unsigned int Rn;
     unsigned int Rd;
     unsigned int rotate;
     unsigned int Rm;
-} uxtah_inst;
+};
 
-typedef struct _uxth_inst {
+struct uxth_inst {
     unsigned int Rd;
     unsigned int Rm;
     unsigned int rotate;
-} uxth_inst;
+};
 
-typedef struct _cdp_inst {
+struct cdp_inst {
     unsigned int opcode_1;
     unsigned int CRn;
     unsigned int CRd;
@@ -1060,56 +1121,56 @@ typedef struct _cdp_inst {
     unsigned int opcode_2;
     unsigned int CRm;
     unsigned int inst;
-}cdp_inst;
+};
 
-typedef struct _uxtb_inst {
+struct uxtb_inst {
     unsigned int Rd;
     unsigned int Rm;
     unsigned int rotate;
-} uxtb_inst;
+};
 
-typedef struct _swp_inst {
+struct swp_inst {
     unsigned int Rn;
     unsigned int Rd;
     unsigned int Rm;
-} swp_inst;
+};
 
-typedef struct setend_inst {
+struct setend_inst {
     unsigned int set_bigend;
-} setend_inst;
+};
 
-typedef struct _b_2_thumb {
+struct b_2_thumb {
     unsigned int imm;
-}b_2_thumb;
-typedef struct _b_cond_thumb {
+};
+struct b_cond_thumb {
     unsigned int imm;
     unsigned int cond;
-}b_cond_thumb;
+};
 
-typedef struct _bl_1_thumb {
+struct bl_1_thumb {
     unsigned int imm;
-}bl_1_thumb;
-typedef struct _bl_2_thumb {
+};
+struct bl_2_thumb {
     unsigned int imm;
-}bl_2_thumb;
-typedef struct _blx_1_thumb {
+};
+struct blx_1_thumb {
     unsigned int imm;
     unsigned int instr;
-}blx_1_thumb;
+};
 
-typedef struct _pkh_inst {
+struct pkh_inst {
     unsigned int Rm;
     unsigned int Rn;
     unsigned int Rd;
     unsigned char imm;
-} pkh_inst;
+};
 
 typedef arm_inst * ARM_INST_PTR;
 
 #define CACHE_BUFFER_SIZE    (64 * 1024 * 2000)
-char inst_buf[CACHE_BUFFER_SIZE];
-int top = 0;
-inline void *AllocBuffer(unsigned int size) {
+static char inst_buf[CACHE_BUFFER_SIZE];
+static int top = 0;
+static inline void *AllocBuffer(unsigned int size) {
     int start = top;
     top += size;
     if (top > CACHE_BUFFER_SIZE) {
@@ -1118,74 +1179,6 @@ inline void *AllocBuffer(unsigned int size) {
     }
     return (void *)&inst_buf[start];
 }
-
-int CondPassed(ARMul_State* cpu, unsigned int cond) {
-    #define NFLAG        cpu->NFlag
-    #define ZFLAG        cpu->ZFlag
-    #define CFLAG        cpu->CFlag
-    #define VFLAG        cpu->VFlag
-
-    int temp = 0;
-
-    switch (cond) {
-    case 0x0:
-        temp = ZFLAG;
-        break;
-    case 0x1: // NE
-        temp = !ZFLAG;
-        break;
-    case 0x6: // VS
-        temp = VFLAG;
-        break;
-    case 0x7: // VC
-        temp = !VFLAG;
-        break;
-    case 0x4: // MI
-        temp = NFLAG;
-        break;
-    case 0x5: // PL
-        temp = !NFLAG;
-        break;
-    case 0x2: // CS
-        temp = CFLAG;
-        break;
-    case 0x3: // CC
-        temp = !CFLAG;
-        break;
-    case 0x8: // HI
-        temp = (CFLAG && !ZFLAG);
-        break;
-    case 0x9: // LS
-        temp = (!CFLAG || ZFLAG);
-        break;
-    case 0xa: // GE
-        temp = ((!NFLAG && !VFLAG) || (NFLAG && VFLAG));
-        break;
-    case 0xb: // LT
-        temp = ((NFLAG && !VFLAG) || (!NFLAG && VFLAG));
-        break;
-    case 0xc: // GT
-        temp = ((!NFLAG && !VFLAG && !ZFLAG) || (NFLAG && VFLAG && !ZFLAG));
-        break;
-    case 0xd: // LE
-        temp = ((NFLAG && !VFLAG) || (!NFLAG && VFLAG)) || ZFLAG;
-        break;
-    case 0xe: // AL
-        temp = 1;
-        break;
-    case 0xf:
-        temp = 1;
-        break;
-    }
-    return temp;
-}
-
-enum DECODE_STATUS {
-    DECODE_SUCCESS,
-    DECODE_FAILURE
-};
-
-int decode_arm_instr(uint32_t instr, int32_t *idx);
 
 static shtop_fp_t get_shtop(unsigned int inst) {
     if (BIT(inst, 25)) {
@@ -1260,11 +1253,6 @@ static get_addr_fp_t get_calc_addr_op(unsigned int inst) {
 #define CHECK_RN            (inst_cream->Rn == 15)
 #define CHECK_RM            (inst_cream->Rm == 15)
 #define CHECK_RS            (inst_cream->Rs == 15)
-
-#define UNIMPLEMENTED_INSTRUCTION(mnemonic) \
-    LOG_ERROR(Core_ARM11, "unimplemented instruction: %s", mnemonic); \
-    CITRA_IGNORE_EXIT(-1); \
-    return nullptr;
 
 static ARM_INST_PTR INTERPRETER_TRANSLATE(adc)(unsigned int inst, int index)
 {
@@ -1390,7 +1378,7 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(bkpt)(unsigned int inst, int index)
     inst_base->br       = NON_BRANCH;
     inst_base->load_r15 = 0;
 
-    inst_cream->imm = BITS(inst, 8, 19) | BITS(inst, 0, 3);
+    inst_cream->imm = (BITS(inst, 8, 19) << 4) | BITS(inst, 0, 3);
 
     return inst_base;
 }
@@ -1871,7 +1859,26 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(mcr)(unsigned int inst, int index)
     inst_cream->inst     = inst;
     return inst_base;
 }
-static ARM_INST_PTR INTERPRETER_TRANSLATE(mcrr)(unsigned int inst, int index) { UNIMPLEMENTED_INSTRUCTION("MCRR"); }
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(mcrr)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst) + sizeof(mcrr_inst));
+    mcrr_inst* const inst_cream = (mcrr_inst*)inst_base->component;
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
+
+    inst_cream->crm      = BITS(inst, 0, 3);
+    inst_cream->opcode_1 = BITS(inst, 4, 7);
+    inst_cream->cp_num   = BITS(inst, 8, 11);
+    inst_cream->rt       = BITS(inst, 12, 15);
+    inst_cream->rt2      = BITS(inst, 16, 19);
+
+    return inst_base;
+}
+
 static ARM_INST_PTR INTERPRETER_TRANSLATE(mla)(unsigned int inst, int index)
 {
     arm_inst *inst_base = (arm_inst *)AllocBuffer(sizeof(arm_inst) + sizeof(mla_inst));
@@ -1930,7 +1937,12 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(mrc)(unsigned int inst, int index)
     inst_cream->inst     = inst;
     return inst_base;
 }
-static ARM_INST_PTR INTERPRETER_TRANSLATE(mrrc)(unsigned int inst, int index) { UNIMPLEMENTED_INSTRUCTION("MRRC"); }
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(mrrc)(unsigned int inst, int index)
+{
+    return INTERPRETER_TRANSLATE(mcrr)(inst, index);
+}
+
 static ARM_INST_PTR INTERPRETER_TRANSLATE(mrs)(unsigned int inst, int index)
 {
     arm_inst *inst_base = (arm_inst *)AllocBuffer(sizeof(arm_inst) + sizeof(mrs_inst));
@@ -2022,6 +2034,19 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(orr)(unsigned int inst, int index)
     if (inst_cream->Rd == 15) {
         inst_base->br = INDIRECT_BRANCH;
     }
+    return inst_base;
+}
+
+// NOP introduced in ARMv6K.
+static ARM_INST_PTR INTERPRETER_TRANSLATE(nop)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
+
     return inst_base;
 }
 
@@ -2312,6 +2337,18 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(setend)(unsigned int inst, int index)
     inst_base->load_r15 = 0;
 
     inst_cream->set_bigend = BIT(inst, 9);
+
+    return inst_base;
+}
+
+static ARM_INST_PTR INTERPRETER_TRANSLATE(sev)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
 
     return inst_base;
 }
@@ -3320,6 +3357,40 @@ static ARM_INST_PTR INTERPRETER_TRANSLATE(uxtb16)(unsigned int inst, int index)
     return INTERPRETER_TRANSLATE(uxtab16)(inst, index);
 }
 
+static ARM_INST_PTR INTERPRETER_TRANSLATE(wfe)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
+
+    return inst_base;
+}
+static ARM_INST_PTR INTERPRETER_TRANSLATE(wfi)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
+
+    return inst_base;
+}
+static ARM_INST_PTR INTERPRETER_TRANSLATE(yield)(unsigned int inst, int index)
+{
+    arm_inst* const inst_base = (arm_inst*)AllocBuffer(sizeof(arm_inst));
+
+    inst_base->cond     = BITS(inst, 28, 31);
+    inst_base->idx      = index;
+    inst_base->br       = NON_BRANCH;
+    inst_base->load_r15 = 0;
+
+    return inst_base;
+}
+
 // Floating point VFPv3 structures and instructions
 
 #define VFP_INTERPRETER_STRUCT
@@ -3509,6 +3580,10 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(mrc),
     INTERPRETER_TRANSLATE(mcr),
     INTERPRETER_TRANSLATE(msr),
+    INTERPRETER_TRANSLATE(msr),
+    INTERPRETER_TRANSLATE(msr),
+    INTERPRETER_TRANSLATE(msr),
+    INTERPRETER_TRANSLATE(msr),
     INTERPRETER_TRANSLATE(ldrb),
     INTERPRETER_TRANSLATE(strb),
     INTERPRETER_TRANSLATE(ldr),
@@ -3517,12 +3592,17 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(cdp),
     INTERPRETER_TRANSLATE(stc),
     INTERPRETER_TRANSLATE(ldc),
-    INTERPRETER_TRANSLATE(swi),
-    INTERPRETER_TRANSLATE(bbl),
     INTERPRETER_TRANSLATE(ldrexd),
     INTERPRETER_TRANSLATE(strexd),
     INTERPRETER_TRANSLATE(ldrexh),
     INTERPRETER_TRANSLATE(strexh),
+    INTERPRETER_TRANSLATE(nop),
+    INTERPRETER_TRANSLATE(yield),
+    INTERPRETER_TRANSLATE(wfe),
+    INTERPRETER_TRANSLATE(wfi),
+    INTERPRETER_TRANSLATE(sev),
+    INTERPRETER_TRANSLATE(swi),
+    INTERPRETER_TRANSLATE(bbl),
 
     // All the thumb instructions should be placed the end of table
     INTERPRETER_TRANSLATE(b_2_thumb), 
@@ -3672,7 +3752,7 @@ static int clz(unsigned int x) {
     return n;
 }
 
-unsigned InterpreterMainLoop(ARMul_State* state) {
+unsigned InterpreterMainLoop(ARMul_State* cpu) {
     Common::Profiling::ScopeTimer timer_execute(profile_execute);
 
     #undef RM
@@ -3696,7 +3776,8 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
     #define FETCH_INST if (inst_base->br != NON_BRANCH) goto DISPATCH; \
                        inst_base = (arm_inst *)&inst_buf[ptr]
 
-    #define INC_PC(l) ptr += sizeof(arm_inst) + l
+    #define INC_PC(l)   ptr += sizeof(arm_inst) + l
+    #define INC_PC_STUB ptr += sizeof(arm_inst)
 
 // GCC and Clang have a C++ extension to support a lookup table of labels. Otherwise, fallback to a
 // clunky switch statement.
@@ -3885,28 +3966,37 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
     case 172: goto MRC_INST; \
     case 173: goto MCR_INST; \
     case 174: goto MSR_INST; \
-    case 175: goto LDRB_INST; \
-    case 176: goto STRB_INST; \
-    case 177: goto LDR_INST; \
-    case 178: goto LDRCOND_INST ; \
-    case 179: goto STR_INST; \
-    case 180: goto CDP_INST; \
-    case 181: goto STC_INST; \
-    case 182: goto LDC_INST; \
-    case 183: goto SWI_INST; \
-    case 184: goto BBL_INST; \
-    case 185: goto LDREXD_INST; \
-    case 186: goto STREXD_INST; \
-    case 187: goto LDREXH_INST; \
-    case 188: goto STREXH_INST; \
-    case 189: goto B_2_THUMB ; \
-    case 190: goto B_COND_THUMB ; \
-    case 191: goto BL_1_THUMB ; \
-    case 192: goto BL_2_THUMB ; \
-    case 193: goto BLX_1_THUMB ; \
-    case 194: goto DISPATCH; \
-    case 195: goto INIT_INST_LENGTH; \
-    case 196: goto END; \
+    case 175: goto MSR_INST; \
+    case 176: goto MSR_INST; \
+    case 177: goto MSR_INST; \
+    case 178: goto MSR_INST; \
+    case 179: goto LDRB_INST; \
+    case 180: goto STRB_INST; \
+    case 181: goto LDR_INST; \
+    case 182: goto LDRCOND_INST ; \
+    case 183: goto STR_INST; \
+    case 184: goto CDP_INST; \
+    case 185: goto STC_INST; \
+    case 186: goto LDC_INST; \
+    case 187: goto LDREXD_INST; \
+    case 188: goto STREXD_INST; \
+    case 189: goto LDREXH_INST; \
+    case 190: goto STREXH_INST; \
+    case 191: goto NOP_INST; \
+    case 192: goto YIELD_INST; \
+    case 193: goto WFE_INST; \
+    case 194: goto WFI_INST; \
+    case 195: goto SEV_INST; \
+    case 196: goto SWI_INST; \
+    case 197: goto BBL_INST; \
+    case 198: goto B_2_THUMB ; \
+    case 199: goto B_COND_THUMB ; \
+    case 200: goto BL_1_THUMB ; \
+    case 201: goto BL_2_THUMB ; \
+    case 202: goto BLX_1_THUMB ; \
+    case 203: goto DISPATCH; \
+    case 204: goto INIT_INST_LENGTH; \
+    case 205: goto END; \
     }
 #endif
 
@@ -3930,8 +4020,6 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
     #define PC (cpu->Reg[15])
     #define CHECK_EXT_INT if (!cpu->NirqSig && !(cpu->Cpsr & 0x80)) goto END;
 
-    ARMul_State* cpu = state;
-
     // GCC and Clang have a C++ extension to support a lookup table of labels. Otherwise, fallback
     // to a clunky switch statement.
 #if defined __GNUC__ || defined __clang__
@@ -3954,9 +4042,11 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
         &&MCRR_INST,&&MRRC_INST,&&CMP_INST,&&TST_INST,&&TEQ_INST,&&CMN_INST,&&SMULL_INST,&&UMULL_INST,&&UMLAL_INST,&&SMLAL_INST,&&MUL_INST,
         &&MLA_INST,&&SSAT_INST,&&USAT_INST,&&MRS_INST,&&MSR_INST,&&AND_INST,&&BIC_INST,&&LDM_INST,&&EOR_INST,&&ADD_INST,&&RSB_INST,&&RSC_INST,
         &&SBC_INST,&&ADC_INST,&&SUB_INST,&&ORR_INST,&&MVN_INST,&&MOV_INST,&&STM_INST,&&LDM_INST,&&LDRSH_INST,&&STM_INST,&&LDM_INST,&&LDRSB_INST,
-        &&STRD_INST,&&LDRH_INST,&&STRH_INST,&&LDRD_INST,&&STRT_INST,&&STRBT_INST,&&LDRBT_INST,&&LDRT_INST,&&MRC_INST,&&MCR_INST,&&MSR_INST,
-        &&LDRB_INST,&&STRB_INST,&&LDR_INST,&&LDRCOND_INST, &&STR_INST,&&CDP_INST,&&STC_INST,&&LDC_INST,&&SWI_INST,&&BBL_INST,&&LDREXD_INST,
-        &&STREXD_INST,&&LDREXH_INST,&&STREXH_INST,&&B_2_THUMB, &&B_COND_THUMB,&&BL_1_THUMB, &&BL_2_THUMB, &&BLX_1_THUMB, &&DISPATCH,
+        &&STRD_INST,&&LDRH_INST,&&STRH_INST,&&LDRD_INST,&&STRT_INST,&&STRBT_INST,&&LDRBT_INST,&&LDRT_INST,&&MRC_INST,&&MCR_INST,
+        &&MSR_INST, &&MSR_INST, &&MSR_INST, &&MSR_INST, &&MSR_INST,
+        &&LDRB_INST,&&STRB_INST,&&LDR_INST,&&LDRCOND_INST, &&STR_INST,&&CDP_INST,&&STC_INST,&&LDC_INST, &&LDREXD_INST,
+        &&STREXD_INST,&&LDREXH_INST,&&STREXH_INST, &&NOP_INST, &&YIELD_INST, &&WFE_INST, &&WFI_INST, &&SEV_INST, &&SWI_INST,&&BBL_INST,
+        &&B_2_THUMB, &&B_COND_THUMB,&&BL_1_THUMB, &&BL_2_THUMB, &&BLX_1_THUMB, &&DISPATCH,
         &&INIT_INST_LENGTH,&&END
         };
 #endif
@@ -4756,7 +4846,24 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
         FETCH_INST;
         GOTO_NEXT_INST;
     }
+
     MCRR_INST:
+    {
+        // Stubbed, as the MPCore doesn't have any registers that are accessible
+        // through this instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            mcrr_inst* const inst_cream = (mcrr_inst*)inst_base->component;
+
+            LOG_ERROR(Core_ARM11, "MCRR executed | Coprocessor: %u, CRm %u, opc1: %u, Rt: %u, Rt2: %u",
+                      inst_cream->cp_num, inst_cream->crm, inst_cream->opcode_1, inst_cream->rt, inst_cream->rt2);
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC(sizeof(mcrr_inst));
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
     MLA_INST:
     {
         if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
@@ -4832,7 +4939,24 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
         FETCH_INST;
         GOTO_NEXT_INST;
     }
+
     MRRC_INST:
+    {
+        // Stubbed, as the MPCore doesn't have any registers that are accessible
+        // through this instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            mcrr_inst* const inst_cream = (mcrr_inst*)inst_base->component;
+
+            LOG_ERROR(Core_ARM11, "MRRC executed | Coprocessor: %u, CRm %u, opc1: %u, Rt: %u, Rt2: %u",
+                      inst_cream->cp_num, inst_cream->crm, inst_cream->opcode_1, inst_cream->rt, inst_cream->rt2);
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC(sizeof(mcrr_inst));
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
     MRS_INST:
     {
         if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
@@ -4971,6 +5095,14 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
         }
         cpu->Reg[15] += GET_INST_SIZE(cpu);
         INC_PC(sizeof(orr_inst));
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
+    NOP_INST:
+    {
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC_STUB;
         FETCH_INST;
         GOTO_NEXT_INST;
     }
@@ -5454,6 +5586,19 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
 
         cpu->Reg[15] += GET_INST_SIZE(cpu);
         INC_PC(sizeof(setend_inst));
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
+    SEV_INST:
+    {
+        // Stubbed, as SEV is a hint instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            LOG_TRACE(Core_ARM11, "SEV executed.");
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC_STUB;
         FETCH_INST;
         GOTO_NEXT_INST;
     }
@@ -6492,24 +6637,24 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
                 s16 sum4 = ((rn_val >> 24) & 0xFF) + ((rm_val >> 24) & 0xFF);
 
                 if (sum1 >= 0x100)
-                    state->Cpsr |= (1 << 16);
+                    cpu->Cpsr |= (1 << 16);
                 else
-                    state->Cpsr &= ~(1 << 16);
+                    cpu->Cpsr &= ~(1 << 16);
 
                 if (sum2 >= 0x100)
-                    state->Cpsr |= (1 << 17);
+                    cpu->Cpsr |= (1 << 17);
                 else
-                    state->Cpsr &= ~(1 << 17);
+                    cpu->Cpsr &= ~(1 << 17);
 
                 if (sum3 >= 0x100)
-                    state->Cpsr |= (1 << 18);
+                    cpu->Cpsr |= (1 << 18);
                 else
-                    state->Cpsr &= ~(1 << 18);
+                    cpu->Cpsr &= ~(1 << 18);
 
                 if (sum4 >= 0x100)
-                    state->Cpsr |= (1 << 19);
+                    cpu->Cpsr |= (1 << 19);
                 else
-                    state->Cpsr &= ~(1 << 19);
+                    cpu->Cpsr &= ~(1 << 19);
 
                 lo_result = ((sum1 & 0xFF) | (sum2 & 0xFF) << 8);
                 hi_result = ((sum3 & 0xFF) | (sum4 & 0xFF) << 8);
@@ -6522,24 +6667,24 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
                 s16 diff4 = ((rn_val >> 24) & 0xFF) - ((rm_val >> 24) & 0xFF);
 
                 if (diff1 >= 0)
-                    state->Cpsr |= (1 << 16);
+                    cpu->Cpsr |= (1 << 16);
                 else
-                    state->Cpsr &= ~(1 << 16);
+                    cpu->Cpsr &= ~(1 << 16);
 
                 if (diff2 >= 0)
-                    state->Cpsr |= (1 << 17);
+                    cpu->Cpsr |= (1 << 17);
                 else
-                    state->Cpsr &= ~(1 << 17);
+                    cpu->Cpsr &= ~(1 << 17);
 
                 if (diff3 >= 0)
-                    state->Cpsr |= (1 << 18);
+                    cpu->Cpsr |= (1 << 18);
                 else
-                    state->Cpsr &= ~(1 << 18);
+                    cpu->Cpsr &= ~(1 << 18);
 
                 if (diff4 >= 0)
-                    state->Cpsr |= (1 << 19);
+                    cpu->Cpsr |= (1 << 19);
                 else
-                    state->Cpsr &= ~(1 << 19);
+                    cpu->Cpsr &= ~(1 << 19);
 
                 lo_result = (diff1 & 0xFF) | ((diff2 & 0xFF) << 8);
                 hi_result = (diff3 & 0xFF) | ((diff4 & 0xFF) << 8);
@@ -6917,6 +7062,45 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
 
         cpu->Reg[15] += GET_INST_SIZE(cpu);
         INC_PC(sizeof(uxtab_inst));
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
+    WFE_INST:
+    {
+        // Stubbed, as WFE is a hint instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            LOG_TRACE(Core_ARM11, "WFE executed.");
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC_STUB;
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
+    WFI_INST:
+    {
+        // Stubbed, as WFI is a hint instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            LOG_TRACE(Core_ARM11, "WFI executed.");
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC_STUB;
+        FETCH_INST;
+        GOTO_NEXT_INST;
+    }
+
+    YIELD_INST:
+    {
+        // Stubbed, as YIELD is a hint instruction.
+        if (inst_base->cond == 0xE || CondPassed(cpu, inst_base->cond)) {
+            LOG_TRACE(Core_ARM11, "YIELD executed.");
+        }
+
+        cpu->Reg[15] += GET_INST_SIZE(cpu);
+        INC_PC_STUB;
         FETCH_INST;
         GOTO_NEXT_INST;
     }

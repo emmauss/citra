@@ -10,7 +10,6 @@
 #include "qhexedit.h"
 #include "main.h"
 
-#include "common/common.h"
 #include "common/logging/text_formatter.h"
 #include "common/logging/log.h"
 #include "common/logging/backend.h"
@@ -257,7 +256,7 @@ void GMainWindow::ShutdownGame() {
 
 void GMainWindow::OnMenuLoadFile()
 {
-    QString filename = QFileDialog::getOpenFileName(this, tr("Load File"), QString(), tr("3DS executable (*.3ds *.3dsx *.elf *.axf *.bin *.cci *.cxi)"));
+    QString filename = QFileDialog::getOpenFileName(this, tr("Load File"), QString(), tr("3DS executable (*.3ds *.3dsx *.elf *.axf *.cci *.cxi)"));
     if (filename.size()) {
         // Shutdown previous session if the emu thread is still active...
         if (emu_thread != nullptr)
@@ -338,7 +337,9 @@ void GMainWindow::closeEvent(QCloseEvent* event)
     settings.setValue("firstStart", false);
     SaveHotkeys(settings);
 
-    ShutdownGame();
+    // Shutdown session if the emu thread is active...
+    if (emu_thread != nullptr)
+        ShutdownGame();
 
     render_window->close();
 
@@ -349,16 +350,10 @@ void GMainWindow::closeEvent(QCloseEvent* event)
 #undef main
 #endif
 
-int __cdecl main(int argc, char* argv[])
+int main(int argc, char* argv[])
 {
-    std::shared_ptr<Log::Logger> logger = Log::InitGlobalLogger();
     Log::Filter log_filter(Log::Level::Info);
     Log::SetFilter(&log_filter);
-    std::thread logging_thread(Log::TextLoggingLoop, logger);
-    SCOPE_EXIT({
-        logger->Close();
-        logging_thread.join();
-    });
 
     QApplication::setAttribute(Qt::AA_X11InitThreads);
     QApplication app(argc, argv);

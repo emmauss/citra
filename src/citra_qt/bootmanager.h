@@ -3,11 +3,12 @@
 // Refer to the license.txt file included.
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 #include <QThread>
 #include <QGLWidget>
 
-#include "common/common.h"
 #include "common/emu_window.h"
 #include "common/thread.h"
 
@@ -41,7 +42,12 @@ public:
      * @param running Boolean value, set the emulation thread to running if true
      * @note This function is thread-safe
      */
-    void SetRunning(bool running) { this->running = running; }
+    void SetRunning(bool running) {
+        std::unique_lock<std::mutex> lock(running_mutex);
+        this->running = running;
+        lock.unlock();
+        running_cv.notify_all();
+    }
 
     /**
      * Check if the emulation thread is running or not
@@ -55,13 +61,15 @@ public:
      */
     void RequestStop() {
         stop_run = true;
-        running = false;
+        SetRunning(false);
     };
 
 private:
     bool exec_step;
     bool running;
     std::atomic<bool> stop_run;
+    std::mutex running_mutex;
+    std::condition_variable running_cv;
 
     GRenderWindow* render_window;
 

@@ -15,6 +15,8 @@
     along with this program; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
+#include "common/logging/log.h"
+
 #include "core/mem_map.h"
 #include "core/arm/skyeye_common/armdefs.h"
 #include "core/arm/skyeye_common/arm_regformat.h"
@@ -452,8 +454,6 @@ void WriteCP15Register(ARMul_State* cpu, u32 value, u32 crn, u32 opcode_1, u32 c
         }
         else if (crn == 7 && opcode_1 == 0)
         {
-            LOG_WARNING(Core_ARM11, "Cache operations are not fully implemented.");
-
             if (crm == 0 && opcode_2 == 4)
             {
                 cpu->CP15[CP15_WAIT_FOR_INTERRUPT] = value;

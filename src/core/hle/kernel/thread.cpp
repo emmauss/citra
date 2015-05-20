@@ -6,7 +6,9 @@
 #include <list>
 #include <vector>
 
-#include "common/common.h"
+#include "common/assert.h"
+#include "common/common_types.h"
+#include "common/logging/log.h"
 #include "common/math_util.h"
 #include "common/thread_queue_list.h"
 
@@ -15,10 +17,11 @@
 #include "core/core_timing.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/process.h"
 #include "core/hle/kernel/thread.h"
 #include "core/hle/kernel/mutex.h"
 #include "core/hle/result.h"
-#include "core/mem_map.h"
+#include "core/memory.h"
 
 namespace Kernel {
 
@@ -104,6 +107,8 @@ void Thread::Stop() {
     for (auto& wait_object : wait_objects) {
         wait_object->RemoveWaitingThread(this);
     }
+
+    Kernel::g_current_process->used_tls_slots[tls_index] = false;
 }
 
 Thread* ArbitrateHighestPriorityThread(u32 address) {
@@ -155,7 +160,7 @@ static void PriorityBoostStarvedThreads() {
 
         u64 delta = current_ticks - thread->last_running_ticks;
 
-        if (thread->status == THREADSTATUS_READY && delta > boost_timeout && !thread->idle) {
+        if (thread->status == THREADSTATUS_READY && delta > boost_timeout) {
             const s32 priority = std::max(ready_queue.get_first()->current_priority - 1, 0);
             thread->BoostPriority(priority);
         }
@@ -167,8 +172,6 @@ static void PriorityBoostStarvedThreads() {
  * @param new_thread The thread to switch to
  */
 static void SwitchContext(Thread* new_thread) {
-    DEBUG_ASSERT_MSG(new_thread->status == THREADSTATUS_READY, "Thread must be ready to become running.");
-
     Thread* previous_thread = GetCurrentThread();
 
     // Save context for previous thread
@@ -186,6 +189,8 @@ static void SwitchContext(Thread* new_thread) {
 
     // Load context of new thread
     if (new_thread) {
+        DEBUG_ASSERT_MSG(new_thread->status == THREADSTATUS_READY, "Thread must be ready to become running.");
+
         current_thread = new_thread;
 
         ready_queue.remove(new_thread->current_priority, new_thread);
@@ -195,6 +200,7 @@ static void SwitchContext(Thread* new_thread) {
         new_thread->current_priority = new_thread->nominal_priority;
 
         Core::g_app_core->LoadContext(new_thread->context);
+        Core::g_app_core->SetCP15Register(CP15_THREAD_URO, new_thread->GetTLSAddress());
     } else {
         current_thread = nullptr;
     }
@@ -212,6 +218,10 @@ static Thread* PopNextReadyThread() {
         // We have to do better than the current thread.
         // This call returns null when that's not possible.
         next = ready_queue.pop_first_better(thread->current_priority);
+        if (!next) {
+            // Otherwise just keep going with the current thread
+            next = thread;
+        }
     } else  {
         next = ready_queue.pop_first();
     }
@@ -399,6 +409,20 @@ ResultVal<SharedPtr<Thread>> Thread::Create(std::string name, VAddr entry_point,
     thread->wait_address = 0;
     thread->name = std::move(name);
     thread->callback_handle = wakeup_callback_handle_table.Create(thread).MoveFrom();
+    thread->owner_process = g_current_process;
+    thread->tls_index = -1;
+
+    // Find the next available TLS index, and mark it as used
+    auto& used_tls_slots = Kernel::g_current_process->used_tls_slots;
+    for (unsigned int i = 0; i < used_tls_slots.size(); ++i) {
+        if (used_tls_slots[i] == false) {
+            thread->tls_index = i;
+            used_tls_slots[i] = true;
+            break;
+        }
+    }
+
+    ASSERT_MSG(thread->tls_index != -1, "Out of TLS space");
 
     // TODO(peachum): move to ScheduleThread() when scheduler is added so selected core is used
     // to initialize the context
@@ -430,6 +454,8 @@ void Thread::SetPriority(s32 priority) {
     // If thread was ready, adjust queues
     if (status == THREADSTATUS_READY)
         ready_queue.move(this, current_priority, priority);
+    else
+        ready_queue.prepare(priority);
 
     nominal_priority = current_priority = priority;
 }
@@ -439,21 +465,12 @@ void Thread::BoostPriority(s32 priority) {
     current_priority = priority;
 }
 
-SharedPtr<Thread> SetupIdleThread() {
-    // We need to pass a few valid values to get around parameter checking in Thread::Create.
-    auto thread = Thread::Create("idle", Memory::KERNEL_MEMORY_VADDR, THREADPRIO_LOWEST, 0,
-            THREADPROCESSORID_0, 0).MoveFrom();
-
-    thread->idle = true;
-    return thread;
-}
-
-SharedPtr<Thread> SetupMainThread(u32 stack_size, u32 entry_point, s32 priority) {
+SharedPtr<Thread> SetupMainThread(u32 entry_point, s32 priority) {
     DEBUG_ASSERT(!GetCurrentThread());
 
     // Initialize new "main" thread
     auto thread_res = Thread::Create("main", entry_point, priority, 0,
-            THREADPROCESSORID_0, Memory::SCRATCHPAD_VADDR_END);
+            THREADPROCESSORID_0, Memory::HEAP_VADDR_END);
 
     SharedPtr<Thread> thread = thread_res.MoveFrom();
 
@@ -464,24 +481,25 @@ SharedPtr<Thread> SetupMainThread(u32 stack_size, u32 entry_point, s32 priority)
 }
 
 void Reschedule() {
-    Thread* prev = GetCurrentThread();
-
     PriorityBoostStarvedThreads();
 
+    Thread* cur = GetCurrentThread();
     Thread* next = PopNextReadyThread();
     HLE::g_reschedule = false;
 
-    if (next != nullptr) {
-        LOG_TRACE(Kernel, "context switch %u -> %u", prev->GetObjectId(), next->GetObjectId());
-        SwitchContext(next);
-    } else {
-        LOG_TRACE(Kernel, "cannot context switch from %u, no higher priority thread!", prev->GetObjectId());
+    // Don't bother switching to the same thread
+    if (next == cur)
+        return;
 
-        for (auto& thread : thread_list) {
-            LOG_TRACE(Kernel, "\tid=%u prio=0x%02X, status=0x%08X", thread->GetObjectId(), 
-                      thread->current_priority, thread->status);
-        }
+    if (cur && next) {
+        LOG_TRACE(Kernel, "context switch %u -> %u", cur->GetObjectId(), next->GetObjectId());
+    } else if (cur) {
+        LOG_TRACE(Kernel, "context switch %u -> idle", cur->GetObjectId());
+    } else if (next) {
+        LOG_TRACE(Kernel, "context switch idle -> %u", next->GetObjectId());
     }
+    
+    SwitchContext(next);
 }
 
 void Thread::SetWaitSynchronizationResult(ResultCode result) {
@@ -490,6 +508,10 @@ void Thread::SetWaitSynchronizationResult(ResultCode result) {
 
 void Thread::SetWaitSynchronizationOutput(s32 output) {
     context.cpu_registers[1] = output;
+}
+
+VAddr Thread::GetTLSAddress() const {
+    return Memory::TLS_AREA_VADDR + tls_index * 0x200;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -502,9 +524,6 @@ void ThreadingInit() {
 
     thread_list.clear();
     ready_queue.clear();
-
-    // Setup the idle thread
-    SetupIdleThread();
 }
 
 void ThreadingShutdown() {

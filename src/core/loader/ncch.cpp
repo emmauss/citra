@@ -2,11 +2,18 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
 #include <memory>
 
-#include "core/loader/ncch.h"
+#include "common/logging/log.h"
+#include "common/make_unique.h"
+#include "common/string_util.h"
+#include "common/swap.h"
+
 #include "core/hle/kernel/kernel.h"
-#include "core/mem_map.h"
+#include "core/hle/kernel/resource_limit.h"
+#include "core/loader/ncch.h"
+#include "core/memory.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Loader namespace
@@ -115,8 +122,25 @@ ResultStatus AppLoader_NCCH::LoadExec() const {
 
     std::vector<u8> code;
     if (ResultStatus::Success == ReadCode(code)) {
+        std::string process_name = Common::StringFromFixedZeroTerminatedBuffer(
+                (const char*)exheader_header.codeset_info.name, 8);
+        u64 program_id = *reinterpret_cast<u64_le const*>(&ncch_header.program_id[0]);
+        Kernel::g_current_process = Kernel::Process::Create(process_name, program_id);
+
+        // Attach a resource limit to the process based on the resource limit category
+        Kernel::g_current_process->resource_limit = Kernel::ResourceLimit::GetForCategory(
+            static_cast<Kernel::ResourceLimitCategory>(exheader_header.arm11_system_local_caps.resource_limit_category));
+
+        // Copy data while converting endianess
+        std::array<u32, ARRAY_SIZE(exheader_header.arm11_kernel_caps.descriptors)> kernel_caps;
+        std::copy_n(exheader_header.arm11_kernel_caps.descriptors, kernel_caps.size(), begin(kernel_caps));
+        Kernel::g_current_process->ParseKernelCaps(kernel_caps.data(), kernel_caps.size());
+
         Memory::WriteBlock(entry_point, &code[0], code.size());
-        Kernel::LoadExec(entry_point);
+
+        s32 priority = exheader_header.arm11_system_local_caps.priority;
+        u32 stack_size = exheader_header.codeset_info.stack_size;
+        Kernel::g_current_process->Run(entry_point, priority, stack_size);
         return ResultStatus::Success;
     }
     return ResultStatus::Error;
@@ -273,10 +297,6 @@ ResultStatus AppLoader_NCCH::ReadRomFS(std::vector<u8>& buffer) const {
     }
     LOG_DEBUG(Loader, "NCCH has no RomFS");
     return ResultStatus::ErrorNotUsed;
-}
-
-u64 AppLoader_NCCH::GetProgramId() const {
-    return *reinterpret_cast<u64 const*>(&ncch_header.program_id[0]);
 }
 
 } // namespace Loader

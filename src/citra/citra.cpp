@@ -4,7 +4,7 @@
 
 #include <thread>
 
-#include "common/common.h"
+#include "common/logging/log.h"
 #include "common/logging/text_formatter.h"
 #include "common/logging/backend.h"
 #include "common/logging/filter.h"
@@ -19,15 +19,9 @@
 #include "citra/emu_window/emu_window_glfw.h"
 
 /// Application entry point
-int __cdecl main(int argc, char **argv) {
-    std::shared_ptr<Log::Logger> logger = Log::InitGlobalLogger();
+int main(int argc, char **argv) {
     Log::Filter log_filter(Log::Level::Debug);
     Log::SetFilter(&log_filter);
-    std::thread logging_thread(Log::TextLoggingLoop, logger);
-    SCOPE_EXIT({
-        logger->Close();
-        logging_thread.join();
-    });
 
     if (argc < 2) {
         LOG_CRITICAL(Frontend, "Failed to load ROM: No ROM specified");

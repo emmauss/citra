@@ -4,6 +4,7 @@
 
 #include <map>
 
+#include "common/logging/log.h"
 #include "common/profiler.h"
 #include "common/string_util.h"
 #include "common/symbols.h"
@@ -15,6 +16,8 @@
 #include "core/hle/kernel/address_arbiter.h"
 #include "core/hle/kernel/event.h"
 #include "core/hle/kernel/mutex.h"
+#include "core/hle/kernel/process.h"
+#include "core/hle/kernel/resource_limit.h"
 #include "core/hle/kernel/semaphore.h"
 #include "core/hle/kernel/shared_memory.h"
 #include "core/hle/kernel/thread.h"
@@ -293,27 +296,65 @@ static ResultCode ArbitrateAddress(Handle handle, u32 address, u32 type, u32 val
     return res;
 }
 
+static void Break(u8 break_reason) {
+    LOG_CRITICAL(Debug_Emulated, "Emulated program broke execution!");
+    std::string reason_str;
+    switch (break_reason) {
+    case 0: reason_str = "PANIC"; break;
+    case 1: reason_str = "ASSERT"; break;
+    case 2: reason_str = "USER"; break;
+    default: reason_str = "UNKNOWN"; break;
+    }
+    LOG_CRITICAL(Debug_Emulated, "Break reason: %s", reason_str.c_str());
+}
+
 /// Used to output a message on a debug hardware unit - does nothing on a retail unit
 static void OutputDebugString(const char* string) {
     LOG_DEBUG(Debug_Emulated, "%s", string);
 }
 
 /// Get resource limit
-static ResultCode GetResourceLimit(Handle* resource_limit, Handle process) {
-    // With regards to proceess values:
-    // 0xFFFF8001 is a handle alias for the current KProcess, and 0xFFFF8000 is a handle alias for
-    // the current KThread.
-    *resource_limit = 0xDEADBEEF;
-    LOG_ERROR(Kernel_SVC, "(UNIMPLEMENTED) called process=0x%08X", process);
+static ResultCode GetResourceLimit(Handle* resource_limit, Handle process_handle) {
+    LOG_TRACE(Kernel_SVC, "called process=0x%08X", process_handle);
+
+    SharedPtr<Kernel::Process> process = Kernel::g_handle_table.Get<Kernel::Process>(process_handle);
+    if (process == nullptr)
+        return ERR_INVALID_HANDLE;
+
+    CASCADE_RESULT(*resource_limit, Kernel::g_handle_table.Create(process->resource_limit));
+
     return RESULT_SUCCESS;
 }
 
 /// Get resource limit current values
-static ResultCode GetResourceLimitCurrentValues(s64* values, Handle resource_limit, void* names,
+static ResultCode GetResourceLimitCurrentValues(s64* values, Handle resource_limit_handle, u32* names,
     s32 name_count) {
-    LOG_ERROR(Kernel_SVC, "(UNIMPLEMENTED) called resource_limit=%08X, names=%s, name_count=%d",
-        resource_limit, names, name_count);
-    Memory::Write32(Core::g_app_core->GetReg(0), 0); // Normmatt: Set used memory to 0 for now
+    LOG_TRACE(Kernel_SVC, "called resource_limit=%08X, names=%p, name_count=%d",
+        resource_limit_handle, names, name_count);
+
+    SharedPtr<Kernel::ResourceLimit> resource_limit = Kernel::g_handle_table.Get<Kernel::ResourceLimit>(resource_limit_handle);
+    if (resource_limit == nullptr)
+        return ERR_INVALID_HANDLE;
+
+    for (unsigned int i = 0; i < name_count; ++i)
+        values[i] = resource_limit->GetCurrentResourceValue(names[i]);
+
+    return RESULT_SUCCESS;
+}
+
+/// Get resource limit max values
+static ResultCode GetResourceLimitLimitValues(s64* values, Handle resource_limit_handle, u32* names,
+    s32 name_count) {
+    LOG_TRACE(Kernel_SVC, "called resource_limit=%08X, names=%p, name_count=%d",
+        resource_limit_handle, names, name_count);
+
+    SharedPtr<Kernel::ResourceLimit> resource_limit = Kernel::g_handle_table.Get<Kernel::ResourceLimit>(resource_limit_handle);
+    if (resource_limit == nullptr)
+        return ERR_INVALID_HANDLE;
+
+    for (unsigned int i = 0; i < name_count; ++i)
+        values[i] = resource_limit->GetMaxResourceValue(names[i]);
+
     return RESULT_SUCCESS;
 }
 
@@ -420,6 +461,34 @@ static ResultCode ReleaseMutex(Handle handle) {
 
     HLE::Reschedule(__func__);
 
+    return RESULT_SUCCESS;
+}
+
+/// Get the ID of the specified process
+static ResultCode GetProcessId(u32* process_id, Handle process_handle) {
+    LOG_TRACE(Kernel_SVC, "called process=0x%08X", process_handle);
+
+    const SharedPtr<Kernel::Process> process = Kernel::g_handle_table.Get<Kernel::Process>(process_handle);
+    if (process == nullptr)
+        return ERR_INVALID_HANDLE;
+
+    *process_id = process->process_id;
+    return RESULT_SUCCESS;
+}
+
+/// Get the ID of the process that owns the specified thread
+static ResultCode GetProcessIdOfThread(u32* process_id, Handle thread_handle) {
+    LOG_TRACE(Kernel_SVC, "called thread=0x%08X", thread_handle);
+
+    const SharedPtr<Kernel::Thread> thread = Kernel::g_handle_table.Get<Kernel::Thread>(thread_handle);
+    if (thread == nullptr)
+        return ERR_INVALID_HANDLE;
+
+    const SharedPtr<Kernel::Process> process = thread->owner_process;
+    
+    ASSERT_MSG(process != nullptr, "Invalid parent process for thread=0x%08X", thread_handle);
+
+    *process_id = process->process_id;
     return RESULT_SUCCESS;
 }
 
@@ -600,7 +669,9 @@ static ResultCode CreateMemoryBlock(Handle* out_handle, u32 addr, u32 size, u32 
     using Kernel::SharedMemory;
     // TODO(Subv): Implement this function
 
-    SharedPtr<SharedMemory> shared_memory = SharedMemory::Create();
+    using Kernel::MemoryPermission;
+    SharedPtr<SharedMemory> shared_memory = SharedMemory::Create(size,
+            (MemoryPermission)my_permission, (MemoryPermission)other_permission);
     CASCADE_RESULT(*out_handle, Kernel::g_handle_table.Create(std::move(shared_memory)));
 
     LOG_WARNING(Kernel_SVC, "(STUBBED) called addr=0x%08X", addr);
@@ -671,14 +742,14 @@ static const FunctionDef SVC_Table[] = {
     {0x32, HLE::Wrap<SendSyncRequest>,      "SendSyncRequest"},
     {0x33, nullptr,                         "OpenProcess"},
     {0x34, nullptr,                         "OpenThread"},
-    {0x35, nullptr,                         "GetProcessId"},
-    {0x36, nullptr,                         "GetProcessIdOfThread"},
+    {0x35, HLE::Wrap<GetProcessId>,         "GetProcessId"},
+    {0x36, HLE::Wrap<GetProcessIdOfThread>, "GetProcessIdOfThread"},
     {0x37, HLE::Wrap<GetThreadId>,          "GetThreadId"},
     {0x38, HLE::Wrap<GetResourceLimit>,     "GetResourceLimit"},
-    {0x39, nullptr,                         "GetResourceLimitLimitValues"},
+    {0x39, HLE::Wrap<GetResourceLimitLimitValues>, "GetResourceLimitLimitValues"},
     {0x3A, HLE::Wrap<GetResourceLimitCurrentValues>, "GetResourceLimitCurrentValues"},
     {0x3B, nullptr,                         "GetThreadContext"},
-    {0x3C, nullptr,                         "Break"},
+    {0x3C, HLE::Wrap<Break>,                "Break"},
     {0x3D, HLE::Wrap<OutputDebugString>,    "OutputDebugString"},
     {0x3E, nullptr,                         "ControlPerformanceCounter"},
     {0x3F, nullptr,                         "Unknown"},

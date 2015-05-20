@@ -330,7 +330,7 @@ static u32 vfp_single_fsqrt(ARMul_State* state, int sd, int unused, s32 m, u32 f
     struct vfp_single vsm, vsd, *vsp;
     int ret, tm;
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     tm = vfp_single_type(&vsm);
     if (tm & (VFP_NAN|VFP_INFINITY)) {
         vsp = &vsd;
@@ -388,7 +388,7 @@ sqrt_invalid:
         } else {
             u64 term;
             s64 rem;
-            vsm.significand <<= !(vsm.exponent & 1);
+            vsm.significand <<= static_cast<u32>((vsm.exponent & 1) == 0);
             term = (u64)vsd.significand * vsd.significand;
             rem = ((u64)vsm.significand << 32) - term;
 
@@ -498,7 +498,7 @@ static u32 vfp_single_fcvtd(ARMul_State* state, int dd, int unused, s32 m, u32 f
     int tm;
     u32 exceptions = 0;
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
 
     tm = vfp_single_type(&vsm);
 
@@ -563,7 +563,7 @@ static u32 vfp_single_ftoui(ARMul_State* state, int sd, int unused, s32 m, u32 f
     int rmode = fpscr & FPSCR_RMODE_MASK;
     int tm;
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     vfp_single_dump("VSM", &vsm);
 
     /*
@@ -643,7 +643,7 @@ static u32 vfp_single_ftosi(ARMul_State* state, int sd, int unused, s32 m, u32 f
     int rmode = fpscr & FPSCR_RMODE_MASK;
     int tm;
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     vfp_single_dump("VSM", &vsm);
 
     /*
@@ -691,7 +691,7 @@ static u32 vfp_single_ftosi(ARMul_State* state, int sd, int unused, s32 m, u32 f
             exceptions |= FPSCR_IXC;
 
         if (vsm.sign)
-            d = 0-d;
+            d = (~d + 1);
     } else {
         d = 0;
         if (vsm.exponent | vsm.significand) {
@@ -843,7 +843,7 @@ vfp_single_add(struct vfp_single *vsd, struct vfp_single *vsn,
         m_sig = vsn->significand - m_sig;
         if ((s32)m_sig < 0) {
             vsd->sign = vfp_sign_negate(vsd->sign);
-            m_sig = 0-m_sig;
+            m_sig = (~m_sig + 1);
         } else if (m_sig == 0) {
             vsd->sign = (fpscr & FPSCR_RMODE_MASK) ==
                         FPSCR_ROUND_MINUSINF ? 0x8000 : 0;
@@ -925,11 +925,11 @@ vfp_single_multiply_accumulate(ARMul_State* state, int sd, int sn, s32 m, u32 fp
 
     v = vfp_get_float(state, sn);
     LOG_DEBUG(Core_ARM11, "s%u = %08x", sn, v);
-    vfp_single_unpack(&vsn, v);
+    vfp_single_unpack(&vsn, v, &fpscr);
     if (vsn.exponent == 0 && vsn.significand)
         vfp_single_normalise_denormal(&vsn);
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     if (vsm.exponent == 0 && vsm.significand)
         vfp_single_normalise_denormal(&vsm);
 
@@ -940,7 +940,7 @@ vfp_single_multiply_accumulate(ARMul_State* state, int sd, int sn, s32 m, u32 fp
 
     v = vfp_get_float(state, sd);
     LOG_DEBUG(Core_ARM11, "s%u = %08x", sd, v);
-    vfp_single_unpack(&vsn, v);
+    vfp_single_unpack(&vsn, v, &fpscr);
     if (vsn.exponent == 0 && vsn.significand != 0)
         vfp_single_normalise_denormal(&vsn);
 
@@ -1004,11 +1004,11 @@ static u32 vfp_single_fmul(ARMul_State* state, int sd, int sn, s32 m, u32 fpscr)
 
     LOG_DEBUG(Core_ARM11, "s%u = %08x", sn, n);
 
-    vfp_single_unpack(&vsn, n);
+    vfp_single_unpack(&vsn, n, &fpscr);
     if (vsn.exponent == 0 && vsn.significand)
         vfp_single_normalise_denormal(&vsn);
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     if (vsm.exponent == 0 && vsm.significand)
         vfp_single_normalise_denormal(&vsm);
 
@@ -1027,11 +1027,11 @@ static u32 vfp_single_fnmul(ARMul_State* state, int sd, int sn, s32 m, u32 fpscr
 
     LOG_DEBUG(Core_ARM11, "s%u = %08x", sn, n);
 
-    vfp_single_unpack(&vsn, n);
+    vfp_single_unpack(&vsn, n, &fpscr);
     if (vsn.exponent == 0 && vsn.significand)
         vfp_single_normalise_denormal(&vsn);
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     if (vsm.exponent == 0 && vsm.significand)
         vfp_single_normalise_denormal(&vsm);
 
@@ -1054,11 +1054,11 @@ static u32 vfp_single_fadd(ARMul_State* state, int sd, int sn, s32 m, u32 fpscr)
     /*
      * Unpack and normalise denormals.
      */
-    vfp_single_unpack(&vsn, n);
+    vfp_single_unpack(&vsn, n, &fpscr);
     if (vsn.exponent == 0 && vsn.significand)
         vfp_single_normalise_denormal(&vsn);
 
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsm, m, &fpscr);
     if (vsm.exponent == 0 && vsm.significand)
         vfp_single_normalise_denormal(&vsm);
 
@@ -1094,8 +1094,8 @@ static u32 vfp_single_fdiv(ARMul_State* state, int sd, int sn, s32 m, u32 fpscr)
 
     LOG_DEBUG(Core_ARM11, "s%u = %08x", sn, n);
 
-    vfp_single_unpack(&vsn, n);
-    vfp_single_unpack(&vsm, m);
+    vfp_single_unpack(&vsn, n, &fpscr);
+    vfp_single_unpack(&vsm, m, &fpscr);
 
     vsd.sign = vsn.sign ^ vsm.sign;
 

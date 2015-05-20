@@ -2,7 +2,9 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "common/common_paths.h"
 #include "common/file_util.h"
+#include "common/logging/log.h"
 
 #include "core/hle/service/service.h"
 #include "core/hle/service/apt/apt.h"
@@ -267,8 +269,6 @@ void GetAppCpuTimeLimit(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 value = cmd_buff[1];
 
-    ASSERT(cpu_percent != 0);
-
     if (value != 1) {
         LOG_ERROR(Service_APT, "This value should be one, but is actually %u!", value);
     }
@@ -302,7 +302,9 @@ void Init() {
         file.ReadBytes(shared_font.data(), (size_t)file.GetSize());
 
         // Create shared font memory object
-        shared_font_mem = Kernel::SharedMemory::Create("APT_U:shared_font_mem");
+        using Kernel::MemoryPermission;
+        shared_font_mem = Kernel::SharedMemory::Create(3 * 1024 * 1024, // 3MB
+                MemoryPermission::ReadWrite, MemoryPermission::Read, "APT_U:shared_font_mem");
     } else {
         LOG_WARNING(Service_APT, "Unable to load shared font: %s", filepath.c_str());
         shared_font_mem = nullptr;

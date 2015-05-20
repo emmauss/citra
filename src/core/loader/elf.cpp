@@ -5,13 +5,15 @@
 #include <string>
 #include <memory>
 
-#include "common/common.h"
+#include "common/common_types.h"
 #include "common/file_util.h"
+#include "common/logging/log.h"
 #include "common/symbols.h"
 
-#include "core/mem_map.h"
-#include "core/loader/elf.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/resource_limit.h"
+#include "core/loader/elf.h"
+#include "core/memory.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ELF Header Constants
@@ -349,9 +351,18 @@ ResultStatus AppLoader_ELF::Load() {
     if (file->ReadBytes(&buffer[0], size) != size)
         return ResultStatus::Error;
 
+    Kernel::g_current_process = Kernel::Process::Create(filename, 0);
+    Kernel::g_current_process->svc_access_mask.set();
+    Kernel::g_current_process->address_mappings = default_address_mappings;
+
+    // Attach the default resource limit (APPLICATION) to the process
+    Kernel::g_current_process->resource_limit = Kernel::ResourceLimit::GetForCategory(Kernel::ResourceLimitCategory::APPLICATION);
+
     ElfReader elf_reader(&buffer[0]);
-    elf_reader.LoadInto(0x00100000);
-    Kernel::LoadExec(elf_reader.GetEntryPoint());
+    elf_reader.LoadInto(Memory::PROCESS_IMAGE_VADDR);
+    // TODO: Fill application title
+
+    Kernel::g_current_process->Run(elf_reader.GetEntryPoint(), 48, Kernel::DEFAULT_STACK_SIZE);
 
     is_loaded = true;
     return ResultStatus::Success;

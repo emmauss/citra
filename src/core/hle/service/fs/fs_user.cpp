@@ -2,10 +2,13 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "common/common.h"
+#include "common/assert.h"
+#include "common/common_types.h"
 #include "common/file_util.h"
+#include "common/logging/log.h"
 #include "common/scope_exit.h"
 #include "common/string_util.h"
+
 #include "core/hle/result.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/fs/fs_user.h"
@@ -647,7 +650,7 @@ static void SetPriority(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-    LOG_DEBUG(Service_FS, "called priority=0x%08X", priority);
+    LOG_DEBUG(Service_FS, "called priority=0x%X", priority);
 }
 
 /**
@@ -661,12 +664,14 @@ static void SetPriority(Service::Interface* self) {
 static void GetPriority(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    ASSERT(priority != -1);
+    if (priority == -1) {
+        LOG_INFO(Service_FS, "priority was not set, priority=0x%X", priority);
+    }
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = priority;
 
-    LOG_DEBUG(Service_FS, "called priority=0x%08X", priority);
+    LOG_DEBUG(Service_FS, "called priority=0x%X", priority);
 }
 
 const Interface::FunctionInfo FunctionTable[] = {

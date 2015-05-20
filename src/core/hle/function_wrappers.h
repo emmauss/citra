@@ -7,7 +7,7 @@
 #include "common/common_types.h"
 
 #include "core/arm/arm_interface.h"
-#include "core/mem_map.h"
+#include "core/memory.h"
 #include "core/hle/hle.h"
 
 namespace HLE {
@@ -102,14 +102,14 @@ template<ResultCode func(u32)> void Wrap() {
     FuncReturn(func(PARAM(0)).raw);
 }
 
-template<ResultCode func(s64*, u32, void*, s32)> void Wrap(){
-    FuncReturn(func((s64*)Memory::GetPointer(PARAM(0)), PARAM(1), Memory::GetPointer(PARAM(2)),
+template<ResultCode func(s64*, u32, u32*, s32)> void Wrap(){
+    FuncReturn(func((s64*)Memory::GetPointer(PARAM(0)), PARAM(1), (u32*)Memory::GetPointer(PARAM(2)),
         (s32)PARAM(3)).raw);
 }
 
 template<ResultCode func(u32*, const char*)> void Wrap() {
     u32 param_1 = 0;
-    u32 retval = func(&param_1, Memory::GetCharPointer(PARAM(1))).raw;
+    u32 retval = func(&param_1, (char*)Memory::GetPointer(PARAM(1))).raw;
     Core::g_app_core->SetReg(1, param_1);
     FuncReturn(retval);
 }
@@ -163,7 +163,11 @@ template<void func(s64)> void Wrap() {
 }
 
 template<void func(const char*)> void Wrap() {
-    func(Memory::GetCharPointer(PARAM(0)));
+    func((char*)Memory::GetPointer(PARAM(0)));
+}
+
+template<void func(u8)> void Wrap() {
+    func((u8)PARAM(0));
 }
 
 #undef PARAM
