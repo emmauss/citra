@@ -537,7 +537,7 @@ static void ApplyImportPatches(CROHeader* header, u32 base) {
 static void ApplyListPatches(CROHeader* header, Patch* first_patch, u32 patch_base) {
     Patch* current_patch = first_patch;
 
-    while (1) {
+    while (current_patch) {
         SegmentTableEntry* target_segment = header->GetSegmentTableEntry(current_patch->GetTargetSegment());
         ApplyPatch(current_patch, patch_base, target_segment->segment_offset + current_patch->GetSegmentOffset());
 
@@ -711,7 +711,7 @@ static void LoadExportsTable(CROHeader* header, u32 base) {
     }
 }
 
-static u32 GetAddress(CROHeader* header, char* str) {
+static u32 FindExportByName(CROHeader* header, char* str) {
     if (header->export_tree_num) {
         ExportTreeEntry* first_entry = header->GetExportTreeEntry(0);
         u32 len = strlen(str);
@@ -1037,44 +1037,307 @@ static void LoadExeCRO(Service::Interface* self) {
         header->always_zero = size - v24;
     }
 
+    for (int i = 0; i < size; ++i) {
+        u32 mem = Memory::Read32(address + i);
+        if (mem == 0x400001d9)
+            __debugbreak();
+    }
     LOG_WARNING(Service_LDR, "Loading CRO address=%08X", address);
 }
 
-static void UnloadCRO(Service::Interface* self) {
-    u32* cmd_buff = Kernel::GetCommandBuffer();
-    u32 address = cmd_buff[1];
-    CROHeader* unload = reinterpret_cast<CROHeader*>(Memory::GetPointer(address));
-    u32 size = unload->file_size;
+static void UnlinkCRO(CROHeader* cro, u32 address) {
+    // TODO(Subv): Verify if this is correct
     for (auto itr = loaded_cros.begin(); itr != loaded_cros.end(); ++itr) {
         if (*itr == address)
             continue;
 
         CROHeader* cro = reinterpret_cast<CROHeader*>(Memory::GetPointer(*itr));
         if (cro->next_cro == address) {
-            cro->next_cro = unload->next_cro;
-            if (unload->next_cro != 0) {
-                CROHeader* next = reinterpret_cast<CROHeader*>(Memory::GetPointer(unload->next_cro));
+            cro->next_cro = cro->next_cro;
+            if (cro->next_cro != 0) {
+                CROHeader* next = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro->next_cro));
                 next->previous_cro = *itr;
             }
         }
 
         if (cro->previous_cro == address) {
-            cro->previous_cro = unload->previous_cro;
-            if (unload->previous_cro != 0) {
-                CROHeader* prev = reinterpret_cast<CROHeader*>(Memory::GetPointer(unload->previous_cro));
+            cro->previous_cro = cro->previous_cro;
+            if (cro->previous_cro != 0) {
+                CROHeader* prev = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro->previous_cro));
                 prev->next_cro = *itr;
             }
         }
     }
 
+    cro->previous_cro = 0;
+    cro->next_cro = 0;
+}
+
+static void UnloadImportTablePatches(CROHeader* cro, Patch* first_patch, u32 base_offset) {
+    Patch* patch = first_patch;
+    while (patch) {
+        SegmentTableEntry* target_segment = cro->GetSegmentTableEntry(patch->GetTargetSegment());
+        ApplyPatch(patch, base_offset, target_segment->segment_offset + patch->GetSegmentOffset());
+
+        if (patch->unk)
+            break;
+
+        patch++;
+    }
+
+    first_patch->unk2 = 0;
+}
+
+static u32 CalculateBaseOffset(CROHeader* cro) {
+    u32 base_offset = 0;
+
+    if (cro->GetImportPatchesTargetSegment() < cro->segment_table_num) {
+        SegmentTableEntry* base_segment = cro->GetSegmentTableEntry(cro->GetImportPatchesTargetSegment());
+        if (cro->GetImportPatchesSegmentOffset() < base_segment->segment_size)
+            base_offset = base_segment->segment_size + cro->GetImportPatchesSegmentOffset();
+    }
+
+    return base_offset;
+}
+
+static void UnloadImportTable1Patches(CROHeader* cro, u32 base_offset) {
+    for (int i = 0; i < cro->import_table1_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable1Entry(i);
+        Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+        UnloadImportTablePatches(cro, first_patch, base_offset);
+    }
+}
+
+static void UnloadImportTable2Patches(CROHeader* cro, u32 base_offset) {
+    for (int i = 0; i < cro->import_table2_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable2Entry(i);
+        Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+        UnloadImportTablePatches(cro, first_patch, base_offset);
+    }
+}
+
+static void UnloadImportTable3Patches(CROHeader* cro, u32 base_offset) {
+    for (int i = 0; i < cro->import_table3_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable3Entry(i);
+        Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+        UnloadImportTablePatches(cro, first_patch, base_offset);
+    }
+}
+
+static void ApplyCRSImportTable1UnloadPatches(CROHeader* crs, CROHeader* unload, u32 base_offset) {
+    for (int i = 0; i < crs->import_table1_num; ++i) {
+        ImportTableEntry* entry = crs->GetImportTable1Entry(i);
+        Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+        if (first_patch->unk2)
+            if (FindExportByName(unload, reinterpret_cast<char*>(Memory::GetPointer(entry->name_offset))))
+                UnloadImportTablePatches(crs, first_patch, base_offset);
+    }
+}
+
+static void UnloadUnk2Patches(CROHeader* cro, CROHeader* unload, u32 base_offset) {
+    char* unload_name = reinterpret_cast<char*>(Memory::GetPointer(unload->name_offset));
+    for (int i = 0; i < cro->unk2_num; ++i) {
+        Unk2Patch* entry = cro->GetUnk2PatchEntry(i);
+        // Find the patch that corresponds to the CRO that is being unloaded
+        if (strcmp(reinterpret_cast<char*>(Memory::GetPointer(entry->string_offset)), unload_name) == 0) {
+
+            // Apply the table 1 patches
+            for (int j = 0; j < entry->table1_num; ++j) {
+                Unk2TableEntry* table1_entry = entry->GetTable1Entry(j);
+                Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(table1_entry->patches_offset));
+                UnloadImportTablePatches(cro, first_patch, base_offset);
+            }
+
+            // Apply the table 2 patches
+            for (int j = 0; j < entry->table1_num; ++j) {
+                Unk2TableEntry* table2_entry = entry->GetTable2Entry(j);
+                Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(table2_entry->patches_offset));
+                UnloadImportTablePatches(cro, first_patch, base_offset);
+            }
+            break;
+        }
+    }
+}
+
+static void ApplyCRSUnloadPatches(CROHeader* crs, CROHeader* unload) {
+    u32 base_offset = CalculateBaseOffset(crs);
+
+    ApplyCRSImportTable1UnloadPatches(crs, unload, base_offset);
+}
+
+static void UnrebaseImportTable3(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->import_table3_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable3Entry(i);
+        if (entry->symbol_offset)
+            entry->symbol_offset -= address;
+    }
+}
+
+static void UnrebaseImportTable2(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->import_table2_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable2Entry(i);
+        if (entry->symbol_offset)
+            entry->symbol_offset -= address;
+    }
+}
+
+static void UnrebaseImportTable1(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->import_table1_num; ++i) {
+        ImportTableEntry* entry = cro->GetImportTable1Entry(i);
+        if (entry->name_offset)
+            entry->name_offset -= address;
+        if (entry->symbol_offset)
+            entry->symbol_offset -= address;
+    }
+}
+
+static void UnrebaseUnk2Patches(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->unk2_num; ++i) {
+        Unk2Patch* entry = cro->GetUnk2PatchEntry(i);
+        if (entry->string_offset)
+            entry->string_offset -= address;
+        if (entry->table1_offset)
+            entry->table1_offset -= address;
+        if (entry->table2_offset)
+            entry->table2_offset -= address;
+    }
+}
+
+static void UnrebaseExportsTable(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->export_table_num; ++i) {
+        ExportTableEntry* entry = cro->GetExportTableEntry(i);
+        if (entry->name_offset)
+            entry->name_offset -= address;
+    }
+}
+
+static void UnrebaseSegments(CROHeader* cro, u32 address) {
+    for (int i = 0; i < cro->segment_table_num; ++i) {
+        SegmentTableEntry* entry = cro->GetSegmentTableEntry(i);
+        if (entry->segment_id == 3)
+            entry->segment_offset = 0;
+        else if (entry->segment_id)
+            entry->segment_offset -= address;
+    }
+}
+
+static void UnrebaseCRO(CROHeader* cro, u32 address) {
+    UnrebaseImportTable3(cro, address);
+    UnrebaseImportTable2(cro, address);
+    UnrebaseImportTable1(cro, address);
+    UnrebaseUnk2Patches(cro, address);
+    UnrebaseExportsTable(cro, address);
+    UnrebaseSegments(cro, address);
+
+    if (cro->name_offset)
+        cro->name_offset -= address;
+
+    if (cro->code_offset)
+        cro->code_offset -= address;
+
+    if (cro->unk_offset)
+        cro->unk_offset -= address;
+
+    if (cro->module_name_offset)
+        cro->module_name_offset -= address;
+
+    if (cro->segment_table_offset)
+        cro->segment_table_offset -= address;
+
+    if (cro->export_table_offset)
+        cro->export_table_offset -= address;
+
+    if (cro->unk1_offset)
+        cro->unk1_offset -= address;
+
+    if (cro->export_strings_offset)
+        cro->export_strings_offset -= address;
+
+    if (cro->export_tree_offset)
+        cro->export_tree_offset -= address;
+
+    if (cro->unk2_offset)
+        cro->unk2_offset -= address;
+
+    if (cro->import_patches_offset)
+        cro->import_patches_offset -= address;
+
+    if (cro->import_table1_offset)
+        cro->import_table1_offset -= address;
+
+    if (cro->import_table2_offset)
+        cro->import_table2_offset -= address;
+
+    if (cro->import_table3_offset)
+        cro->import_table3_offset -= address;
+
+    if (cro->import_strings_offset)
+        cro->import_strings_offset -= address;
+
+    if (cro->unk3_offset)
+        cro->unk3_offset -= address;
+
+    if (cro->relocation_patches_offset)
+        cro->relocation_patches_offset -= address;
+
+    if (cro->unk4_offset)
+        cro->unk4_offset -= address;
+}
+
+static void UnloadExports(u32 address) {
+    for (auto itr = loaded_exports.begin(); itr != loaded_exports.end();) {
+        if (itr->second.cro_base == address)
+            itr = loaded_exports.erase(itr);
+        else
+            ++itr;
+    }
+}
+
+static ResultCode UnloadCRO(u32 address) {
+    // If there's only one loaded CRO, it must be the CRS, which can not be unloaded like this
+    if (loaded_cros.size() == 1) {
+        return ResultCode(0xD9012C1E);
+    }
+
+    CROHeader* unload = reinterpret_cast<CROHeader*>(Memory::GetPointer(address));
+    u32 size = unload->file_size;
+
+    UnlinkCRO(unload, address);
+
+    u32 base_offset = CalculateBaseOffset(unload);
+
+    UnloadImportTable1Patches(unload, base_offset);
+    UnloadImportTable2Patches(unload, base_offset);
+    UnloadImportTable3Patches(unload, base_offset);
+
+    CROHeader* crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front()));
+    ApplyCRSUnloadPatches(crs, unload);
+
+    for (u32 base : loaded_cros) {
+        if (base == address)
+            continue;
+        CROHeader* cro = reinterpret_cast<CROHeader*>(Memory::GetPointer(base));
+        base_offset = CalculateBaseOffset(cro);
+        UnloadUnk2Patches(cro, unload, base_offset);
+    }
+
+    UnrebaseCRO(unload, address);
+    unload->always_zero = 0;
+
     loaded_cros.erase(std::remove(loaded_cros.begin(), loaded_cros.end(), address), loaded_cros.end());
 
-    std::memset(Memory::GetPointer(address), 0, size);
+    UnloadExports(address);
+
     Kernel::g_current_process->vm_manager.UnmapRange(address, size);
 
     // TODO(Subv): Unload symbols and unmap memory
+    return RESULT_SUCCESS;
+}
 
-    cmd_buff[1] = RESULT_SUCCESS.raw;
+static void UnloadCRO(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+    u32 address = cmd_buff[1];
+    cmd_buff[1] = UnloadCRO(address).raw;
     LOG_WARNING(Service_LDR, "Unloading CRO address=%08X", address);
 }
 
