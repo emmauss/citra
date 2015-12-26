@@ -809,27 +809,27 @@ static ResultCode LoadCRO(u32 base, u32 size, u8* cro, u32 data_section0, u32 da
     // Import Table 1
     ApplyImportTable1Patches(header, base);
 
-    // Apply unk2 patches
-    ApplyUnk2Patches(header, base);
-
     // Load exports
     LoadExportsTable(header, base);
 
-    // Retroactively apply import table 1 patches to the previous CROs
-    // Retroactively apply unk2 patches to the previous CROs
-    for (auto itr = loaded_cros.rbegin(); itr != loaded_cros.rend(); ++itr) {
-        u32 cro_base = *itr;
-        CROHeader* cro_header = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro_base));
-        ApplyImportTable1Patches(cro_header, cro_base);
-        BackApplyUnk2Patches(cro_header, cro_base, header, base);
+    if (!crs) {
+        // Apply unk2 patches
+        ApplyUnk2Patches(header, base);
+
+        // Retroactively apply import table 1 patches to the previous CROs
+        // Retroactively apply unk2 patches to the previous CROs
+        for (auto itr = loaded_cros.rbegin(); itr != loaded_cros.rend(); ++itr) {
+            u32 cro_base = *itr;
+            CROHeader* cro_header = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro_base));
+            ApplyImportTable1Patches(cro_header, cro_base);
+            BackApplyUnk2Patches(cro_header, cro_base, header, base);
+        }
     }
 
     // Link the CROs
     LinkCROs(header, base);
 
     loaded_cros.push_back(base);
-
-    memcpy(header->magic, "FIXD", 4);
 
     LOG_WARNING(Service_LDR, "Loaded CRO name %s", reinterpret_cast<char*>(Memory::GetPointer(header->name_offset)));
 
@@ -909,11 +909,61 @@ static void LoadCRR(Service::Interface* self) {
                 crs_buffer_ptr, crs_size, value, process);
 }
 
+struct UnknownStructure {
+    u32 unk0;
+    u32 unk1;
+    u32 unk2;
+    u32 unk3;
+    u32 unk4;
+};
+
+static UnknownStructure GetStructure(CROHeader* cro, u32 fix_level) {
+    u32 v2 = cro->code_offset + cro->code_size;
+
+    if (v2 <= 0x138)
+        v2 = 0x138;
+
+    v2 = std::max<u32>(v2, cro->module_name_offset + cro->module_name_size);
+    v2 = std::max<u32>(v2, cro->segment_table_offset + sizeof(SegmentTableEntry) * cro->segment_table_num);
+
+    u32 v4 = v2;
+
+    v2 = std::max<u32>(v2, cro->export_table_offset + sizeof(ExportTableEntry) * cro->export_table_num);
+    v2 = std::max<u32>(v2, cro->unk1_offset + cro->unk1_size);
+    v2 = std::max<u32>(v2, cro->export_strings_offset + cro->export_strings_num);
+    v2 = std::max<u32>(v2, cro->export_tree_offset + sizeof(ExportTreeEntry) * cro->export_tree_num);
+
+    u32 v7 = v2;
+
+    v2 = std::max<u32>(v2, cro->unk2_offset + sizeof(Unk2Patch) * cro->unk2_offset);
+    v2 = std::max<u32>(v2, cro->import_patches_offset + sizeof(Patch) * cro->import_patches_num);
+    v2 = std::max<u32>(v2, cro->import_table1_offset + sizeof(ImportTableEntry) * cro->import_table1_num);
+    v2 = std::max<u32>(v2, cro->import_table2_offset + sizeof(ImportTableEntry) * cro->import_table2_num);
+    v2 = std::max<u32>(v2, cro->import_table3_offset + sizeof(ImportTableEntry) * cro->import_table3_num);
+    v2 = std::max<u32>(v2, cro->import_strings_offset + cro->import_strings_num);
+
+    u32 v12 = v2;
+
+    v2 = std::max<u32>(v2, cro->unk4_offset + 12 * cro->unk4_num);
+    v2 = std::max<u32>(v2, cro->unk3_offset + sizeof(Unk3Patch) * cro->unk3_num);
+    v2 = std::max<u32>(v2, cro->relocation_patches_offset + sizeof(Patch) * cro->relocation_patches_num);
+
+    UnknownStructure ret;
+    ret.unk0 = v2;
+    ret.unk1 = v12;
+    ret.unk2 = v7;
+    ret.unk3 = v4;
+    ret.unk4 = 0;
+    return ret;
+}
+
 static void LoadExeCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u8* cro_buffer = Memory::GetPointer(cmd_buff[1]);
     u32 address = cmd_buff[2];
     u32 size = cmd_buff[3];
+
+    u32 level = cmd_buff[10];
 
     std::shared_ptr<std::vector<u8>> cro = std::make_shared<std::vector<u8>>(size);
     memcpy(cro->data(), cro_buffer, size);
@@ -921,9 +971,71 @@ static void LoadExeCRO(Service::Interface* self) {
     // TODO(Subv): Check what the real hardware returns for MemoryState
     Kernel::g_current_process->vm_manager.MapMemoryBlock(address, cro, 0, size, Kernel::MemoryState::Code);
 
+    ResultCode result = LoadCRO(address, size, Memory::GetPointer(address), cmd_buff[4], cmd_buff[7], false);
+
     cmd_buff[0] = IPC::MakeHeader(4, 2, 0);
-    cmd_buff[1] = LoadCRO(address, size, Memory::GetPointer(address), cmd_buff[4], cmd_buff[7], false).raw;
+    cmd_buff[1] = result.raw;
     cmd_buff[2] = 0;
+
+    if (result.IsSuccess()) {
+        auto header = reinterpret_cast<CROHeader*>(Memory::GetPointer(address));
+        auto struc = GetStructure(header, level);
+        u32 value = struc.unk0;
+
+        switch (level) {
+        case 1:
+            value = struc.unk1;
+            break;
+        case 2:
+            value = struc.unk2;
+            break;
+        case 3:
+            value = struc.unk3;
+            break;
+        default:
+            break;
+        }
+
+        memcpy(header->magic, "FIXD", 4);
+        header->unk3_offset = value;
+        header->unk3_num = 0;
+        header->relocation_patches_offset = value;
+        header->relocation_patches_num = 0;
+        header->unk4_offset = value;
+        header->unk4_num = 0;
+
+        if (level >= 2) {
+            header->unk2_offset = value;
+            header->unk2_num = 0;
+            header->import_patches_offset = value;
+            header->import_patches_num = 0;
+            header->import_table1_offset = value;
+            header->import_table1_num = 0;
+            header->import_table2_offset = value;
+            header->import_table2_num = 0;
+            header->import_table3_offset = value;
+            header->import_table3_num = 0;
+            header->import_strings_offset = value;
+            header->import_strings_num = 0;
+
+            if (level >= 3) {
+                header->export_table_offset = value;
+                header->export_table_num = 0;
+                header->unk1_offset = value;
+                header->unk1_size = 0;
+                header->export_strings_offset = value;
+                header->export_strings_num = 0;
+                header->export_tree_offset = value;
+                header->export_tree_num = 0;
+            }
+        }
+
+        u32 changed = (value + 0xFFF) >> 12 << 12;
+        u32 cro_end = address + size;
+        u32 v24 = cro_end - changed;
+        cmd_buff[2] = size - v24;
+        header->always_zero = size - v24;
+    }
 
     LOG_WARNING(Service_LDR, "Loading CRO address=%08X", address);
 }
