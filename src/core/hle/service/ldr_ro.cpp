@@ -5,6 +5,8 @@
 #include "common/common_types.h"
 #include "common/logging/log.h"
 
+#include "core/core.h"
+#include "core/arm/arm_interface.h"
 #include "core/hle/service/ldr_ro.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/vm_manager.h"
@@ -837,6 +839,9 @@ static ResultCode LoadCRO(u32 base, u32 size, u8* cro, u32 data_section0, u32 da
     file.WriteBytes(header, header->file_size);
     file.Close();
 
+    // Clear the instruction cache
+    Core::g_app_core->ClearInstructionCache();
+
     return RESULT_SUCCESS;
 }
 
@@ -972,6 +977,9 @@ static void LoadExeCRO(Service::Interface* self) {
     Kernel::g_current_process->vm_manager.MapMemoryBlock(address, cro, 0, size, Kernel::MemoryState::Code);
 
     ResultCode result = LoadCRO(address, size, Memory::GetPointer(address), cmd_buff[4], cmd_buff[7], false);
+
+    if (result.IsError())
+        LOG_CRITICAL(Service_LDR, "Error when loading CRO %08X", result.raw);
 
     cmd_buff[0] = IPC::MakeHeader(4, 2, 0);
     cmd_buff[1] = result.raw;
