@@ -985,7 +985,10 @@ static void LoadExeCRO(Service::Interface* self) {
     memcpy(cro->data(), cro_buffer, size);
 
     // TODO(Subv): Check what the real hardware returns for MemoryState
-    Kernel::g_current_process->vm_manager.MapMemoryBlock(address, cro, 0, size, Kernel::MemoryState::Code);
+    auto res = Kernel::g_current_process->vm_manager.MapMemoryBlock(address, cro, 0, size, Kernel::MemoryState::Code);
+
+    if (res.Failed())
+        LOG_CRITICAL(Service_LDR, "Error when mapping memory: %08X", res.Code().raw);
 
     ResultCode result = LoadCRO(address, size, Memory::GetPointer(address), cmd_buff[4], cmd_buff[7], false);
 
@@ -1386,7 +1389,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00060042, nullptr,               "CRO_Load?"},
     {0x00070042, nullptr,               "LoadCROSymbols"},
     {0x00080042, nullptr,               "Shutdown"},
-    {0x000902C2, LoadExeCRO,            "LoadExeCRO_New?"},
+    {0x000902C2, nullptr,               "LoadExeCRO_New?"},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
