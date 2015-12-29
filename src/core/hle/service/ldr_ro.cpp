@@ -741,16 +741,20 @@ static u32 FindExportByName(CROHeader* header, char* str) {
     return 0;
 }
 
-static void LinkCROs(CROHeader* new_cro, u32 base) {
-    if (!loaded_cros.empty())
-        new_cro->previous_cro = loaded_cros.back();
+static void LinkCROs(CROHeader* crs, CROHeader* new_cro, u32 base) {
+    auto v3 = reinterpret_cast<CROHeader*>(Memory::GetPointer(crs->next_cro));
 
-    if (new_cro->previous_cro) {
-        CROHeader* previous_cro = reinterpret_cast<CROHeader*>(Memory::GetPointer(new_cro->previous_cro));
-        previous_cro->next_cro = base;
+    if (v3) {
+        crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(v3->previous_cro));
+        new_cro->previous_cro = v3->previous_cro;
+        new_cro->next_cro = 0;
+        v3->previous_cro = base;
     } else {
+        new_cro->next_cro = 0;
         new_cro->previous_cro = base;
     }
+
+    crs->next_cro = base;
 }
 
 static ResultCode LoadCRO(u32 base, u32 size, u8* cro, u32 data_section0, u32 data_section1, bool crs) {
@@ -828,8 +832,10 @@ static ResultCode LoadCRO(u32 base, u32 size, u8* cro, u32 data_section0, u32 da
         }
     }
 
-    // Link the CROs
-    LinkCROs(header, base);
+    if (!crs) {
+        // Link the CROs
+        LinkCROs(reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front())), header, base);
+    }
 
     loaded_cros.push_back(base);
 
@@ -970,6 +976,11 @@ static void LoadExeCRO(Service::Interface* self) {
 
     u32 level = cmd_buff[10];
 
+    bool link = cmd_buff[9] & 0xFF;
+
+    if (link)
+        LOG_CRITICAL(HW_GPU, "Something here");
+
     std::shared_ptr<std::vector<u8>> cro = std::make_shared<std::vector<u8>>(size);
     memcpy(cro->data(), cro_buffer, size);
 
@@ -1045,34 +1056,48 @@ static void LoadExeCRO(Service::Interface* self) {
         header->always_zero = size - v24;
     }
 
-    for (int i = 0; i < size; ++i) {
-        u32 mem = Memory::Read32(address + i);
-        if (mem == 0x400001d9)
-            __debugbreak();
-    }
-    LOG_WARNING(Service_LDR, "Loading CRO address=%08X", address);
+    LOG_WARNING(Service_LDR, "Loading CRO address=%08X level=%08X", address, level);
 }
 
-static void UnlinkCRO(CROHeader* cro, u32 address) {
-    // TODO(Subv): Verify if this is correct
-    for (auto itr = loaded_cros.begin(); itr != loaded_cros.end(); ++itr) {
-        if (*itr == address)
-            continue;
+static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
+    auto v5 = reinterpret_cast<CROHeader*>(Memory::GetPointer(crs->previous_cro));
+    auto v5_base = crs->previous_cro;
 
-        CROHeader* cro = reinterpret_cast<CROHeader*>(Memory::GetPointer(*itr));
-        if (cro->next_cro == address) {
-            cro->next_cro = cro->next_cro;
-            if (cro->next_cro != 0) {
-                CROHeader* next = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro->next_cro));
-                next->previous_cro = *itr;
-            }
+    if (v5_base == address) {
+        auto v7_base = v5->next_cro;
+        if (v7_base) {
+            auto v7 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v7_base));
+            v7->previous_cro = v5->previous_cro;
         }
-
-        if (cro->previous_cro == address) {
-            cro->previous_cro = cro->previous_cro;
-            if (cro->previous_cro != 0) {
-                CROHeader* prev = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro->previous_cro));
-                prev->next_cro = *itr;
+        crs->previous_cro = v7_base;
+    } else {
+        auto v8_base = crs->next_cro;
+        auto v8 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v8_base));
+        if (v8_base == address) {
+            auto v8 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v8_base));
+            auto v9_base = v8->next_cro;
+            if (v9_base) {
+                auto v9 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v9_base));
+                v9->previous_cro = v8->previous_cro;
+            }
+            crs->next_cro = v9_base;
+        } else {
+            auto v10_base = cro->next_cro;
+            if (v10_base) {
+                auto v11_base = cro->previous_cro;
+                auto v11 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v11_base));
+                auto v10 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v10_base));
+                v11->next_cro = v10_base;
+                v10->previous_cro = v11_base;
+            } else {
+                auto v16_base = cro->previous_cro;
+                auto v16 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v16_base));
+                if (v8_base && v8->previous_cro == address) {
+                    v8->previous_cro = v16_base;
+                } else {
+                    v5->previous_cro = v16_base;
+                }
+                v16->next_cro = 0;
             }
         }
     }
@@ -1307,10 +1332,11 @@ static ResultCode UnloadCRO(u32 address) {
         return ResultCode(0xD9012C1E);
     }
 
+    CROHeader* crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front()));
     CROHeader* unload = reinterpret_cast<CROHeader*>(Memory::GetPointer(address));
     u32 size = unload->file_size;
 
-    UnlinkCRO(unload, address);
+    UnlinkCRO(crs, unload, address);
 
     u32 base_offset = CalculateBaseOffset(unload);
 
@@ -1318,7 +1344,6 @@ static ResultCode UnloadCRO(u32 address) {
     UnloadImportTable2Patches(unload, base_offset);
     UnloadImportTable3Patches(unload, base_offset);
 
-    CROHeader* crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front()));
     ApplyCRSUnloadPatches(crs, unload);
 
     for (u32 base : loaded_cros) {
@@ -1345,8 +1370,11 @@ static ResultCode UnloadCRO(u32 address) {
 static void UnloadCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 address = cmd_buff[1];
-    cmd_buff[1] = UnloadCRO(address).raw;
-    LOG_WARNING(Service_LDR, "Unloading CRO address=%08X", address);
+    ResultCode res = UnloadCRO(address);
+    cmd_buff[1] = res.raw;
+    // Clear the instruction cache
+    Core::g_app_core->ClearInstructionCache();
+    LOG_WARNING(Service_LDR, "Unloading CRO address=%08X res=%08X", address, res);
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
