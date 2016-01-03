@@ -82,8 +82,8 @@ struct ImportTableEntry {
 
 struct ExportTreeEntry {
     u16 segment_offset;
-    u16 unk;
-    u16 unk2;
+    u16 next;
+    u16 next_level;
     u16 export_table_id;
 
     u8 GetTargetSegment() { return segment_offset & 0x7; }
@@ -513,6 +513,9 @@ static void ApplyPatch(Patch* patch, u32 patch_base, u32 patch_address, u32* pat
     if (!patch_address1)
         patch_address1 = &patch_address;
 
+    if (patch_address == 0x119C74)
+        __debugbreak();
+
     switch (patch->type) {
         case 2:
             Memory::Write32(patch_address, patch_base + patch->x);
@@ -559,7 +562,7 @@ static void ApplyListPatches(CROHeader& header, Patch* first_patch, u32 patch_ba
     first_patch->unk2 = 1;
 }
 
-static void ApplyUnk3Patches(CROHeader& header, u32 base) {
+static void ApplyUnk3Patches(CROHeader& header, CROHeader* crs, u32 base) {
     for (int i = 0; i < header.unk3_num; ++i) {
         Unk3Patch* patch = header.GetUnk3PatchEntry(i);
         SegmentTableEntry segment = header.GetSegmentTableEntry(patch->GetTargetSegment());
@@ -567,7 +570,7 @@ static void ApplyUnk3Patches(CROHeader& header, u32 base) {
         u32 patches_table = base + patch->patches_offset;
 
         Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(patches_table));
-        ApplyListPatches(header, first_patch, patch_base);
+        ApplyListPatches(*crs, first_patch, patch_base);
     }
 }
 
@@ -590,42 +593,90 @@ static void ApplyRelocationPatches(CROHeader& header, u32 base, u32 section0) {
     }
 }
 
-static void ApplyExitPatches(CROHeader& header, u32 base) {
+static const u32 EXPORT_TABLE_FINISHED = 0x8000;
+
+static u32 FindExportByName(CROHeader& header, char* str) {
+    if (header.export_tree_num) {
+        ExportTreeEntry* first_entry = header.GetExportTreeEntry(0);
+        u32 len = strlen(str);
+        ExportTreeEntry* next_entry = header.GetExportTreeEntry(first_entry->next);
+        bool run = false;
+        while (!run) {
+            u16 next_offset = 0;
+            u32 next_len = next_entry->GetSegmentOffset();
+            u8 next_segment = str[next_len];
+            if (next_len >= len)
+                next_offset = next_entry->next;
+            else if (!((next_segment >> next_entry->GetTargetSegment()) & 1))
+                next_offset = next_entry->next;
+            else
+                next_offset = next_entry->next_level;
+            run = next_offset & EXPORT_TABLE_FINISHED;
+            next_entry = header.GetExportTreeEntry(next_offset & ~EXPORT_TABLE_FINISHED);
+        }
+
+        u32 export_id = next_entry->export_table_id;
+        ExportTableEntry* export_entry = header.GetExportTableEntry(export_id);
+        char* export_name = (char*)Memory::GetPointer(export_entry->name_offset);
+        if (!strcmp(export_name, str)) {
+            SegmentTableEntry segment = header.GetSegmentTableEntry(export_entry->GetTargetSegment());
+            return segment.segment_offset + export_entry->GetSegmentOffset();
+        }
+    }
+    return 0;
+}
+
+static void ApplyExitPatches(CROHeader& header, CROHeader* crs, u32 base) {
     // Find the "__aeabi_atexit" in the import table 1
     for (int i = 0; i < header.import_table1_num; ++i) {
         ImportTableEntry* entry = header.GetImportTable1Entry(i);
         // The name is already relocated
         char* entry_name = reinterpret_cast<char*>(Memory::GetPointer(entry->name_offset));
         if (!strcmp(entry_name, "__aeabi_atexit")) {
-            // Only apply these patches if some previous CRO exports "nnroAeabiAtexit_"
-            auto export_ = loaded_exports.find("nnroAeabiAtexit_");
-            if (export_ == loaded_exports.end())
-                return;
+            // Only apply these patches if the CRS exports "nnroAeabiAtexit_"
+            u32 offset = FindExportByName(*crs, "nnroAeabiAtexit_");
+
+            ASSERT_MSG(offset, "Could not find nnroAeabiAtexit_ in the CRS");
 
             // Patch it!
             Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
-            ApplyListPatches(header, first_patch, export_->second.cro_offset);
+            ApplyListPatches(header, first_patch, offset);
             return;
         }
     }
-    LOG_ERROR(Service_LDR, "Could not find __aeabi_atexit in the CRO imports!");
 }
 
-static void ApplyImportTable1Patches(CROHeader& header, u32 base) {
+static void BackApplyImportTable1Patches(CROHeader& old_header, CROHeader& new_header) {
+    for (int i = 0; i < old_header.import_table1_num; ++i) {
+        ImportTableEntry* entry = old_header.GetImportTable1Entry(i);
+        Patch* patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+        if (!patch->unk2) {
+            u32 patch_base = FindExportByName(new_header, (char*)Memory::GetPointer(entry->name_offset));
+
+            if (patch_base) {
+                Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+                ApplyListPatches(old_header, first_patch, patch_base);
+            }
+        }
+    }
+}
+
+static void ApplyImportTable1Patches(CROHeader& header, CROHeader* head) {
     for (int i = 0; i < header.import_table1_num; ++i) {
         ImportTableEntry* entry = header.GetImportTable1Entry(i);
         Patch* patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
         if (!patch->unk2) {
-            // The name offset is already relocated
-            std::string entry_name = reinterpret_cast<char*>(Memory::GetPointer(entry->name_offset));
-            auto export_ = loaded_exports.find(entry_name);
-            if (export_ == loaded_exports.end())
-                continue;
-
-            u32 patch_base = export_->second.cro_offset;
-
-            Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
-            ApplyListPatches(header, first_patch, patch_base);
+            u32 patch_base = 0;
+            while (head) {
+                patch_base = FindExportByName(*head, (char*)Memory::GetPointer(entry->name_offset));
+                if (patch_base)
+                    break;
+                head = reinterpret_cast<CROHeader*>(Memory::GetPointer(head->next_cro));
+            }
+            if (patch_base) {
+                Patch* first_patch = reinterpret_cast<Patch*>(Memory::GetPointer(entry->symbol_offset));
+                ApplyListPatches(header, first_patch, patch_base);
+            }
         }
     }
 }
@@ -719,38 +770,9 @@ static void LoadExportsTable(CROHeader& header, u32 base) {
     }
 }
 
-static u32 FindExportByName(CROHeader& header, char* str) {
-    if (header.export_tree_num) {
-        ExportTreeEntry* first_entry = header.GetExportTreeEntry(0);
-        u32 len = strlen(str);
-        ExportTreeEntry* next_entry = header.GetExportTreeEntry(first_entry->unk);
-        bool v16 = false;
-        do {
-            u16 v14 = 0;
-            bool v12 = next_entry->GetSegmentOffset() >= len;
-            if (v12 || !((*(str + next_entry->GetSegmentOffset()) >> next_entry->GetTargetSegment()) & 1))
-                v14 = next_entry->unk;
-            else
-                v14 = next_entry->unk2;
-            v16 = (v14 & 0x8000) == 0;
-            next_entry = header.GetExportTreeEntry(v14 & 0x7FFF);
-        } while (v16);
-
-        u32 export_id = next_entry->export_table_id;
-        ExportTableEntry* export_entry = header.GetExportTableEntry(export_id);
-        char* export_name = (char*)Memory::GetPointer(export_entry->name_offset);
-        if (!strcmp(export_name, str)) {
-            SegmentTableEntry segment = header.GetSegmentTableEntry(export_entry->GetTargetSegment());
-            return segment.segment_offset + export_entry->GetSegmentOffset();
-        }
-    }
-    return 0;
-}
-
 static void LinkCROs(CROHeader* crs, CROHeader& new_cro, u32 base) {
-    auto v3 = reinterpret_cast<CROHeader*>(Memory::GetPointer(crs->next_cro));
-
-    if (v3) {
+    if (crs->next_cro) {
+        auto v3 = reinterpret_cast<CROHeader*>(Memory::GetPointer(crs->next_cro));
         crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(v3->previous_cro));
         new_cro.previous_cro = v3->previous_cro;
         new_cro.next_cro = 0;
@@ -763,7 +785,7 @@ static void LinkCROs(CROHeader* crs, CROHeader& new_cro, u32 base) {
     crs->next_cro = base;
 }
 
-static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_section0, u32 data_section1, bool crs) {
+static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_section0, u32 data_section1, bool is_crs) {
     // Relocate all offsets
     if (!header.VerifyAndRelocateOffsets(base, size))
         return ResultCode(0xD9012C11);
@@ -777,7 +799,7 @@ static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_sectio
     u32 prev_section0 = 0;
     ResultCode result = RESULT_SUCCESS;
 
-    if (!crs) {
+    if (!is_crs) {
         // Relocate segments
         result = header.RelocateSegmentsTable(base, size, data_section0, data_section1, prev_section0);
         if (result.IsError())
@@ -794,6 +816,12 @@ static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_sectio
         Memory::Read8(header.export_strings_offset + header.export_strings_num - 1) != 0)
         return ResultCode(0xD9012C0B);
 
+    CROHeader* crs = nullptr;
+    if (is_crs)
+        crs = &header;
+    else
+        crs = reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front()));
+
     // Rebase unk2
     header.RelocateUnk2Patches(base);
 
@@ -807,22 +835,24 @@ static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_sectio
     header.RelocateImportTable2(base);
     header.RelocateImportTable3(base);
 
-    // Apply unk3 patches
-    ApplyUnk3Patches(header, base);
+    if (!is_crs) {
+        // Apply unk3 patches
+        ApplyUnk3Patches(header, crs, base);
+    }
 
     // Apply relocation patches
     ApplyRelocationPatches(header, base, prev_section0 + base);
 
     // Apply import table 1 patches
-    ApplyExitPatches(header, base);
+    ApplyExitPatches(header, crs, base);
 
     // Import Table 1
-    ApplyImportTable1Patches(header, base);
+    ApplyImportTable1Patches(header, crs);
 
     // Load exports
     LoadExportsTable(header, base);
 
-    if (!crs) {
+    if (!is_crs) {
         // Apply unk2 patches
         ApplyUnk2Patches(header, base);
 
@@ -831,12 +861,12 @@ static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_sectio
         for (auto itr = loaded_cros.rbegin(); itr != loaded_cros.rend(); ++itr) {
             u32 cro_base = *itr;
             CROHeader* cro_header = reinterpret_cast<CROHeader*>(Memory::GetPointer(cro_base));
-            ApplyImportTable1Patches(*cro_header, cro_base);
+            BackApplyImportTable1Patches(*cro_header, header);
             BackApplyUnk2Patches(*cro_header, cro_base, header, base);
         }
     }
 
-    if (!crs) {
+    if (!is_crs) {
         // Link the CROs
         LinkCROs(reinterpret_cast<CROHeader*>(Memory::GetPointer(loaded_cros.front())), header, base);
     }
@@ -913,8 +943,8 @@ static void Initialize(Service::Interface* self) {
 /**
  * LDR_RO::LoadCRR service function
  *  Inputs:
- *      1 : CRS buffer pointer
- *      2 : CRS Size
+ *      1 : CRR buffer pointer
+ *      2 : CRR Size
  *      3 : Value, must be zero
  *      4 : KProcess handle
  *  Outputs:
@@ -997,8 +1027,7 @@ static void LoadExeCRO(Service::Interface* self) {
 
     bool link = cmd_buff[9] & 0xFF;
 
-    if (link)
-        LOG_CRITICAL(HW_GPU, "Something here");
+    ASSERT_MSG(link, "Link must be set");
 
     std::shared_ptr<std::vector<u8>> cro = std::make_shared<std::vector<u8>>(size);
     memcpy(cro->data(), cro_buffer, size);
@@ -1090,10 +1119,10 @@ static void LoadExeCRO(Service::Interface* self) {
 }
 
 static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
-    auto v5 = reinterpret_cast<CROHeader*>(Memory::GetPointer(crs->previous_cro));
     auto v5_base = crs->previous_cro;
 
     if (v5_base == address) {
+        auto v5 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v5_base));
         auto v7_base = v5->next_cro;
         if (v7_base) {
             auto v7 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v7_base));
@@ -1125,6 +1154,7 @@ static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
                 if (v8_base && v8->previous_cro == address) {
                     v8->previous_cro = v16_base;
                 } else {
+                    auto v5 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v5_base));
                     v5->previous_cro = v16_base;
                 }
                 v16->next_cro = 0;
@@ -1157,7 +1187,7 @@ static u32 CalculateBaseOffset(CROHeader* cro) {
     if (cro->GetImportPatchesTargetSegment() < cro->segment_table_num) {
         SegmentTableEntry base_segment = cro->GetSegmentTableEntry(cro->GetImportPatchesTargetSegment());
         if (cro->GetImportPatchesSegmentOffset() < base_segment.segment_size)
-            base_offset = base_segment.segment_size + cro->GetImportPatchesSegmentOffset();
+            base_offset = base_segment.segment_offset + cro->GetImportPatchesSegmentOffset();
     }
 
     return base_offset;
@@ -1375,12 +1405,11 @@ static ResultCode UnloadCRO(u32 address) {
     UnloadImportTable2Patches(unload, base_offset);
     UnloadImportTable3Patches(unload, base_offset);
 
-    ApplyCRSUnloadPatches(crs, *unload);
-
     for (u32 base : loaded_cros) {
         if (base == address)
             continue;
         CROHeader* cro = reinterpret_cast<CROHeader*>(Memory::GetPointer(base));
+        ApplyCRSUnloadPatches(cro, *unload);
         base_offset = CalculateBaseOffset(cro);
         UnloadUnk2Patches(cro, unload, base_offset);
     }
