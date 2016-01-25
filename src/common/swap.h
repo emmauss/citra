@@ -17,11 +17,15 @@
 
 #pragma once
 
-#if defined(__linux__)
-#include <byteswap.h>
+#if defined(_MSC_VER)
+    #include <cstdlib>
+#elif defined(__linux__)
+    #include <byteswap.h>
 #elif defined(__FreeBSD__)
-#include <sys/endian.h>
+    #include <sys/endian.h>
 #endif
+
+#include "common/common_types.h"
 
 // GCC 4.6+
 #if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)
@@ -135,7 +139,7 @@ template <>
 inline void swap<8>(u8* data) {
     *reinterpret_cast<u64*>(data) = swap64(data);
 }
-    
+
 }  // Namespace Common
 
 
@@ -144,7 +148,7 @@ struct swap_struct_t {
     typedef swap_struct_t<T, F> swapped_t;
 
 protected:
-    T value;
+    T value = T();
 
     static T swap(T v) {
         return F::swap(v);
@@ -154,7 +158,7 @@ public:
         return swap(value);
 
     }
-    swap_struct_t() : value((T)0) {}
+    swap_struct_t() = default;
     swap_struct_t(const T &v): value(swap(v)) {}
 
     template <typename S>

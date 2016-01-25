@@ -3,12 +3,13 @@
 // Refer to the license.txt file included.
 
 #include <atomic>
-#include <cstdio>
+#include <cinttypes>
 #include <mutex>
 #include <vector>
 
-#include "common/assert.h"
 #include "common/chunk_file.h"
+#include "common/logging/log.h"
+#include "common/string_util.h"
 
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
@@ -207,7 +208,7 @@ void ScheduleEvent_Threadsafe(s64 cycles_into_future, int event_type, u64 userda
     Event* new_event = GetNewTsEvent();
     new_event->time = GetTicks() + cycles_into_future;
     new_event->type = event_type;
-    new_event->next = 0;
+    new_event->next = nullptr;
     new_event->userdata = userdata;
     if (!ts_first)
         ts_first = new_event;
@@ -502,7 +503,7 @@ void Advance() {
         Core::g_app_core->down_count += diff;
     }
     if (advance_callback)
-        advance_callback(cycles_executed);
+        advance_callback(static_cast<int>(cycles_executed));
 }
 
 void LogPendingEvents() {
@@ -530,7 +531,7 @@ void Idle(int max_idle) {
         }
     }
 
-    LOG_TRACE(Core_Timing, "Idle for %i cycles! (%f ms)", cycles_down, cycles_down / (float)(g_clock_rate_arm11 * 0.001f));
+    LOG_TRACE(Core_Timing, "Idle for %" PRId64 " cycles! (%f ms)", cycles_down, cycles_down / (float)(g_clock_rate_arm11 * 0.001f));
 
     idled_cycles += cycles_down;
     Core::g_app_core->down_count -= cycles_down;
@@ -549,7 +550,7 @@ std::string GetScheduledEventsSummary() {
         const char* name = event_types[event->type].name;
         if (!name)
             name = "[unknown]";
-        text += Common::StringFromFormat("%s : %i %08x%08x\n", name, (int)event->time, 
+        text += Common::StringFromFormat("%s : %i %08x%08x\n", name, (int)event->time,
                 (u32)(event->userdata >> 32), (u32)(event->userdata));
         event = event->next;
     }

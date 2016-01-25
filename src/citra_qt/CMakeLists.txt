@@ -12,15 +12,19 @@ set(SRCS
             debugger/graphics_breakpoints.cpp
             debugger/graphics_cmdlists.cpp
             debugger/graphics_framebuffer.cpp
+            debugger/graphics_tracing.cpp
             debugger/graphics_vertex_shader.cpp
             debugger/profiler.cpp
             debugger/ramview.cpp
             debugger/registers.cpp
+            game_list.cpp
             util/spinbox.cpp
+            util/util.cpp
             bootmanager.cpp
             hotkeys.cpp
             main.cpp
             citra-qt.rc
+            Info.plist
             )
 
 set(HEADERS
@@ -35,11 +39,14 @@ set(HEADERS
             debugger/graphics_breakpoints_p.h
             debugger/graphics_cmdlists.h
             debugger/graphics_framebuffer.h
+            debugger/graphics_tracing.h
             debugger/graphics_vertex_shader.h
             debugger/profiler.h
             debugger/ramview.h
             debugger/registers.h
+            game_list.h
             util/spinbox.h
+            util/util.h
             bootmanager.h
             hotkeys.h
             main.h
@@ -65,15 +72,20 @@ else()
 endif()
 
 if (APPLE)
-    add_executable(citra-qt MACOSX_BUNDLE ${SRCS} ${HEADERS} ${UI_HDRS})
+    set(MACOSX_ICON "../../dist/citra.icns")
+    set_source_files_properties(${MACOSX_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    add_executable(citra-qt MACOSX_BUNDLE ${SRCS} ${HEADERS} ${UI_HDRS} ${MACOSX_ICON})
+    set_target_properties(citra-qt PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
 else()
     add_executable(citra-qt ${SRCS} ${HEADERS} ${UI_HDRS})
 endif()
-target_link_libraries(citra-qt core common video_core qhexedit)
+target_link_libraries(citra-qt core video_core common qhexedit)
 target_link_libraries(citra-qt ${OPENGL_gl_LIBRARY} ${CITRA_QT_LIBS})
 target_link_libraries(citra-qt ${PLATFORM_LIBRARIES})
 
-#install(TARGETS citra-qt RUNTIME DESTINATION ${bindir})
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux|FreeBSD|OpenBSD|NetBSD")
+    install(TARGETS citra-qt RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+endif()
 
 if (Qt5_FOUND AND MSVC)
     set(Qt5_DLL_DIR "${Qt5_DIR}/../../../bin")
@@ -89,15 +101,15 @@ if (Qt5_FOUND AND MSVC)
     )
     set(DLL_DEST "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/")
     set(PLATFORMS ${DLL_DEST}platforms/)
-    
+
     # windows commandline expects the / to be \ so switch them
-    string(REPLACE "/" "\\" Qt5_DLL_DIR ${Qt5_DLL_DIR})
-    string(REPLACE "/" "\\" Qt5_PLATFORMS_DIR ${Qt5_PLATFORMS_DIR})
-    string(REPLACE "/" "\\" DLL_DEST ${DLL_DEST})
-    string(REPLACE "/" "\\" PLATFORMS ${PLATFORMS})
-    
+    string(REPLACE "/" "\\\\" Qt5_DLL_DIR ${Qt5_DLL_DIR})
+    string(REPLACE "/" "\\\\" Qt5_PLATFORMS_DIR ${Qt5_PLATFORMS_DIR})
+    string(REPLACE "/" "\\\\" DLL_DEST ${DLL_DEST})
+    string(REPLACE "/" "\\\\" PLATFORMS ${PLATFORMS})
+
     # /NJH /NJS /NDL /NFL /NC /NS /NP - Silence any output
-    # cmake adds an extra check for command success which doesn't work too well with robocopy 
+    # cmake adds an extra check for command success which doesn't work too well with robocopy
     # so trick it into thinking the command was successful with the || cmd /c "exit /b 0"
     add_custom_command(TARGET citra-qt POST_BUILD
         COMMAND robocopy ${Qt5_DLL_DIR} ${DLL_DEST} ${Qt5_DLLS} /NJH /NJS /NDL /NFL /NC /NS /NP || cmd /c "exit /b 0"

@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <limits>
 #include <type_traits>
 
@@ -124,43 +125,32 @@ public:
     // so that we can use this within unions
     BitField() = default;
 
-#ifndef _WIN32
     // We explicitly delete the copy assigment operator here, because the
     // default copy assignment would copy the full storage value, rather than
     // just the bits relevant to this particular bit field.
-    // Ideally, we would just implement the copy assignment to copy only the
-    // relevant bits, but this requires compiler support for unrestricted
-    // unions.
-    // MSVC 2013 has no support for this, hence we disable this code on
-    // Windows (so that the default copy assignment operator will be used).
-    // For any C++11 conformant compiler we delete the operator to make sure
-    // we never use this inappropriate operator to begin with.
-    // TODO: Implement this operator properly once all target compilers
-    // support unrestricted unions.
     BitField& operator=(const BitField&) = delete;
-#endif
 
-    __forceinline BitField& operator=(T val)
+    FORCE_INLINE BitField& operator=(T val)
     {
         Assign(val);
         return *this;
     }
 
-    __forceinline operator T() const
+    FORCE_INLINE operator T() const
     {
         return Value();
     }
 
-    __forceinline void Assign(const T& value) {
+    FORCE_INLINE void Assign(const T& value) {
         storage = (storage & ~GetMask()) | (((StorageType)value << position) & GetMask());
     }
 
-    __forceinline T Value() const
+    FORCE_INLINE T Value() const
     {
         if (std::numeric_limits<T>::is_signed)
         {
             std::size_t shift = 8 * sizeof(T)-bits;
-            return (T)(((storage & GetMask()) << (shift - position)) >> shift);
+            return (T)((storage << (shift - position)) >> shift);
         }
         else
         {
@@ -169,7 +159,7 @@ public:
     }
 
     // TODO: we may want to change this to explicit operator bool() if it's bug-free in VS2015
-    __forceinline bool ToBool() const
+    FORCE_INLINE bool ToBool() const
     {
         return Value() != 0;
     }
@@ -186,9 +176,9 @@ private:
     // Unsigned version of StorageType
     typedef typename std::make_unsigned<StorageType>::type StorageTypeU;
 
-    __forceinline StorageType GetMask() const
+    FORCE_INLINE StorageType GetMask() const
     {
-        return ((~(StorageTypeU)0) >> (8 * sizeof(T)-bits)) << position;
+        return (((StorageTypeU)~0) >> (8 * sizeof(T)-bits)) << position;
     }
 
     StorageType storage;

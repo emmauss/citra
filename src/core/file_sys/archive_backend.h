@@ -49,11 +49,11 @@ public:
      * Gets the string representation of the path for debugging
      * @return String representation of the path for debugging
      */
-    const std::string DebugStr() const;
+    std::string DebugStr() const;
 
-    const std::string AsString() const;
-    const std::u16string AsU16Str() const;
-    const std::vector<u8> AsBinary() const;
+    std::string AsString() const;
+    std::u16string AsU16Str() const;
+    std::vector<u8> AsBinary() const;
 
 private:
     LowPathType type;
@@ -131,6 +131,12 @@ public:
      * @return Opened directory, or nullptr
      */
     virtual std::unique_ptr<DirectoryBackend> OpenDirectory(const Path& path) const = 0;
+
+    /**
+     * Get the free space
+     * @return The number of free bytes in the archive
+     */
+    virtual u64 GetFreeBytes() const = 0;
 };
 
 class ArchiveFactory : NonCopyable {

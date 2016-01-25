@@ -19,7 +19,7 @@
 
 namespace Loader {
 
-/**
+/*
  * File layout:
  * - File header
  * - Code, rodata and data relocation table headers
@@ -39,13 +39,16 @@ namespace Loader {
  * The entrypoint is always the start of the code segment.
  * The BSS section must be cleared manually by the application.
  */
+
 enum THREEDSX_Error {
     ERROR_NONE = 0,
     ERROR_READ = 1,
     ERROR_FILE = 2,
     ERROR_ALLOC = 3
 };
+
 static const u32 RELOCBUFSIZE = 512;
+static const unsigned int NUM_SEGMENTS = 3;
 
 // File header
 #pragma pack(1)
@@ -59,6 +62,10 @@ struct THREEDSX_Header
     // Sizes of the code, rodata and data segments +
     // size of the BSS section (uninitialized latter half of the data segment)
     u32 code_seg_size, rodata_seg_size, data_seg_size, bss_size;
+    // offset and size of smdh
+    u32 smdh_offset, smdh_size;
+    // offset to filesystem
+    u32 fs_offset;
 };
 
 // Relocation header: all fields (even extra unknown fields) are guaranteed to be relocation counts.
@@ -98,7 +105,10 @@ static u32 TranslateAddr(u32 addr, const THREEloadinfo *loadinfo, u32* offsets)
     return loadinfo->seg_addrs[2] + addr - offsets[1];
 }
 
-static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
+using Kernel::SharedPtr;
+using Kernel::CodeSet;
+
+static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr, SharedPtr<CodeSet>* out_codeset)
 {
     if (!file.IsOpen())
         return ERROR_FILE;
@@ -116,15 +126,13 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
     loadinfo.seg_sizes[1] = (hdr.rodata_seg_size + 0xFFF) &~0xFFF;
     loadinfo.seg_sizes[2] = (hdr.data_seg_size + 0xFFF) &~0xFFF;
     u32 offsets[2] = { loadinfo.seg_sizes[0], loadinfo.seg_sizes[0] + loadinfo.seg_sizes[1] };
-    u32 data_load_size = (hdr.data_seg_size - hdr.bss_size + 0xFFF) &~0xFFF;
-    u32 bss_load_size = loadinfo.seg_sizes[2] - data_load_size;
-    u32 n_reloc_tables = hdr.reloc_hdr_size / 4;
-    std::vector<u8> all_mem(loadinfo.seg_sizes[0] + loadinfo.seg_sizes[1] + loadinfo.seg_sizes[2] + 3 * n_reloc_tables);
+    u32 n_reloc_tables = hdr.reloc_hdr_size / sizeof(u32);
+    std::vector<u8> program_image(loadinfo.seg_sizes[0] + loadinfo.seg_sizes[1] + loadinfo.seg_sizes[2]);
 
     loadinfo.seg_addrs[0] = base_addr;
     loadinfo.seg_addrs[1] = loadinfo.seg_addrs[0] + loadinfo.seg_sizes[0];
     loadinfo.seg_addrs[2] = loadinfo.seg_addrs[1] + loadinfo.seg_sizes[1];
-    loadinfo.seg_ptrs[0] = &all_mem[0];
+    loadinfo.seg_ptrs[0] = program_image.data();
     loadinfo.seg_ptrs[1] = loadinfo.seg_ptrs[0] + loadinfo.seg_sizes[0];
     loadinfo.seg_ptrs[2] = loadinfo.seg_ptrs[1] + loadinfo.seg_sizes[1];
 
@@ -132,10 +140,9 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
     file.Seek(hdr.header_size, SEEK_SET);
 
     // Read the relocation headers
-    u32* relocs = (u32*)(loadinfo.seg_ptrs[2] + hdr.data_seg_size);
-
-    for (unsigned current_segment : {0, 1, 2}) {
-        size_t size = n_reloc_tables * 4;
+    std::vector<u32> relocs(n_reloc_tables * NUM_SEGMENTS);
+    for (unsigned int current_segment = 0; current_segment < NUM_SEGMENTS; ++current_segment) {
+        size_t size = n_reloc_tables * sizeof(u32);
         if (file.ReadBytes(&relocs[current_segment * n_reloc_tables], size) != size)
             return ERROR_READ;
     }
@@ -152,7 +159,7 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
     memset((char*)loadinfo.seg_ptrs[2] + hdr.data_seg_size - hdr.bss_size, 0, hdr.bss_size);
 
     // Relocate the segments
-    for (unsigned current_segment : {0, 1, 2}) {
+    for (unsigned int current_segment = 0; current_segment < NUM_SEGMENTS; ++current_segment) {
         for (unsigned current_segment_reloc_table = 0; current_segment_reloc_table < n_reloc_tables; current_segment_reloc_table++) {
             u32 n_relocs = relocs[current_segment * n_reloc_tables + current_segment_reloc_table];
             if (current_segment_reloc_table >= 2) {
@@ -160,7 +167,7 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
                 file.Seek(n_relocs*sizeof(THREEDSX_Reloc), SEEK_CUR);
                 continue;
             }
-            static THREEDSX_Reloc reloc_table[RELOCBUFSIZE];
+            THREEDSX_Reloc reloc_table[RELOCBUFSIZE];
 
             u32* pos = (u32*)loadinfo.seg_ptrs[current_segment];
             const u32* end_pos = pos + (loadinfo.seg_sizes[current_segment] / 4);
@@ -174,21 +181,21 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
 
                 for (unsigned current_inprogress = 0; current_inprogress < remaining && pos < end_pos; current_inprogress++) {
                     const auto& table = reloc_table[current_inprogress];
-                    LOG_TRACE(Loader, "(t=%d,skip=%u,patch=%u)\n", current_segment_reloc_table,
+                    LOG_TRACE(Loader, "(t=%d,skip=%u,patch=%u)", current_segment_reloc_table,
                               (u32)table.skip, (u32)table.patch);
                     pos += table.skip;
                     s32 num_patches = table.patch;
                     while (0 < num_patches && pos < end_pos) {
-                        u32 in_addr = (char*)pos - (char*)&all_mem[0];
+                        u32 in_addr = (u8*)pos - program_image.data();
                         u32 addr = TranslateAddr(*pos, &loadinfo, offsets);
-                        LOG_TRACE(Loader, "Patching %08X <-- rel(%08X,%d) (%08X)\n",
+                        LOG_TRACE(Loader, "Patching %08X <-- rel(%08X,%d) (%08X)",
                                   base_addr + in_addr, addr, current_segment_reloc_table, *pos);
                         switch (current_segment_reloc_table) {
                         case 0:
                             *pos = (addr);
                             break;
                         case 1:
-                            *pos = (addr - in_addr);
+                            *pos = static_cast<u32>(addr - in_addr);
                             break;
                         default:
                             break; //this should never happen
@@ -201,14 +208,29 @@ static THREEDSX_Error Load3DSXFile(FileUtil::IOFile& file, u32 base_addr)
         }
     }
 
-    // Write the data
-    memcpy(Memory::GetPointer(base_addr), &all_mem[0], loadinfo.seg_sizes[0] + loadinfo.seg_sizes[1] + loadinfo.seg_sizes[2]);
+    // Create the CodeSet
+    SharedPtr<CodeSet> code_set = CodeSet::Create("", 0);
 
-    LOG_DEBUG(Loader, "CODE:   %u pages\n", loadinfo.seg_sizes[0] / 0x1000);
-    LOG_DEBUG(Loader, "RODATA: %u pages\n", loadinfo.seg_sizes[1] / 0x1000);
-    LOG_DEBUG(Loader, "DATA:   %u pages\n", data_load_size / 0x1000);
-    LOG_DEBUG(Loader, "BSS:    %u pages\n", bss_load_size / 0x1000);
+    code_set->code.offset = loadinfo.seg_ptrs[0] - program_image.data();
+    code_set->code.addr   = loadinfo.seg_addrs[0];
+    code_set->code.size   = loadinfo.seg_sizes[0];
 
+    code_set->rodata.offset = loadinfo.seg_ptrs[1] - program_image.data();
+    code_set->rodata.addr   = loadinfo.seg_addrs[1];
+    code_set->rodata.size   = loadinfo.seg_sizes[1];
+
+    code_set->data.offset = loadinfo.seg_ptrs[2] - program_image.data();
+    code_set->data.addr   = loadinfo.seg_addrs[2];
+    code_set->data.size   = loadinfo.seg_sizes[2];
+
+    code_set->entrypoint = code_set->code.addr;
+    code_set->memory = std::make_shared<std::vector<u8>>(std::move(program_image));
+
+    LOG_DEBUG(Loader, "code size:   0x%X", loadinfo.seg_sizes[0]);
+    LOG_DEBUG(Loader, "rodata size: 0x%X", loadinfo.seg_sizes[1]);
+    LOG_DEBUG(Loader, "data size:   0x%X (including 0x%X of bss)", loadinfo.seg_sizes[2], hdr.bss_size);
+
+    *out_codeset = code_set;
     return ERROR_NONE;
 }
 
@@ -228,22 +250,61 @@ ResultStatus AppLoader_THREEDSX::Load() {
     if (is_loaded)
         return ResultStatus::ErrorAlreadyLoaded;
 
-    if (!file->IsOpen())
+    if (!file.IsOpen())
         return ResultStatus::Error;
 
-    Kernel::g_current_process = Kernel::Process::Create(filename, 0);
+    SharedPtr<CodeSet> codeset;
+    if (Load3DSXFile(file, Memory::PROCESS_IMAGE_VADDR, &codeset) != ERROR_NONE)
+        return ResultStatus::Error;
+    codeset->name = filename;
+
+    Kernel::g_current_process = Kernel::Process::Create(std::move(codeset));
     Kernel::g_current_process->svc_access_mask.set();
     Kernel::g_current_process->address_mappings = default_address_mappings;
-    
+
     // Attach the default resource limit (APPLICATION) to the process
     Kernel::g_current_process->resource_limit = Kernel::ResourceLimit::GetForCategory(Kernel::ResourceLimitCategory::APPLICATION);
 
-    Load3DSXFile(*file, Memory::PROCESS_IMAGE_VADDR);
-
-    Kernel::g_current_process->Run(Memory::PROCESS_IMAGE_VADDR, 48, Kernel::DEFAULT_STACK_SIZE);
+    Kernel::g_current_process->Run(48, Kernel::DEFAULT_STACK_SIZE);
 
     is_loaded = true;
     return ResultStatus::Success;
+}
+
+ResultStatus AppLoader_THREEDSX::ReadRomFS(std::shared_ptr<FileUtil::IOFile>& romfs_file, u64& offset, u64& size) {
+    if (!file.IsOpen())
+        return ResultStatus::Error;
+
+    // Reset read pointer in case this file has been read before.
+    file.Seek(0, SEEK_SET);
+
+    THREEDSX_Header hdr;
+    if (file.ReadBytes(&hdr, sizeof(THREEDSX_Header)) != sizeof(THREEDSX_Header))
+        return ResultStatus::Error;
+
+    if (hdr.header_size != sizeof(THREEDSX_Header))
+        return ResultStatus::Error;
+
+    // Check if the 3DSX has a RomFS...
+    if (hdr.fs_offset != 0) {
+        u32 romfs_offset = hdr.fs_offset;
+        u32 romfs_size = file.GetSize() - hdr.fs_offset;
+
+        LOG_DEBUG(Loader, "RomFS offset:           0x%08X", romfs_offset);
+        LOG_DEBUG(Loader, "RomFS size:             0x%08X", romfs_size);
+
+        // We reopen the file, to allow its position to be independent from file's
+        romfs_file = std::make_shared<FileUtil::IOFile>(filepath, "rb");
+        if (!romfs_file->IsOpen())
+            return ResultStatus::Error;
+
+        offset = romfs_offset;
+        size = romfs_size;
+
+        return ResultStatus::Success;
+    }
+    LOG_DEBUG(Loader, "3DSX has no RomFS");
+    return ResultStatus::ErrorNotUsed;
 }
 
 } // namespace Loader

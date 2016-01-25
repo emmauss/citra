@@ -13,6 +13,7 @@
 
 #include "core/core.h"
 
+#include "core/hle/hle.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/result.h"
 
@@ -56,7 +57,6 @@ public:
      * @param arg User data to pass to the thread
      * @param processor_id The ID(s) of the processors on which the thread is desired to be run
      * @param stack_top The address of the thread's stack top
-     * @param stack_size The size of the thread's stack
      * @return A shared pointer to the newly created thread
      */
     static ResultVal<SharedPtr<Thread>> Create(std::string name, VAddr entry_point, s32 priority,
@@ -94,12 +94,6 @@ public:
      * @return The thread's ID
      */
     u32 GetThreadId() const { return thread_id; }
-    
-    /**
-     * Release an acquired wait object
-     * @param wait_object WaitObject to release
-     */
-    void ReleaseWaitObject(WaitObject* wait_object);
 
     /**
      * Resumes a thread from waiting
@@ -152,6 +146,8 @@ public:
 
     s32 tls_index; ///< Index of the Thread Local Storage of the thread
 
+    bool waitsynch_waited; ///< Set to true if the last svcWaitSynch call caused the thread to wait
+
     /// Mutexes currently held by this thread, which will be released when it exits.
     boost::container::flat_set<SharedPtr<Mutex>> held_mutexes;
 
@@ -163,12 +159,12 @@ public:
 
     std::string name;
 
+    /// Handle used as userdata to reference this object when inserting into the CoreTiming queue.
+    Handle callback_handle;
+
 private:
     Thread();
     ~Thread() override;
-
-    /// Handle used as userdata to reference this object when inserting into the CoreTiming queue.
-    Handle callback_handle;
 };
 
 /**

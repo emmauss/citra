@@ -4,21 +4,24 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "common/common_types.h"
 
 #include "core/file_sys/archive_backend.h"
-#include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/session.h"
 #include "core/hle/result.h"
+
+namespace FileSys {
+class DirectoryBackend;
+class FileBackend;
+}
 
 /// The unique system identifier hash, also known as ID0
 extern const std::string SYSTEM_ID;
 /// The scrambled SD card CID, also known as ID1
 extern const std::string SDCARD_ID;
-
-namespace Kernel {
-    class Session;
-}
 
 namespace Service {
 namespace FS {
@@ -84,7 +87,7 @@ ResultCode CloseArchive(ArchiveHandle handle);
 
 /**
  * Registers an Archive type, instances of which can later be opened using its IdCode.
- * @param backend File system backend interface to the archive
+ * @param factory File system backend interface to the archive
  * @param id_code Id code used to access this type of archive
  */
 ResultCode RegisterArchiveType(std::unique_ptr<FileSys::ArchiveFactory>&& factory, ArchiveIdCode id_code);
@@ -164,6 +167,13 @@ ResultVal<Kernel::SharedPtr<Directory>> OpenDirectoryFromArchive(ArchiveHandle a
         const FileSys::Path& path);
 
 /**
+ * Get the free space in an Archive
+ * @param archive_handle Handle to an open Archive object
+ * @return The number of free bytes in the archive
+ */
+ResultVal<u64> GetFreeBytesInArchive(ArchiveHandle archive_handle);
+
+/**
  * Erases the contents of the physical folder that contains the archive
  * identified by the specified id code and path
  * @param id_code The id of the archive to format
@@ -177,9 +187,11 @@ ResultCode FormatArchive(ArchiveIdCode id_code, const FileSys::Path& path = File
  * @param media_type The media type of the archive to create (NAND / SDMC)
  * @param high The high word of the extdata id to create
  * @param low The low word of the extdata id to create
+ * @param icon_buffer VAddr of the SMDH icon for this ExtSaveData
+ * @param icon_size Size of the SMDH icon
  * @return ResultCode 0 on success or the corresponding code on error
  */
-ResultCode CreateExtSaveData(MediaType media_type, u32 high, u32 low);
+ResultCode CreateExtSaveData(MediaType media_type, u32 high, u32 low, VAddr icon_buffer, u32 icon_size);
 
 /**
  * Deletes the SharedExtSaveData archive for the specified extdata ID

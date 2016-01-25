@@ -41,13 +41,15 @@ class GPUCommandListWidget : public QDockWidget
     Q_OBJECT
 
 public:
-    GPUCommandListWidget(QWidget* parent = 0);
+    GPUCommandListWidget(QWidget* parent = nullptr);
 
 public slots:
     void OnToggleTracing();
     void OnCommandDoubleClicked(const QModelIndex&);
 
     void SetCommandInfo(const QModelIndex&);
+
+    void CopyAllToClipboard();
 
 signals:
     void TracingFinished(const Pica::DebugUtils::PicaTrace&);

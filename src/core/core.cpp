@@ -2,27 +2,44 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "common/common_types.h"
+#include <memory>
+
+#include "common/make_unique.h"
 #include "common/logging/log.h"
 
 #include "core/core.h"
 #include "core/core_timing.h"
 
-#include "core/settings.h"
 #include "core/arm/arm_interface.h"
-#include "core/arm/disassembler/arm_disasm.h"
 #include "core/arm/dyncom/arm_dyncom.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/thread.h"
 #include "core/hw/hw.h"
 
+#include "core/gdbstub/gdbstub.h"
+
 namespace Core {
 
-ARM_Interface*     g_app_core = nullptr;  ///< ARM11 application core
-ARM_Interface*     g_sys_core = nullptr;  ///< ARM11 system (OS) core
+std::unique_ptr<ARM_Interface> g_app_core; ///< ARM11 application core
+std::unique_ptr<ARM_Interface> g_sys_core; ///< ARM11 system (OS) core
 
 /// Run the core CPU loop
 void RunLoop(int tight_loop) {
+    if (GDBStub::g_server_enabled) {
+        GDBStub::HandlePacket();
+
+        // If the loop is halted and we want to step, use a tiny (1) number of instructions to execute.
+        // Otherwise get out of the loop function.
+        if (GDBStub::GetCpuHaltFlag()) {
+            if (GDBStub::GetCpuStepFlag()) {
+                GDBStub::SetCpuStepFlag(false);
+                tight_loop = 1;
+            } else {
+                return;
+            }
+        }
+    }
+
     // If we don't have a currently active thread then don't execute instructions,
     // instead advance to the next event and try to yield to the next thread
     if (Kernel::GetCurrentThread() == nullptr) {
@@ -57,16 +74,16 @@ void Stop() {
 
 /// Initialize the core
 int Init() {
-    g_sys_core = new ARM_DynCom(USER32MODE);
-    g_app_core = new ARM_DynCom(USER32MODE);
+    g_sys_core = Common::make_unique<ARM_DynCom>(USER32MODE);
+    g_app_core = Common::make_unique<ARM_DynCom>(USER32MODE);
 
     LOG_DEBUG(Core, "Initialized OK");
     return 0;
 }
 
 void Shutdown() {
-    delete g_app_core;
-    delete g_sys_core;
+    g_app_core.reset();
+    g_sys_core.reset();
 
     LOG_DEBUG(Core, "Shutdown OK");
 }

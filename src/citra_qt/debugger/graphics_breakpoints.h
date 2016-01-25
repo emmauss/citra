@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include <QAbstractListModel>
 #include <QDockWidget>
 
 #include "video_core/debug_utils/debug_utils.h"
@@ -31,10 +30,9 @@ public:
 
 public slots:
     void OnBreakPointHit(Pica::DebugContext::Event event, void* data);
+    void OnItemDoubleClicked(const QModelIndex&);
     void OnResumeRequested();
     void OnResumed();
-    void OnBreakpointSelectionChanged(const QModelIndex&);
-    void OnToggleBreakpointEnabled();
 
 signals:
     void Resumed();
@@ -42,11 +40,8 @@ signals:
     void BreakPointsChanged(const QModelIndex& topLeft, const QModelIndex& bottomRight);
 
 private:
-    void UpdateToggleBreakpointButton(const QModelIndex& index);
-
     QLabel* status_text;
     QPushButton* resume_button;
-    QPushButton* toggle_breakpoint_button;
 
     BreakPointModel* breakpoint_model;
     QTreeView* breakpoint_list;

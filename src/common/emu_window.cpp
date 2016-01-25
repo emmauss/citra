@@ -2,6 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
+#include <cmath>
+
+#include "common/assert.h"
+#include "common/key_map.h"
+
 #include "emu_window.h"
 #include "video_core/video_core.h"
 
@@ -32,7 +38,7 @@ std::tuple<unsigned,unsigned> EmuWindow::ClipToTouchScreen(unsigned new_x, unsig
 
     new_x = std::max(new_x, framebuffer_layout.bottom_screen.left);
     new_x = std::min(new_x, framebuffer_layout.bottom_screen.right-1);
-    
+
     new_y = std::max(new_y, framebuffer_layout.bottom_screen.top);
     new_y = std::min(new_y, framebuffer_layout.bottom_screen.bottom-1);
 

@@ -5,8 +5,11 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 
 #include "common/bit_field.h"
+#include "common/common_types.h"
+
 #include "core/hle/service/service.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -28,7 +31,8 @@ enum class InterruptId : u8 {
 /// GSP command ID
 enum class CommandId : u32 {
     REQUEST_DMA            = 0x00,
-    SET_COMMAND_LIST_LAST  = 0x01,
+    /// Submits a commandlist for execution by the GPU.
+    SUBMIT_GPU_CMDLIST = 0x01,
 
     // Fills a given memory range with a particular value
     SET_MEMORY_FILL        = 0x02,
@@ -39,8 +43,8 @@ enum class CommandId : u32 {
 
     // Conceptionally similar to SET_DISPLAY_TRANSFER and presumable uses the same hardware path
     SET_TEXTURE_COPY       = 0x04,
-
-    SET_COMMAND_LIST_FIRST = 0x05,
+    /// Flushes up to 3 cache regions in a single command.
+    CACHE_FLUSH = 0x05,
 };
 
 /// GSP thread interrupt relay queue
@@ -103,7 +107,10 @@ struct Command {
         struct {
             u32 address;
             u32 size;
-        } set_command_list_last;
+            u32 flags;
+            u32 unused[3];
+            u32 do_flush;
+        } submit_gpu_cmdlist;
 
         struct {
             u32 start1;
@@ -124,7 +131,23 @@ struct Command {
             u32 in_buffer_size;
             u32 out_buffer_size;
             u32 flags;
-        } image_copy;
+        } display_transfer;
+
+        struct {
+            u32 in_buffer_address;
+            u32 out_buffer_address;
+            u32 size;
+            u32 in_width_gap;
+            u32 out_width_gap;
+            u32 flags;
+        } texture_copy;
+
+        struct {
+            struct {
+                u32 address;
+                u32 size;
+            } regions[3];
+        } cache_flush;
 
         u8 raw_data[0x1C];
     };
@@ -158,6 +181,7 @@ static_assert(sizeof(CommandBuffer) == 0x200, "CommandBuffer struct has incorrec
 class Interface : public Service::Interface {
 public:
     Interface();
+    ~Interface() override;
 
     std::string GetPortName() const override {
         return "gsp::Gpu";
@@ -170,4 +194,14 @@ public:
  */
 void SignalInterrupt(InterruptId interrupt_id);
 
+void SetBufferSwap(u32 screen_id, const FrameBufferInfo& info);
+
+/**
+ * Retrieves the framebuffer info stored in the GSP shared memory for the
+ * specified screen index and thread id.
+ * @param thread_id GSP thread id of the process that accesses the structure that we are requesting.
+ * @param screen_index Index of the screen we are requesting (Top = 0, Bottom = 1).
+ * @returns FramebufferUpdate Information about the specified framebuffer.
+ */
+FrameBufferUpdate* GetFrameBufferInfo(u32 thread_id, u32 screen_index);
 } // namespace

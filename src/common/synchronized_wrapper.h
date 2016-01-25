@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <mutex>
 
 namespace Common {
@@ -54,6 +55,7 @@ public:
     SynchronizedRef& operator=(SynchronizedRef&) = delete;
     SynchronizedRef& operator=(SynchronizedRef&& o) {
         std::swap(wrapper, o.wrapper);
+        return *this;
     }
 
     T& operator*() { return wrapper->data; }

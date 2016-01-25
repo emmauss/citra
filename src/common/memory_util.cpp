@@ -3,17 +3,20 @@
 // Refer to the license.txt file included.
 
 
-#include "common/common_funcs.h"
 #include "common/logging/log.h"
 #include "common/memory_util.h"
-#include "common/string_util.h"
 
 #ifdef _WIN32
-#include <windows.h>
-#include <psapi.h>
+    #include <windows.h>
+    #include <psapi.h>
+    #include "common/common_funcs.h"
+    #include "common/string_util.h"
+#else
+    #include <cstdlib>
+    #include <sys/mman.h>
 #endif
 
-#if !defined(_WIN32) && defined(__x86_64__) && !defined(MAP_32BIT)
+#if !defined(_WIN32) && defined(ARCHITECTURE_X64) && !defined(MAP_32BIT)
 #include <unistd.h>
 #define PAGE_MASK     (getpagesize() - 1)
 #define round_page(x) ((((unsigned long)(x)) + PAGE_MASK) & ~(PAGE_MASK))
@@ -25,10 +28,10 @@
 void* AllocateExecutableMemory(size_t size, bool low)
 {
 #if defined(_WIN32)
-    void* ptr = VirtualAlloc(0, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    void* ptr = VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 #else
-    static char *map_hint = 0;
-#if defined(__x86_64__) && !defined(MAP_32BIT)
+    static char* map_hint = nullptr;
+#if defined(ARCHITECTURE_X64) && !defined(MAP_32BIT)
     // This OS has no flag to enforce allocation below the 4 GB boundary,
     // but if we hint that we want a low address it is very likely we will
     // get one.
@@ -40,14 +43,11 @@ void* AllocateExecutableMemory(size_t size, bool low)
 #endif
     void* ptr = mmap(map_hint, size, PROT_READ | PROT_WRITE | PROT_EXEC,
         MAP_ANON | MAP_PRIVATE
-#if defined(__x86_64__) && defined(MAP_32BIT)
+#if defined(ARCHITECTURE_X64) && defined(MAP_32BIT)
         | (low ? MAP_32BIT : 0)
 #endif
         , -1, 0);
 #endif /* defined(_WIN32) */
-
-    // printf("Mapped executable memory at %p (size %ld)\n", ptr,
-    //    (unsigned long)size);
 
 #ifdef _WIN32
     if (ptr == nullptr)
@@ -59,14 +59,13 @@ void* AllocateExecutableMemory(size_t size, bool low)
 #endif
         LOG_ERROR(Common_Memory, "Failed to allocate executable memory");
     }
-#if !defined(_WIN32) && defined(__x86_64__) && !defined(MAP_32BIT)
+#if !defined(_WIN32) && defined(ARCHITECTURE_X64) && !defined(MAP_32BIT)
     else
     {
         if (low)
         {
             map_hint += size;
             map_hint = (char*)round_page(map_hint); /* round up to the next page */
-            // printf("Next map will (hopefully) be at %p\n", map_hint);
         }
     }
 #endif
@@ -82,17 +81,14 @@ void* AllocateExecutableMemory(size_t size, bool low)
 void* AllocateMemoryPages(size_t size)
 {
 #ifdef _WIN32
-    void* ptr = VirtualAlloc(0, size, MEM_COMMIT, PAGE_READWRITE);
+    void* ptr = VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_READWRITE);
 #else
-    void* ptr = mmap(0, size, PROT_READ | PROT_WRITE,
+    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE,
             MAP_ANON | MAP_PRIVATE, -1, 0);
 
     if (ptr == MAP_FAILED)
         ptr = nullptr;
 #endif
-
-    // printf("Mapped memory at %p (size %ld)\n", ptr,
-    //    (unsigned long)size);
 
     if (ptr == nullptr)
         LOG_ERROR(Common_Memory, "Failed to allocate raw memory");
@@ -114,9 +110,6 @@ void* AllocateAlignedMemory(size_t size,size_t alignment)
 #endif
 #endif
 
-    // printf("Mapped memory at %p (size %ld)\n", ptr,
-    //    (unsigned long)size);
-
     if (ptr == nullptr)
         LOG_ERROR(Common_Memory, "Failed to allocate aligned memory");
 
@@ -128,11 +121,8 @@ void FreeMemoryPages(void* ptr, size_t size)
     if (ptr)
     {
 #ifdef _WIN32
-
         if (!VirtualFree(ptr, 0, MEM_RELEASE))
             LOG_ERROR(Common_Memory, "FreeMemoryPages failed!\n%s", GetLastErrorMsg());
-        ptr = nullptr; // Is this our responsibility?
-
 #else
         munmap(ptr, size);
 #endif

@@ -37,7 +37,7 @@ class ProfilerWidget : public QDockWidget
     Q_OBJECT
 
 public:
-    ProfilerWidget(QWidget* parent = 0);
+    ProfilerWidget(QWidget* parent = nullptr);
 
 private slots:
     void setProfilingInfoUpdateEnabled(bool enable);
@@ -47,4 +47,21 @@ private:
     ProfilerModel* model;
 
     QTimer update_timer;
+};
+
+class MicroProfileDialog : public QWidget {
+    Q_OBJECT
+
+public:
+    MicroProfileDialog(QWidget* parent = nullptr);
+
+    /// Returns a QAction that can be used to toggle visibility of this dialog.
+    QAction* toggleViewAction();
+
+protected:
+    void showEvent(QShowEvent* ev) override;
+    void hideEvent(QHideEvent* ev) override;
+
+private:
+    QAction* toggle_view_action = nullptr;
 };

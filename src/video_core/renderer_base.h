@@ -4,7 +4,13 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/common_types.h"
+
+#include "video_core/rasterizer_interface.h"
+
+class EmuWindow;
 
 class RendererBase : NonCopyable {
 public:
@@ -48,8 +54,14 @@ public:
         return m_current_frame;
     }
 
+    void RefreshRasterizerSetting();
+
+    std::unique_ptr<VideoCore::RasterizerInterface> rasterizer;
+
 protected:
     f32 m_current_fps;              ///< Current framerate, should be set by the renderer
     int m_current_frame;            ///< Current frame, should be set by the renderer
 
+private:
+    bool opengl_rasterizer_active = false;
 };

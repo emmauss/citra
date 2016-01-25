@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cstddef>
+#include <iomanip>
 #include <sstream>
 
 #include "common/logging/log.h"
@@ -41,7 +43,7 @@ Path::Path(LowPathType type, u32 size, u32 pointer) : type(type) {
     }
 }
 
-const std::string Path::DebugStr() const {
+std::string Path::DebugStr() const {
     switch (GetType()) {
     case Invalid:
     default:
@@ -64,7 +66,7 @@ const std::string Path::DebugStr() const {
     }
 }
 
-const std::string Path::AsString() const {
+std::string Path::AsString() const {
     switch (GetType()) {
     case Char:
         return string;
@@ -81,7 +83,7 @@ const std::string Path::AsString() const {
     }
 }
 
-const std::u16string Path::AsU16Str() const {
+std::u16string Path::AsU16Str() const {
     switch (GetType()) {
     case Char:
         return Common::UTF8ToUTF16(string);
@@ -97,7 +99,7 @@ const std::u16string Path::AsU16Str() const {
     }
 }
 
-const std::vector<u8> Path::AsBinary() const {
+std::vector<u8> Path::AsBinary() const {
     switch (GetType()) {
     case Binary:
         return binary;

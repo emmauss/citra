@@ -2,7 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <sys/stat.h>
+#include <algorithm>
+#include <cstdio>
 
 #include "common/common_types.h"
 #include "common/file_util.h"
@@ -10,7 +11,6 @@
 #include "common/make_unique.h"
 
 #include "core/file_sys/disk_archive.h"
-#include "core/settings.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // FileSys namespace
@@ -74,6 +74,11 @@ std::unique_ptr<DirectoryBackend> DiskArchive::OpenDirectory(const Path& path) c
     return std::move(directory);
 }
 
+u64 DiskArchive::GetFreeBytes() const {
+    // TODO: Stubbed to return 1GiB
+    return 1024 * 1024 * 1024;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 DiskFile::DiskFile(const DiskArchive& archive, const Path& path, const Mode mode) {
@@ -102,15 +107,15 @@ bool DiskFile::Open() {
     mode_string += "b";
 
     file = Common::make_unique<FileUtil::IOFile>(path, mode_string.c_str());
-    return true;
+    return file->IsOpen();
 }
 
-size_t DiskFile::Read(const u64 offset, const u32 length, u8* buffer) const {
+size_t DiskFile::Read(const u64 offset, const size_t length, u8* buffer) const {
     file->Seek(offset, SEEK_SET);
     return file->ReadBytes(buffer, length);
 }
 
-size_t DiskFile::Write(const u64 offset, const u32 length, const u32 flush, const u8* buffer) const {
+size_t DiskFile::Write(const u64 offset, const size_t length, const bool flush, const u8* buffer) const {
     file->Seek(offset, SEEK_SET);
     size_t written = file->WriteBytes(buffer, length);
     if (flush)
@@ -118,8 +123,8 @@ size_t DiskFile::Write(const u64 offset, const u32 length, const u32 flush, cons
     return written;
 }
 
-size_t DiskFile::GetSize() const {
-    return static_cast<size_t>(file->GetSize());
+u64 DiskFile::GetSize() const {
+    return file->GetSize();
 }
 
 bool DiskFile::SetSize(const u64 size) const {

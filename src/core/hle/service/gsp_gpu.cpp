@@ -3,18 +3,22 @@
 // Refer to the license.txt file included.
 
 #include "common/bit_field.h"
+#include "common/microprofile.h"
 
-#include "core/mem_map.h"
 #include "core/memory.h"
 #include "core/hle/kernel/event.h"
 #include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
-#include "gsp_gpu.h"
 #include "core/hw/hw.h"
 #include "core/hw/gpu.h"
 #include "core/hw/lcd.h"
 
 #include "video_core/gpu_debugger.h"
+#include "video_core/debug_utils/debug_utils.h"
+#include "video_core/renderer_base.h"
+#include "video_core/video_core.h"
+
+#include "gsp_gpu.h"
 
 // Main graphics debugger object - TODO: Here is probably not the best place for this
 GraphicsDebugger g_debugger;
@@ -39,7 +43,7 @@ static inline u8* GetCommandBuffer(u32 thread_id) {
     return g_shared_memory->GetPointer(0x800 + (thread_id * sizeof(CommandBuffer)));
 }
 
-static inline FrameBufferUpdate* GetFrameBufferInfo(u32 thread_id, u32 screen_index) {
+FrameBufferUpdate* GetFrameBufferInfo(u32 thread_id, u32 screen_index) {
     DEBUG_ASSERT_MSG(screen_index < 2, "Invalid screen index");
 
     // For each thread there are two FrameBufferUpdate fields
@@ -166,7 +170,7 @@ static void WriteHWRegsWithMask(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 reg_addr = cmd_buff[1];
     u32 size = cmd_buff[2];
-    
+
     u32* src_data = (u32*)Memory::GetPointer(cmd_buff[4]);
     u32* mask_data = (u32*)Memory::GetPointer(cmd_buff[6]);
 
@@ -202,27 +206,34 @@ static void ReadHWRegs(Service::Interface* self) {
     }
 }
 
-static void SetBufferSwap(u32 screen_id, const FrameBufferInfo& info) {
+void SetBufferSwap(u32 screen_id, const FrameBufferInfo& info) {
     u32 base_address = 0x400000;
     PAddr phys_address_left = Memory::VirtualToPhysicalAddress(info.address_left);
     PAddr phys_address_right = Memory::VirtualToPhysicalAddress(info.address_right);
     if (info.active_fb == 0) {
-        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_left1)), 4, 
+        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_left1)), 4,
                 &phys_address_left);
-        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_right1)), 4, 
+        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_right1)), 4,
                 &phys_address_right);
     } else {
-        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_left2)), 4, 
+        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_left2)), 4,
                 &phys_address_left);
-        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_right2)), 4, 
+        WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].address_right2)), 4,
                 &phys_address_right);
     }
-    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].stride)), 4, 
+    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].stride)), 4,
             &info.stride);
-    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].color_format)), 4, 
+    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].color_format)), 4,
             &info.format);
-    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].active_fb)), 4, 
+    WriteHWRegs(base_address + 4 * static_cast<u32>(GPU_REG_INDEX(framebuffer_config[screen_id].active_fb)), 4,
             &info.shown_fb);
+
+    if (Pica::g_debug_context)
+        Pica::g_debug_context->OnEvent(Pica::DebugContext::Event::BufferSwapped, nullptr);
+
+    if (screen_id == 0) {
+        MicroProfileFlip();
+    }
 }
 
 /**
@@ -263,6 +274,8 @@ static void FlushDataCache(Service::Interface* self) {
     u32 address = cmd_buff[1];
     u32 size    = cmd_buff[2];
     u32 process = cmd_buff[4];
+
+    VideoCore::g_renderer->rasterizer->InvalidateRegion(Memory::VirtualToPhysicalAddress(address), size);
 
     // TODO(purpasmart96): Verify return header on HW
 
@@ -344,7 +357,7 @@ void SignalInterrupt(InterruptId interrupt_id) {
 /// Executes the next GSP command
 static void ExecuteCommand(const Command& command, u32 thread_id) {
     // Utility function to convert register ID to address
-    auto WriteGPURegister = [](u32 id, u32 data) {
+    static auto WriteGPURegister = [](u32 id, u32 data) {
         GPU::Write<u32>(0x1EF00000 + 4 * id, data);
     };
 
@@ -352,25 +365,37 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
 
     // GX request DMA - typically used for copying memory from GSP heap to VRAM
     case CommandId::REQUEST_DMA:
+        VideoCore::g_renderer->rasterizer->FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.source_address),
+                                                            command.dma_request.size);
+
         memcpy(Memory::GetPointer(command.dma_request.dest_address),
                Memory::GetPointer(command.dma_request.source_address),
                command.dma_request.size);
         SignalInterrupt(InterruptId::DMA);
+
+        VideoCore::g_renderer->rasterizer->InvalidateRegion(Memory::VirtualToPhysicalAddress(command.dma_request.dest_address),
+                                                          command.dma_request.size);
         break;
 
-    // ctrulib homebrew sends all relevant command list data with this command,
-    // hence we do all "interesting" stuff here and do nothing in SET_COMMAND_LIST_FIRST.
-    // TODO: This will need some rework in the future.
-    case CommandId::SET_COMMAND_LIST_LAST:
+    // TODO: This will need some rework in the future. (why?)
+    case CommandId::SUBMIT_GPU_CMDLIST:
     {
-        auto& params = command.set_command_list_last;
+        auto& params = command.submit_gpu_cmdlist;
 
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(command_processor_config.address)), 
+        if (params.do_flush) {
+            // This flag flushes the command list (params.address, params.size) from the cache.
+            // Command lists are not processed by the hardware renderer, so we don't need to
+            // actually flush them in Citra.
+        }
+
+        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(command_processor_config.address)),
                 Memory::VirtualToPhysicalAddress(params.address) >> 3);
         WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(command_processor_config.size)), params.size);
 
         // TODO: Not sure if we are supposed to always write this .. seems to trigger processing though
         WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(command_processor_config.trigger)), 1);
+
+        // TODO(yuriks): Figure out the meaning of the `flags` field.
 
         break;
     }
@@ -380,25 +405,30 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
     case CommandId::SET_MEMORY_FILL:
     {
         auto& params = command.memory_fill;
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].address_start)),
-                         Memory::VirtualToPhysicalAddress(params.start1) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].address_end)),
-                         Memory::VirtualToPhysicalAddress(params.end1) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].value_32bit)), params.value1);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].control)), params.control1);
 
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].address_start)),
-                         Memory::VirtualToPhysicalAddress(params.start2) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].address_end)),
-                         Memory::VirtualToPhysicalAddress(params.end2) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].value_32bit)), params.value2);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].control)), params.control2);
+        if (params.start1 != 0) {
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].address_start)),
+                    Memory::VirtualToPhysicalAddress(params.start1) >> 3);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].address_end)),
+                    Memory::VirtualToPhysicalAddress(params.end1) >> 3);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].value_32bit)), params.value1);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[0].control)), params.control1);
+        }
+
+        if (params.start2 != 0) {
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].address_start)),
+                    Memory::VirtualToPhysicalAddress(params.start2) >> 3);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].address_end)),
+                    Memory::VirtualToPhysicalAddress(params.end2) >> 3);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].value_32bit)), params.value2);
+            WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(memory_fill_config[1].control)), params.control2);
+        }
         break;
     }
 
     case CommandId::SET_DISPLAY_TRANSFER:
     {
-        auto& params = command.image_copy;
+        auto& params = command.display_transfer;
         WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.input_address)),
                 Memory::VirtualToPhysicalAddress(params.in_buffer_address) >> 3);
         WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.output_address)),
@@ -410,33 +440,45 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
         break;
     }
 
-    // TODO: Check if texture copies are implemented correctly..
     case CommandId::SET_TEXTURE_COPY:
     {
-        auto& params = command.image_copy;
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.input_address)),
+        auto& params = command.texture_copy;
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.input_address),
                 Memory::VirtualToPhysicalAddress(params.in_buffer_address) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.output_address)),
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.output_address),
                 Memory::VirtualToPhysicalAddress(params.out_buffer_address) >> 3);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.input_size)), params.in_buffer_size);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.output_size)), params.out_buffer_size);
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.flags)), params.flags);
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.texture_copy.size),
+                params.size);
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.texture_copy.input_size),
+                params.in_width_gap);
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.texture_copy.output_size),
+                params.out_width_gap);
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.flags),
+                params.flags);
 
-        // TODO: Should this register be set to 1 or should instead its value be OR-ed with 1?
-        WriteGPURegister(static_cast<u32>(GPU_REG_INDEX(display_transfer_config.trigger)), 1);
+        // NOTE: Actual GSP ORs 1 with current register instead of overwriting. Doesn't seem to matter.
+        WriteGPURegister((u32)GPU_REG_INDEX(display_transfer_config.trigger), 1);
         break;
     }
 
-    // TODO: Figure out what exactly SET_COMMAND_LIST_FIRST and SET_COMMAND_LIST_LAST
-    //       are supposed to do.
-    case CommandId::SET_COMMAND_LIST_FIRST:
+    case CommandId::CACHE_FLUSH:
     {
+        for (auto& region : command.cache_flush.regions) {
+            if (region.size == 0)
+                break;
+
+            VideoCore::g_renderer->rasterizer->InvalidateRegion(
+                Memory::VirtualToPhysicalAddress(region.address), region.size);
+        }
         break;
     }
 
     default:
         LOG_ERROR(Service_GSP, "unknown command 0x%08X", (int)command.id.Value());
     }
+
+    if (Pica::g_debug_context)
+        Pica::g_debug_context->OnEvent(Pica::DebugContext::Event::GSPCommandProcessed, (void*)&command);
 }
 
 /**
@@ -461,7 +503,7 @@ static void SetLcdForceBlack(Service::Interface* self) {
 
     LCD::Write(HW::VADDR_LCD + 4 * LCD_REG_INDEX(color_fill_top), data.raw); // Top LCD
     LCD::Write(HW::VADDR_LCD + 4 * LCD_REG_INDEX(color_fill_bottom), data.raw); // Bottom LCD
-    
+
     cmd_buff[1] = RESULT_SUCCESS.raw;
 }
 
@@ -487,6 +529,52 @@ static void TriggerCmdReqQueue(Service::Interface* self) {
     cmd_buff[1] = 0; // No error
 }
 
+/**
+ * GSP_GPU::ImportDisplayCaptureInfo service function
+ *
+ * Returns information about the current framebuffer state
+ *
+ *  Inputs:
+ *      0: Header 0x00180000
+ *  Outputs:
+ *      1: Result code
+ *      2: Left framebuffer virtual address for the main screen
+ *      3: Right framebuffer virtual address for the main screen
+ *      4: Main screen framebuffer format
+ *      5: Main screen framebuffer width
+ *      6: Left framebuffer virtual address for the bottom screen
+ *      7: Right framebuffer virtual address for the bottom screen
+ *      8: Bottom screen framebuffer format
+ *      9: Bottom screen framebuffer width
+ */
+static void ImportDisplayCaptureInfo(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    // TODO(Subv): We're always returning the framebuffer structures for thread_id = 0,
+    // because we only support a single running application at a time.
+    // This should always return the framebuffer data that is currently displayed on the screen.
+
+    u32 thread_id = 0;
+
+    FrameBufferUpdate* top_screen = GetFrameBufferInfo(thread_id, 0);
+    FrameBufferUpdate* bottom_screen = GetFrameBufferInfo(thread_id, 1);
+
+    cmd_buff[2] = top_screen->framebuffer_info[top_screen->index].address_left;
+    cmd_buff[3] = top_screen->framebuffer_info[top_screen->index].address_right;
+    cmd_buff[4] = top_screen->framebuffer_info[top_screen->index].format;
+    cmd_buff[5] = top_screen->framebuffer_info[top_screen->index].stride;
+
+    cmd_buff[6] = bottom_screen->framebuffer_info[bottom_screen->index].address_left;
+    cmd_buff[7] = bottom_screen->framebuffer_info[bottom_screen->index].address_right;
+    cmd_buff[8] = bottom_screen->framebuffer_info[bottom_screen->index].format;
+    cmd_buff[9] = bottom_screen->framebuffer_info[bottom_screen->index].stride;
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    LOG_WARNING(Service_GSP, "called");
+}
+
+
 const Interface::FunctionInfo FunctionTable[] = {
     {0x00010082, WriteHWRegs,                   "WriteHWRegs"},
     {0x00020084, WriteHWRegsWithMask,           "WriteHWRegsWithMask"},
@@ -511,7 +599,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00150002, nullptr,                       "TryAcquireRight"},
     {0x00160042, nullptr,                       "AcquireRight"},
     {0x00170000, nullptr,                       "ReleaseRight"},
-    {0x00180000, nullptr,                       "ImportDisplayCaptureInfo"},
+    {0x00180000, ImportDisplayCaptureInfo,      "ImportDisplayCaptureInfo"},
     {0x00190000, nullptr,                       "SaveVramSysArea"},
     {0x001A0000, nullptr,                       "RestoreVramSysArea"},
     {0x001B0000, nullptr,                       "ResetGpuCore"},
@@ -527,13 +615,18 @@ const Interface::FunctionInfo FunctionTable[] = {
 Interface::Interface() {
     Register(FunctionTable);
 
-    g_interrupt_event = 0;
+    g_interrupt_event = nullptr;
 
     using Kernel::MemoryPermission;
     g_shared_memory = Kernel::SharedMemory::Create(0x1000, MemoryPermission::ReadWrite,
             MemoryPermission::ReadWrite, "GSPSharedMem");
 
     g_thread_id = 0;
+}
+
+Interface::~Interface() {
+    g_interrupt_event = nullptr;
+    g_shared_memory = nullptr;
 }
 
 } // namespace

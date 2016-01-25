@@ -13,12 +13,14 @@
 #include "common/thread_queue_list.h"
 
 #include "core/arm/arm_interface.h"
+#include "core/arm/skyeye_common/armstate.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/thread.h"
+#include "core/hle/kernel/memory.h"
 #include "core/hle/kernel/mutex.h"
 #include "core/hle/result.h"
 #include "core/memory.h"
@@ -35,6 +37,10 @@ bool Thread::ShouldWait() {
 void Thread::Acquire() {
     ASSERT_MSG(!ShouldWait(), "object unavailable!");
 }
+
+// TODO(yuriks): This can be removed if Thread objects are explicitly pooled in the future, allowing
+//               us to simply use a pool index or similar.
+static Kernel::HandleTable wakeup_callback_handle_table;
 
 // Lists all thread ids that aren't deleted/etc.
 static std::vector<SharedPtr<Thread>> thread_list;
@@ -92,6 +98,8 @@ void Thread::Stop() {
 
     // Cancel any outstanding wakeup events for this thread
     CoreTiming::UnscheduleEvent(ThreadWakeupEventType, callback_handle);
+    wakeup_callback_handle_table.Close(callback_handle);
+    callback_handle = 0;
 
     // Clean up thread from ready queue
     // This is only needed when the thread is termintated forcefully (SVC TerminateProcess)
@@ -100,15 +108,20 @@ void Thread::Stop() {
     }
 
     status = THREADSTATUS_DEAD;
-    
+
     WakeupAllWaitingThreads();
 
     // Clean up any dangling references in objects that this thread was waiting for
     for (auto& wait_object : wait_objects) {
         wait_object->RemoveWaitingThread(this);
     }
+    wait_objects.clear();
 
     Kernel::g_current_process->used_tls_slots[tls_index] = false;
+    g_current_process->misc_memory_used -= Memory::TLS_ENTRY_SIZE;
+    g_current_process->memory_region->used -= Memory::TLS_ENTRY_SIZE;
+
+    HLE::Reschedule(__func__);
 }
 
 Thread* ArbitrateHighestPriorityThread(u32 address) {
@@ -167,7 +180,7 @@ static void PriorityBoostStarvedThreads() {
     }
 }
 
-/** 
+/**
  * Switches the CPU's active thread context to that of the specified thread
  * @param new_thread The thread to switch to
  */
@@ -191,7 +204,29 @@ static void SwitchContext(Thread* new_thread) {
     if (new_thread) {
         DEBUG_ASSERT_MSG(new_thread->status == THREADSTATUS_READY, "Thread must be ready to become running.");
 
+        // Cancel any outstanding wakeup events for this thread
+        CoreTiming::UnscheduleEvent(ThreadWakeupEventType, new_thread->callback_handle);
+
         current_thread = new_thread;
+
+        // If the thread was waited by a svcWaitSynch call, step back PC by one instruction to rerun
+        // the SVC when the thread wakes up. This is necessary to ensure that the thread can acquire
+        // the requested wait object(s) before continuing.
+        if (new_thread->waitsynch_waited) {
+            // CPSR flag indicates CPU mode
+            bool thumb_mode = (new_thread->context.cpsr & TBIT) != 0;
+
+            // SVC instruction is 2 bytes for THUMB, 4 bytes for ARM
+            new_thread->context.pc -= thumb_mode ? 2 : 4;
+        }
+
+        // Clean up the thread's wait_objects, they'll be restored if needed during
+        // the svcWaitSynchronization call
+        for (size_t i = 0; i < new_thread->wait_objects.size(); ++i) {
+            SharedPtr<WaitObject> object = new_thread->wait_objects[i];
+            object->RemoveWaitingThread(new_thread);
+        }
+        new_thread->wait_objects.clear();
 
         ready_queue.remove(new_thread->current_priority, new_thread);
         new_thread->status = THREADSTATUS_RUNNING;
@@ -232,6 +267,8 @@ static Thread* PopNextReadyThread() {
 void WaitCurrentThread_Sleep() {
     Thread* thread = GetCurrentThread();
     thread->status = THREADSTATUS_WAIT_SLEEP;
+
+    HLE::Reschedule(__func__);
 }
 
 void WaitCurrentThread_WaitSynchronization(std::vector<SharedPtr<WaitObject>> wait_objects, bool wait_set_output, bool wait_all) {
@@ -239,6 +276,7 @@ void WaitCurrentThread_WaitSynchronization(std::vector<SharedPtr<WaitObject>> wa
     thread->wait_set_output = wait_set_output;
     thread->wait_all = wait_all;
     thread->wait_objects = std::move(wait_objects);
+    thread->waitsynch_waited = true;
     thread->status = THREADSTATUS_WAIT_SYNCH;
 }
 
@@ -247,10 +285,6 @@ void WaitCurrentThread_ArbitrateAddress(VAddr wait_address) {
     thread->wait_address = wait_address;
     thread->status = THREADSTATUS_WAIT_ARB;
 }
-
-// TODO(yuriks): This can be removed if Thread objects are explicitly pooled in the future, allowing
-//               us to simply use a pool index or similar.
-static Kernel::HandleTable wakeup_callback_handle_table;
 
 /**
  * Callback that will wake up the thread it was scheduled for
@@ -264,7 +298,9 @@ static void ThreadWakeupCallback(u64 thread_handle, int cycles_late) {
         return;
     }
 
-    if (thread->status == THREADSTATUS_WAIT_SYNCH) {
+    thread->waitsynch_waited = false;
+
+    if (thread->status == THREADSTATUS_WAIT_SYNCH || thread->status == THREADSTATUS_WAIT_ARB) {
         thread->SetWaitSynchronizationResult(ResultCode(ErrorDescription::Timeout, ErrorModule::OS,
                                                         ErrorSummary::StatusChanged, ErrorLevel::Info));
 
@@ -284,63 +320,20 @@ void Thread::WakeAfterDelay(s64 nanoseconds) {
     CoreTiming::ScheduleEvent(usToCycles(microseconds), ThreadWakeupEventType, callback_handle);
 }
 
-void Thread::ReleaseWaitObject(WaitObject* wait_object) {
-    if (status != THREADSTATUS_WAIT_SYNCH || wait_objects.empty()) {
-        LOG_CRITICAL(Kernel, "thread is not waiting on any objects!");
-        return;
-    }
-
-    // Remove this thread from the waiting object's thread list
-    wait_object->RemoveWaitingThread(this);
-
-    unsigned index = 0;
-    bool wait_all_failed = false; // Will be set to true if any object is unavailable
-
-    // Iterate through all waiting objects to check availability...
-    for (auto itr = wait_objects.begin(); itr != wait_objects.end(); ++itr) {
-        if ((*itr)->ShouldWait())
-            wait_all_failed = true;
-
-        // The output should be the last index of wait_object
-        if (*itr == wait_object)
-            index = itr - wait_objects.begin();
-    }
-
-    // If we are waiting on all objects...
-    if (wait_all) {
-        // Resume the thread only if all are available...
-        if (!wait_all_failed) {
-            SetWaitSynchronizationResult(RESULT_SUCCESS);
-            SetWaitSynchronizationOutput(-1);
-
-            ResumeFromWait();
-        }
-    } else {
-        // Otherwise, resume
-        SetWaitSynchronizationResult(RESULT_SUCCESS);
-
-        if (wait_set_output)
-            SetWaitSynchronizationOutput(index);
-
-        ResumeFromWait();
-    }
-}
-
 void Thread::ResumeFromWait() {
-    // Cancel any outstanding wakeup events for this thread
-    CoreTiming::UnscheduleEvent(ThreadWakeupEventType, callback_handle);
-
     switch (status) {
         case THREADSTATUS_WAIT_SYNCH:
-            // Remove this thread from all other WaitObjects
-            for (auto wait_object : wait_objects)
-                wait_object->RemoveWaitingThread(this);
-            break;
         case THREADSTATUS_WAIT_ARB:
         case THREADSTATUS_WAIT_SLEEP:
             break;
-        case THREADSTATUS_RUNNING:
+
         case THREADSTATUS_READY:
+            // If the thread is waiting on multiple wait objects, it might be awoken more than once
+            // before actually resuming. We can ignore subsequent wakeups if the thread status has
+            // already been set to THREADSTATUS_READY.
+            return;
+
+        case THREADSTATUS_RUNNING:
             DEBUG_ASSERT_MSG(false, "Thread with object id %u has already resumed.", GetObjectId());
             return;
         case THREADSTATUS_DEAD:
@@ -349,7 +342,7 @@ void Thread::ResumeFromWait() {
                 GetObjectId());
             return;
     }
-    
+
     ready_queue.push_back(current_priority, this);
     status = THREADSTATUS_READY;
 }
@@ -411,6 +404,7 @@ ResultVal<SharedPtr<Thread>> Thread::Create(std::string name, VAddr entry_point,
     thread->callback_handle = wakeup_callback_handle_table.Create(thread).MoveFrom();
     thread->owner_process = g_current_process;
     thread->tls_index = -1;
+    thread->waitsynch_waited = false;
 
     // Find the next available TLS index, and mark it as used
     auto& used_tls_slots = Kernel::g_current_process->used_tls_slots;
@@ -423,6 +417,8 @@ ResultVal<SharedPtr<Thread>> Thread::Create(std::string name, VAddr entry_point,
     }
 
     ASSERT_MSG(thread->tls_index != -1, "Out of TLS space");
+    g_current_process->misc_memory_used += Memory::TLS_ENTRY_SIZE;
+    g_current_process->memory_region->used += Memory::TLS_ENTRY_SIZE;
 
     // TODO(peachum): move to ScheduleThread() when scheduler is added so selected core is used
     // to initialize the context
@@ -430,6 +426,8 @@ ResultVal<SharedPtr<Thread>> Thread::Create(std::string name, VAddr entry_point,
 
     ready_queue.push_back(thread->current_priority, thread.get());
     thread->status = THREADSTATUS_READY;
+
+    HLE::Reschedule(__func__);
 
     return MakeResult<SharedPtr<Thread>>(std::move(thread));
 }
@@ -498,7 +496,7 @@ void Reschedule() {
     } else if (next) {
         LOG_TRACE(Kernel, "context switch idle -> %u", next->GetObjectId());
     }
-    
+
     SwitchContext(next);
 }
 
@@ -511,7 +509,7 @@ void Thread::SetWaitSynchronizationOutput(s32 output) {
 }
 
 VAddr Thread::GetTLSAddress() const {
-    return Memory::TLS_AREA_VADDR + tls_index * 0x200;
+    return Memory::TLS_AREA_VADDR + tls_index * Memory::TLS_ENTRY_SIZE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -521,12 +519,16 @@ void ThreadingInit() {
 
     current_thread = nullptr;
     next_thread_id = 1;
-
-    thread_list.clear();
-    ready_queue.clear();
 }
 
 void ThreadingShutdown() {
+    current_thread = nullptr;
+
+    for (auto& t : thread_list) {
+        t->Stop();
+    }
+    thread_list.clear();
+    ready_queue.clear();
 }
 
 } // namespace

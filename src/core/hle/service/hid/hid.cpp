@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include "common/logging/log.h"
+#include "common/emu_window.h"
 
 #include "core/hle/service/service.h"
 #include "core/hle/service/hid/hid.h"
@@ -34,6 +35,16 @@ static Kernel::SharedPtr<Kernel::Event> event_debug_pad;
 static u32 next_pad_index;
 static u32 next_touch_index;
 
+const std::array<Service::HID::PadState, Settings::NativeInput::NUM_INPUTS> pad_mapping = {{
+    Service::HID::PAD_A, Service::HID::PAD_B, Service::HID::PAD_X, Service::HID::PAD_Y,
+    Service::HID::PAD_L, Service::HID::PAD_R, Service::HID::PAD_ZL, Service::HID::PAD_ZR,
+    Service::HID::PAD_START, Service::HID::PAD_SELECT, Service::HID::PAD_NONE,
+    Service::HID::PAD_UP, Service::HID::PAD_DOWN, Service::HID::PAD_LEFT, Service::HID::PAD_RIGHT,
+    Service::HID::PAD_CIRCLE_UP, Service::HID::PAD_CIRCLE_DOWN, Service::HID::PAD_CIRCLE_LEFT, Service::HID::PAD_CIRCLE_RIGHT,
+    Service::HID::PAD_C_UP, Service::HID::PAD_C_DOWN, Service::HID::PAD_C_LEFT, Service::HID::PAD_C_RIGHT
+}};
+
+
 // TODO(peachum):
 // Add a method for setting analog input from joystick device for the circle Pad.
 //
@@ -58,7 +69,7 @@ void Update() {
 
     mem->pad.current_state.hex = state.hex;
     mem->pad.index = next_pad_index;
-    ++next_touch_index %= mem->pad.entries.size();
+    next_touch_index = (next_touch_index + 1) % mem->pad.entries.size();
 
     // Get the previous Pad state
     u32 last_entry_index = (mem->pad.index - 1) % mem->pad.entries.size();
@@ -88,7 +99,7 @@ void Update() {
     }
 
     mem->touch.index = next_touch_index;
-    ++next_touch_index %= mem->touch.entries.size();
+    next_touch_index = (next_touch_index + 1) % mem->touch.entries.size();
 
     // Get the current touch entry
     TouchDataEntry* touch_entry = &mem->touch.entries[mem->touch.index];
@@ -106,7 +117,7 @@ void Update() {
         mem->touch.index_reset_ticks_previous = mem->touch.index_reset_ticks;
         mem->touch.index_reset_ticks = (s64)CoreTiming::GetTicks();
     }
-    
+
     // Signal both handles when there's an update to Pad or touch
     event_pad_or_touch_1->Signal();
     event_pad_or_touch_2->Signal();
@@ -136,7 +147,27 @@ void EnableAccelerometer(Service::Interface* self) {
     LOG_WARNING(Service_HID, "(STUBBED) called");
 }
 
+void DisableAccelerometer(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    event_accelerometer->Signal();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    LOG_WARNING(Service_HID, "(STUBBED) called");
+}
+
 void EnableGyroscopeLow(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    event_gyroscope->Signal();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    LOG_WARNING(Service_HID, "(STUBBED) called");
+}
+
+void DisableGyroscopeLow(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     event_gyroscope->Signal();

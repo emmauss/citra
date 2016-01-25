@@ -6,13 +6,12 @@
 
 #include <array>
 
-#include "generated/gl_3_2_core.h"
-
-#include "common/math_util.h"
+#include <glad/glad.h>
 
 #include "core/hw/gpu.h"
 
 #include "video_core/renderer_base.h"
+#include "video_core/renderer_opengl/gl_state.h"
 
 class EmuWindow;
 
@@ -49,27 +48,25 @@ private:
     };
 
     void InitOpenGLObjects();
-    static void ConfigureFramebufferTexture(TextureInfo& texture,
-                                            const GPU::Regs::FramebufferConfig& framebuffer);
+    void ConfigureFramebufferTexture(TextureInfo& texture,
+                                     const GPU::Regs::FramebufferConfig& framebuffer);
     void DrawScreens();
     void DrawSingleScreenRotated(const TextureInfo& texture, float x, float y, float w, float h);
     void UpdateFramerate();
 
     // Loads framebuffer from emulated memory into the active OpenGL texture.
-    static void LoadFBToActiveGLTexture(const GPU::Regs::FramebufferConfig& framebuffer,
-                                        const TextureInfo& texture);
+    void LoadFBToActiveGLTexture(const GPU::Regs::FramebufferConfig& framebuffer,
+                                 const TextureInfo& texture);
     // Fills active OpenGL texture with the given RGB color.
-    static void LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color_b,
-                                           const TextureInfo& texture);
-
-    /// Computes the viewport rectangle
-    MathUtil::Rectangle<unsigned> GetViewportExtent();
+    void LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color_b,
+                                    const TextureInfo& texture);
 
     EmuWindow*  render_window;                    ///< Handle to render window
-    u32         last_mode;                        ///< Last render mode
 
     int resolution_width;                         ///< Current resolution width
     int resolution_height;                        ///< Current resolution height
+
+    OpenGLState state;
 
     // OpenGL object IDs
     GLuint vertex_array_handle;

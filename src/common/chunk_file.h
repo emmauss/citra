@@ -26,16 +26,18 @@
 // - Zero backwards/forwards compatibility
 // - Serialization code for anything complex has to be manually written.
 
-#include <map>
-#include <vector>
+#include <cstring>
 #include <deque>
-#include <string>
 #include <list>
+#include <map>
 #include <set>
+#include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
+#include "common/assert.h"
 #include "common/common_types.h"
-#include "common/file_util.h"
 #include "common/logging/log.h"
 
 template <class T>
@@ -573,10 +575,10 @@ public:
     }
 
     template<class T, LinkedListItem<T>* (*TNew)(), void (*TFree)(LinkedListItem<T>*), void (*TDo)(PointerWrap&, T*)>
-    void DoLinkedList(LinkedListItem<T>*& list_start, LinkedListItem<T>** list_end=0)
+    void DoLinkedList(LinkedListItem<T>*& list_start, LinkedListItem<T>** list_end = nullptr)
     {
         LinkedListItem<T>* list_cur = list_start;
-        LinkedListItem<T>* prev = 0;
+        LinkedListItem<T>* prev = nullptr;
 
         while (true)
         {

@@ -2,40 +2,47 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "common/logging/log.h"
-#include "common/platform.h"
-
-#if EMU_PLATFORM == PLATFORM_WINDOWS
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
-// MinGW does not define several errno constants
-#ifndef _MSC_VER
-#define EBADMSG 104
-#define ENODATA 120
-#define ENOMSG  122
-#define ENOSR   124
-#define ENOSTR  125
-#define ETIME   137
-#define EIDRM   2001
-#define ENOLINK 2002
-#endif // _MSC_VER
-
-#else
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <poll.h>
-#endif
-
-#include "common/scope_exit.h"
-#include "core/hle/hle.h"
-#include "core/hle/service/soc_u.h"
+#include <algorithm>
+#include <cstring>
 #include <unordered_map>
 
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#include "common/assert.h"
+#include "common/bit_field.h"
+#include "common/common_types.h"
+#include "common/logging/log.h"
+#include "common/scope_exit.h"
+
+#include "core/hle/kernel/session.h"
+#include "core/hle/result.h"
+#include "core/hle/service/soc_u.h"
+#include "core/memory.h"
+
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+
+    // MinGW does not define several errno constants
+    #ifndef _MSC_VER
+        #define EBADMSG 104
+        #define ENODATA 120
+        #define ENOMSG  122
+        #define ENOSR   124
+        #define ENOSTR  125
+        #define ETIME   137
+        #define EIDRM   2001
+        #define ENOLINK 2002
+    #endif // _MSC_VER
+#else
+    #include <cerrno>
+    #include <fcntl.h>
+    #include <netinet/in.h>
+    #include <netdb.h>
+    #include <poll.h>
+    #include <sys/socket.h>
+    #include <unistd.h>
+#endif
+
+#ifdef _WIN32
 #    define WSAEAGAIN      WSAEWOULDBLOCK
 #    define WSAEMULTIHOP   -1 // Invalid dummy value
 #    define ERRNO(x)       WSA##x
@@ -139,7 +146,7 @@ static int TranslateError(int error) {
     auto found = error_map.find(error);
     if (found != error_map.end())
         return -found->second;
-    
+
     return error;
 }
 
@@ -328,6 +335,7 @@ static void Socket(Service::Interface* self) {
     if ((s32)socket_handle == SOCKET_ERROR_VALUE)
         result = TranslateError(GET_ERRNO);
 
+    cmd_buffer[0] = IPC::MakeHeader(2, 2, 0);
     cmd_buffer[1] = result;
     cmd_buffer[2] = socket_handle;
 }
@@ -346,13 +354,14 @@ static void Bind(Service::Interface* self) {
     sockaddr sock_addr = CTRSockAddr::ToPlatform(*ctr_sock_addr);
 
     int res = ::bind(socket_handle, &sock_addr, std::max<u32>(sizeof(sock_addr), len));
-    
+
     int result = 0;
     if (res != 0)
         result = TranslateError(GET_ERRNO);
 
-    cmd_buffer[2] = res;
+    cmd_buffer[0] = IPC::MakeHeader(5, 2, 0);
     cmd_buffer[1] = result;
+    cmd_buffer[2] = res;
 }
 
 static void Fcntl(Service::Interface* self) {
@@ -360,16 +369,16 @@ static void Fcntl(Service::Interface* self) {
     u32 socket_handle = cmd_buffer[1];
     u32 ctr_cmd = cmd_buffer[2];
     u32 ctr_arg = cmd_buffer[3];
- 
+
     int result = 0;
     u32 posix_ret = 0; // TODO: Check what hardware returns for F_SETFL (unspecified by POSIX)
     SCOPE_EXIT({
             cmd_buffer[1] = result;
             cmd_buffer[2] = posix_ret;
     });
- 
+
     if (ctr_cmd == 3) { // F_GETFL
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#ifdef _WIN32
         posix_ret = 0;
         auto iter = open_sockets.find(socket_handle);
         if (iter != open_sockets.end() && iter->second.blocking == false)
@@ -386,7 +395,7 @@ static void Fcntl(Service::Interface* self) {
             posix_ret |= 4; // O_NONBLOCK
 #endif
     } else if (ctr_cmd == 4) { // F_SETFL
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#ifdef _WIN32
         unsigned long tmp = (ctr_arg & 4 /* O_NONBLOCK */) ? 1 : 0;
         int ret = ioctlsocket(socket_handle, FIONBIO, &tmp);
         if (ret == SOCKET_ERROR_VALUE) {
@@ -404,11 +413,11 @@ static void Fcntl(Service::Interface* self) {
             posix_ret = -1;
             return;
         }
- 
+
         flags &= ~O_NONBLOCK;
         if (ctr_arg & 4) // O_NONBLOCK
             flags |= O_NONBLOCK;
- 
+
         int ret = ::fcntl(socket_handle, F_SETFL, flags);
         if (ret == SOCKET_ERROR_VALUE) {
             result = TranslateError(GET_ERRNO);
@@ -434,13 +443,14 @@ static void Listen(Service::Interface* self) {
     if (ret != 0)
         result = TranslateError(GET_ERRNO);
 
-    cmd_buffer[2] = ret;
+    cmd_buffer[0] = IPC::MakeHeader(3, 2, 0);
     cmd_buffer[1] = result;
+    cmd_buffer[2] = ret;
 }
 
 static void Accept(Service::Interface* self) {
-    // TODO(Subv): Calling this function on a blocking socket will block the emu thread, 
-    // preventing graceful shutdown when closing the emulator, this can be fixed by always 
+    // TODO(Subv): Calling this function on a blocking socket will block the emu thread,
+    // preventing graceful shutdown when closing the emulator, this can be fixed by always
     // performing nonblocking operations and spinlock until the data is available
     u32* cmd_buffer = Kernel::GetCommandBuffer();
     u32 socket_handle = cmd_buffer[1];
@@ -448,7 +458,7 @@ static void Accept(Service::Interface* self) {
     sockaddr addr;
     socklen_t addr_len = sizeof(addr);
     u32 ret = static_cast<u32>(::accept(socket_handle, &addr, &addr_len));
-    
+
     if ((s32)ret != SOCKET_ERROR_VALUE)
         open_sockets[ret] = { ret, true };
 
@@ -460,8 +470,10 @@ static void Accept(Service::Interface* self) {
         Memory::WriteBlock(cmd_buffer[0x104 >> 2], (const u8*)&ctr_addr, max_addr_len);
     }
 
-    cmd_buffer[2] = ret;
+    cmd_buffer[0] = IPC::MakeHeader(4, 2, 2);
     cmd_buffer[1] = result;
+    cmd_buffer[2] = ret;
+    cmd_buffer[3] = IPC::StaticBufferDesc(static_cast<u32>(max_addr_len), 0);
 }
 
 static void GetHostId(Service::Interface* self) {
@@ -469,11 +481,17 @@ static void GetHostId(Service::Interface* self) {
 
     char name[128];
     gethostname(name, sizeof(name));
-    hostent* host = gethostbyname(name);
-    in_addr* addr = reinterpret_cast<in_addr*>(host->h_addr);
+    addrinfo hints = {};
+    addrinfo* res;
+
+    hints.ai_family = AF_INET;
+    getaddrinfo(name, nullptr, &hints, &res);
+    sockaddr_in* sock_addr = reinterpret_cast<sockaddr_in*>(res->ai_addr);
+    in_addr* addr = &sock_addr->sin_addr;
 
     cmd_buffer[2] = addr->s_addr;
     cmd_buffer[1] = 0;
+    freeaddrinfo(res);
 }
 
 static void Close(Service::Interface* self) {
@@ -525,8 +543,8 @@ static void SendTo(Service::Interface* self) {
 }
 
 static void RecvFrom(Service::Interface* self) {
-    // TODO(Subv): Calling this function on a blocking socket will block the emu thread, 
-    // preventing graceful shutdown when closing the emulator, this can be fixed by always 
+    // TODO(Subv): Calling this function on a blocking socket will block the emu thread,
+    // preventing graceful shutdown when closing the emulator, this can be fixed by always
     // performing nonblocking operations and spinlock until the data is available
     u32* cmd_buffer = Kernel::GetCommandBuffer();
     u32 socket_handle = cmd_buffer[1];
@@ -534,13 +552,23 @@ static void RecvFrom(Service::Interface* self) {
     u32 flags = cmd_buffer[3];
     socklen_t addr_len = static_cast<socklen_t>(cmd_buffer[4]);
 
-    u8* output_buff = Memory::GetPointer(cmd_buffer[0x104 >> 2]);
+    struct
+    {
+        u32 output_buffer_descriptor;
+        u32 output_buffer_addr;
+        u32 address_buffer_descriptor;
+        u32 output_src_address_buffer;
+    } buffer_parameters;
+
+    std::memcpy(&buffer_parameters, &cmd_buffer[64], sizeof(buffer_parameters));
+
+    u8* output_buff = Memory::GetPointer(buffer_parameters.output_buffer_addr);
     sockaddr src_addr;
     socklen_t src_addr_len = sizeof(src_addr);
     int ret = ::recvfrom(socket_handle, (char*)output_buff, len, flags, &src_addr, &src_addr_len);
 
-    if (cmd_buffer[0x1A0 >> 2] != 0) {
-        CTRSockAddr* ctr_src_addr = reinterpret_cast<CTRSockAddr*>(Memory::GetPointer(cmd_buffer[0x1A0 >> 2]));
+    if (buffer_parameters.output_src_address_buffer != 0) {
+        CTRSockAddr* ctr_src_addr = reinterpret_cast<CTRSockAddr*>(Memory::GetPointer(buffer_parameters.output_src_address_buffer));
         *ctr_src_addr = CTRSockAddr::FromPlatform(src_addr);
     }
 
@@ -568,7 +596,7 @@ static void Poll(Service::Interface* self) {
     pollfd* platform_pollfd = new pollfd[nfds];
     for (unsigned current_fds = 0; current_fds < nfds; ++current_fds)
         platform_pollfd[current_fds] = CTRPollFD::ToPlatform(input_fds[current_fds]);
-    
+
     int ret = ::poll(platform_pollfd, nfds, timeout);
 
     // Now update the output pollfd structure
@@ -630,7 +658,7 @@ static void GetPeerName(Service::Interface* self) {
     socklen_t len = cmd_buffer[2];
 
     CTRSockAddr* ctr_dest_addr = reinterpret_cast<CTRSockAddr*>(Memory::GetPointer(cmd_buffer[0x104 >> 2]));
-    
+
     sockaddr dest_addr;
     socklen_t dest_addr_len = sizeof(dest_addr);
     int ret = ::getpeername(socket_handle, &dest_addr, &dest_addr_len);
@@ -651,8 +679,8 @@ static void GetPeerName(Service::Interface* self) {
 }
 
 static void Connect(Service::Interface* self) {
-    // TODO(Subv): Calling this function on a blocking socket will block the emu thread, 
-    // preventing graceful shutdown when closing the emulator, this can be fixed by always 
+    // TODO(Subv): Calling this function on a blocking socket will block the emu thread,
+    // preventing graceful shutdown when closing the emulator, this can be fixed by always
     // performing nonblocking operations and spinlock until the data is available
     u32* cmd_buffer = Kernel::GetCommandBuffer();
     u32 socket_handle = cmd_buffer[1];
@@ -669,26 +697,29 @@ static void Connect(Service::Interface* self) {
     int result = 0;
     if (ret != 0)
         result = TranslateError(GET_ERRNO);
-    cmd_buffer[2] = ret;
+
+    cmd_buffer[0] = IPC::MakeHeader(6, 2, 0);
     cmd_buffer[1] = result;
+    cmd_buffer[2] = ret;
 }
 
 static void InitializeSockets(Service::Interface* self) {
     // TODO(Subv): Implement
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#ifdef _WIN32
     WSADATA data;
     WSAStartup(MAKEWORD(2, 2), &data);
 #endif
 
     u32* cmd_buffer = Kernel::GetCommandBuffer();
-    cmd_buffer[1] = 0;
+    cmd_buffer[0] = IPC::MakeHeader(1, 1, 0);
+    cmd_buffer[1] = RESULT_SUCCESS.raw;
 }
 
 static void ShutdownSockets(Service::Interface* self) {
     // TODO(Subv): Implement
     CleanupSockets();
 
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#ifdef _WIN32
     WSACleanup();
 #endif
 
@@ -739,7 +770,7 @@ Interface::Interface() {
 
 Interface::~Interface() {
     CleanupSockets();
-#if EMU_PLATFORM == PLATFORM_WINDOWS
+#ifdef _WIN32
     WSACleanup();
 #endif
 }

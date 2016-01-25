@@ -1,3 +1,5 @@
+**BEFORE FILING AN ISSUE, READ THE RELEVANT SECTION IN THE [CONTRIBUTING](https://github.com/citra-emu/citra/blob/master/CONTRIBUTING.md#reporting-issues) FILE!!!**
+
 Citra Emulator
 ==============
 [![Travis CI Build Status](https://travis-ci.org/citra-emu/citra.svg)](https://travis-ci.org/citra-emu/citra)
@@ -7,7 +9,7 @@ Citra is an experimental open-source Nintendo 3DS emulator/debugger written in C
 
 Citra is licensed under the GPLv2 (or any later version). Refer to the license.txt file included. Please read the [FAQ](https://github.com/citra-emu/citra/wiki/FAQ) before getting started with the project.
 
-For development discussion, please join us @ #citra on [freenode](http://webchat.freenode.net/?channels=citra).
+For development discussion, please join us @ #citra on freenode.
 
 ### Development
 
@@ -28,5 +30,5 @@ If you like, you can [donate by PayPal](https://www.paypal.com/cgi-bin/webscr?cm
 * Infrastructure setup
 * Eventually 3D displays to get proper 3D output working
 * ... etc ...
- 
+
 We also more than gladly accept used 3DS consoles, preferrably ones with firmware 4.5 or lower! If you would like to give yours away, don't hesitate to join our IRC channel #citra on [Freenode](http://webchat.freenode.net/?channels=citra) and talk to neobrain or bunnei. Mind you, IRC is slow-paced, so it might be a while until people reply. If you're in a hurry you can just leave contact details in the channel or via private message and we'll get back to you.

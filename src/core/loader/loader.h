@@ -4,12 +4,18 @@
 
 #pragma once
 
+#include <algorithm>
+#include <initializer_list>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "common/common_types.h"
 #include "common/file_util.h"
 
-#include "core/hle/kernel/process.h"
+namespace Kernel {
+struct AddressMapping;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Loader namespace
@@ -27,6 +33,34 @@ enum class FileType {
     THREEDSX, //3DSX
 };
 
+/**
+ * Identifies the type of a bootable file based on the magic value in its header.
+ * @param file open file
+ * @return FileType of file
+ */
+FileType IdentifyFile(FileUtil::IOFile& file);
+
+/**
+ * Identifies the type of a bootable file based on the magic value in its header.
+ * @param file_name path to file
+ * @return FileType of file. Note: this will return FileType::Unknown if it is unable to determine
+ * a filetype, and will never return FileType::Error.
+ */
+FileType IdentifyFile(const std::string& file_name);
+
+/**
+ * Guess the type of a bootable file from its extension
+ * @param extension String extension of bootable file
+ * @return FileType of file. Note: this will return FileType::Unknown if it is unable to determine
+ * a filetype, and will never return FileType::Error.
+ */
+FileType GuessFromExtension(const std::string& extension_);
+
+/**
+ * Convert a FileType into a string which can be displayed to the user.
+ */
+const char* GetFileTypeString(FileType type);
+
 /// Return type for functions in Loader namespace
 enum class ResultStatus {
     Success,
@@ -37,6 +71,7 @@ enum class ResultStatus {
     ErrorNotUsed,
     ErrorAlreadyLoaded,
     ErrorMemoryAllocationFailed,
+    ErrorEncrypted,
 };
 
 static inline u32 MakeMagic(char a, char b, char c, char d) {
@@ -46,7 +81,7 @@ static inline u32 MakeMagic(char a, char b, char c, char d) {
 /// Interface for loading an application
 class AppLoader : NonCopyable {
 public:
-    AppLoader(std::unique_ptr<FileUtil::IOFile>&& file) : file(std::move(file)) { }
+    AppLoader(FileUtil::IOFile&& file) : file(std::move(file)) { }
     virtual ~AppLoader() { }
 
     /**
@@ -60,7 +95,7 @@ public:
      * @param buffer Reference to buffer to store data
      * @return ResultStatus result of function
      */
-    virtual ResultStatus ReadCode(std::vector<u8>& buffer) const {
+    virtual ResultStatus ReadCode(std::vector<u8>& buffer) {
         return ResultStatus::ErrorNotImplemented;
     }
 
@@ -69,7 +104,7 @@ public:
      * @param buffer Reference to buffer to store data
      * @return ResultStatus result of function
      */
-    virtual ResultStatus ReadIcon(std::vector<u8>& buffer) const {
+    virtual ResultStatus ReadIcon(std::vector<u8>& buffer) {
         return ResultStatus::ErrorNotImplemented;
     }
 
@@ -78,7 +113,7 @@ public:
      * @param buffer Reference to buffer to store data
      * @return ResultStatus result of function
      */
-    virtual ResultStatus ReadBanner(std::vector<u8>& buffer) const {
+    virtual ResultStatus ReadBanner(std::vector<u8>& buffer) {
         return ResultStatus::ErrorNotImplemented;
     }
 
@@ -87,22 +122,25 @@ public:
      * @param buffer Reference to buffer to store data
      * @return ResultStatus result of function
      */
-    virtual ResultStatus ReadLogo(std::vector<u8>& buffer) const {
+    virtual ResultStatus ReadLogo(std::vector<u8>& buffer) {
         return ResultStatus::ErrorNotImplemented;
     }
 
     /**
      * Get the RomFS of the application
-     * @param buffer Reference to buffer to store data
+     * Since the RomFS can be huge, we return a file reference instead of copying to a buffer
+     * @param romfs_file The file containing the RomFS
+     * @param offset The offset the romfs begins on
+     * @param size The size of the romfs
      * @return ResultStatus result of function
      */
-    virtual ResultStatus ReadRomFS(std::vector<u8>& buffer) const {
+    virtual ResultStatus ReadRomFS(std::shared_ptr<FileUtil::IOFile>& romfs_file, u64& offset, u64& size) {
         return ResultStatus::ErrorNotImplemented;
     }
 
 protected:
-    std::unique_ptr<FileUtil::IOFile> file;
-    bool                              is_loaded = false;
+    FileUtil::IOFile file;
+    bool is_loaded = false;
 };
 
 /**

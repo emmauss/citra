@@ -4,13 +4,15 @@
 
 #include "core/core.h"
 #include "core/core_timing.h"
-#include "core/mem_map.h"
 #include "core/system.h"
 #include "core/hw/hw.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/memory.h"
 
 #include "video_core/video_core.h"
+
+#include "core/gdbstub/gdbstub.h"
 
 namespace System {
 
@@ -22,14 +24,15 @@ void Init(EmuWindow* emu_window) {
     Kernel::Init();
     HLE::Init();
     VideoCore::Init(emu_window);
+    GDBStub::Init();
 }
 
 void Shutdown() {
+    GDBStub::Shutdown();
     VideoCore::Shutdown();
     HLE::Shutdown();
     Kernel::Shutdown();
     HW::Shutdown();
-    Memory::Shutdown();
     CoreTiming::Shutdown();
     Core::Shutdown();
 }

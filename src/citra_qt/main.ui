@@ -24,7 +24,20 @@
    <bool>true</bool>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QHBoxLayout" name="horizontalLayout"/>
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+   </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -32,15 +45,23 @@
      <x>0</x>
      <y>0</y>
      <width>1081</width>
-     <height>21</height>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_File">
     <property name="title">
      <string>&amp;File</string>
     </property>
+    <widget class="QMenu" name="menu_recent_files">
+     <property name="title">
+      <string>Recent Files</string>
+     </property>
+    </widget>
     <addaction name="action_Load_File"/>
     <addaction name="action_Load_Symbol_Map"/>
+    <addaction name="separator"/>
+    <addaction name="action_Select_Game_List_Root"/>
+    <addaction name="menu_recent_files"/>
     <addaction name="separator"/>
     <addaction name="action_Exit"/>
    </widget>
@@ -52,6 +73,9 @@
     <addaction name="action_Pause"/>
     <addaction name="action_Stop"/>
     <addaction name="separator"/>
+    <addaction name="action_Use_Hardware_Renderer"/>
+    <addaction name="action_Use_Shader_JIT"/>
+    <addaction name="action_Use_Gdbstub"/>
     <addaction name="action_Configure"/>
    </widget>
    <widget class="QMenu" name="menu_View">
@@ -91,7 +115,7 @@
   </action>
   <action name="action_Start">
    <property name="enabled">
-     <bool>false</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
     <string>&amp;Start</string>
@@ -131,6 +155,30 @@
     <string>Configure &amp;Hotkeys ...</string>
    </property>
   </action>
+  <action name="action_Use_Hardware_Renderer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Use Hardware Renderer</string>
+   </property>
+  </action>
+  <action name="action_Use_Shader_JIT">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Use Shader JIT</string>
+   </property>
+  </action>
+  <action name="action_Use_Gdbstub">
+    <property name="checkable">
+      <bool>true</bool>
+    </property>
+    <property name="text">
+      <string>Use Gdbstub</string>
+    </property>
+  </action>
   <action name="action_Configure">
    <property name="text">
     <string>Configure ...</string>
@@ -142,6 +190,14 @@
    </property>
    <property name="text">
     <string>Display Dock Widget Headers</string>
+   </property>
+  </action>
+  <action name="action_Select_Game_List_Root">
+   <property name="text">
+    <string>Select Game Directory...</string>
+   </property>
+   <property name="toolTip">
+    <string>Selects a folder to display in the game list</string>
    </property>
   </action>
  </widget>

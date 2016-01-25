@@ -13,9 +13,17 @@ set(HEADERS
 
 create_directory_groups(${SRCS} ${HEADERS})
 
+include_directories(${GLFW_INCLUDE_DIRS})
+link_directories(${GLFW_LIBRARY_DIRS})
+
 add_executable(citra ${SRCS} ${HEADERS})
-target_link_libraries(citra core common video_core)
-target_link_libraries(citra ${GLFW_LIBRARIES} ${OPENGL_gl_LIBRARY} inih)
+target_link_libraries(citra core video_core common)
+target_link_libraries(citra ${GLFW_LIBRARIES} ${OPENGL_gl_LIBRARY} inih glad)
+if (MSVC)
+    target_link_libraries(citra getopt)
+endif()
 target_link_libraries(citra ${PLATFORM_LIBRARIES})
 
-#install(TARGETS citra RUNTIME DESTINATION ${bindir})
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux|FreeBSD|OpenBSD|NetBSD")
+    install(TARGETS citra RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+endif()

@@ -9,7 +9,12 @@
 #include "common/common_types.h"
 
 #include "core/arm/arm_interface.h"
-#include "core/arm/skyeye_common/armdefs.h"
+#include "core/arm/skyeye_common/arm_regformat.h"
+#include "core/arm/skyeye_common/armstate.h"
+
+namespace Core {
+struct ThreadContext;
+}
 
 class ARM_DynCom final : virtual public ARM_Interface {
 public:
@@ -20,6 +25,10 @@ public:
     u32 GetPC() const override;
     u32 GetReg(int index) const override;
     void SetReg(int index, u32 value) override;
+    u32 GetVFPReg(int index) const override;
+    void SetVFPReg(int index, u32 value) override;
+    u32 GetVFPSystemReg(VFPSystemRegister reg) const override;
+    void SetVFPSystemReg(VFPSystemRegister reg, u32 value) override;
     u32 GetCPSR() const override;
     void SetCPSR(u32 cpsr) override;
     u32 GetCP15Register(CP15Register reg) override;

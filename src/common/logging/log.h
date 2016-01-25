@@ -4,10 +4,6 @@
 
 #pragma once
 
-#include <cassert>
-#include <chrono>
-#include <string>
-
 #include "common/common_types.h"
 
 namespace Log {
@@ -47,6 +43,7 @@ enum class Class : ClassType {
     Debug_Emulated,             ///< Debug messages from the emulated programs
     Debug_GPU,                  ///< GPU debugging tools
     Debug_Breakpoint,           ///< Logging breakpoints and watchpoints
+    Debug_GDBStub,              ///< GDB Stub
     Kernel,                     ///< The HLE implementation of the CTR kernel
     Kernel_SVC,                 ///< Kernel system calls
     Service,                    ///< HLE implementation of system services. Each major service
@@ -57,14 +54,17 @@ enum class Class : ClassType {
     Service_APT,                ///< The APT (Applets) service
     Service_GSP,                ///< The GSP (GPU control) service
     Service_AC,                 ///< The AC (WiFi status) service
+    Service_AM,                 ///< The AM (Application manager) service
     Service_PTM,                ///< The PTM (Power status & misc.) service
     Service_LDR,                ///< The LDR (3ds dll loader) service
     Service_NIM,                ///< The NIM (Network interface manager) service
-    Service_NWM,                ///< The NWM (Network manager) service
+    Service_NWM,                ///< The NWM (Network wlan manager) service
+    Service_CAM,                ///< The CAM (Camera) service
     Service_CFG,                ///< The CFG (Configuration) service
     Service_DSP,                ///< The DSP (DSP control) service
-    Service_HID,                ///< The HID (User input) service
+    Service_HID,                ///< The HID (Human interface device) service
     Service_SOC,                ///< The SOC (Socket) service
+    Service_Y2R,                ///< The Y2R (YUV to RGB conversion) service
     HW,                         ///< Low-level hardware emulation
     HW_Memory,                  ///< Memory-map and address translation
     HW_LCD,                     ///< LCD register emulation
@@ -93,17 +93,16 @@ void LogMessage(Class log_class, Level log_level,
 } // namespace Log
 
 #define LOG_GENERIC(log_class, log_level, ...) \
-    ::Log::LogMessage(::Log::Class::log_class, ::Log::Level::log_level, \
-        __FILE__, __LINE__, __func__, __VA_ARGS__)
+    ::Log::LogMessage(log_class, log_level, __FILE__, __LINE__, __func__, __VA_ARGS__)
 
 #ifdef _DEBUG
-#define LOG_TRACE(   log_class, ...) LOG_GENERIC(log_class, Trace,    __VA_ARGS__)
+#define LOG_TRACE(   log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Trace,    __VA_ARGS__)
 #else
 #define LOG_TRACE(   log_class, ...) (void(0))
 #endif
 
-#define LOG_DEBUG(   log_class, ...) LOG_GENERIC(log_class, Debug,    __VA_ARGS__)
-#define LOG_INFO(    log_class, ...) LOG_GENERIC(log_class, Info,     __VA_ARGS__)
-#define LOG_WARNING( log_class, ...) LOG_GENERIC(log_class, Warning,  __VA_ARGS__)
-#define LOG_ERROR(   log_class, ...) LOG_GENERIC(log_class, Error,    __VA_ARGS__)
-#define LOG_CRITICAL(log_class, ...) LOG_GENERIC(log_class, Critical, __VA_ARGS__)
+#define LOG_DEBUG(   log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Debug,    __VA_ARGS__)
+#define LOG_INFO(    log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Info,     __VA_ARGS__)
+#define LOG_WARNING( log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Warning,  __VA_ARGS__)
+#define LOG_ERROR(   log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Error,    __VA_ARGS__)
+#define LOG_CRITICAL(log_class, ...) LOG_GENERIC(::Log::Class::log_class, ::Log::Level::Critical, __VA_ARGS__)

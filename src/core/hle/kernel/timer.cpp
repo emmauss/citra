@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cinttypes>
+
 #include "common/assert.h"
 #include "common/logging/log.h"
 
@@ -40,6 +42,9 @@ bool Timer::ShouldWait() {
 
 void Timer::Acquire() {
     ASSERT_MSG( !ShouldWait(), "object unavailable!");
+
+    if (reset_type == RESETTYPE_ONESHOT)
+        signaled = false;
 }
 
 void Timer::Set(s64 initial, s64 interval) {
@@ -52,10 +57,14 @@ void Timer::Set(s64 initial, s64 interval) {
     u64 initial_microseconds = initial / 1000;
     CoreTiming::ScheduleEvent(usToCycles(initial_microseconds),
             timer_callback_event_type, callback_handle);
+
+    HLE::Reschedule(__func__);
 }
 
 void Timer::Cancel() {
     CoreTiming::UnscheduleEvent(timer_callback_event_type, callback_handle);
+
+    HLE::Reschedule(__func__);
 }
 
 void Timer::Clear() {
@@ -67,24 +76,21 @@ static void TimerCallback(u64 timer_handle, int cycles_late) {
     SharedPtr<Timer> timer = timer_callback_handle_table.Get<Timer>(static_cast<Handle>(timer_handle));
 
     if (timer == nullptr) {
-        LOG_CRITICAL(Kernel, "Callback fired for invalid timer %08lX", timer_handle);
+        LOG_CRITICAL(Kernel, "Callback fired for invalid timer %08" PRIx64, timer_handle);
         return;
     }
 
-    LOG_TRACE(Kernel, "Timer %u fired", timer_handle);
+    LOG_TRACE(Kernel, "Timer %08" PRIx64 " fired", timer_handle);
 
     timer->signaled = true;
 
     // Resume all waiting threads
     timer->WakeupAllWaitingThreads();
 
-    if (timer->reset_type == RESETTYPE_ONESHOT)
-        timer->signaled = false;
-
     if (timer->interval_delay != 0) {
         // Reschedule the timer with the interval delay
         u64 interval_microseconds = timer->interval_delay / 1000;
-        CoreTiming::ScheduleEvent(usToCycles(interval_microseconds) - cycles_late, 
+        CoreTiming::ScheduleEvent(usToCycles(interval_microseconds) - cycles_late,
                 timer_callback_event_type, timer_handle);
     }
 }

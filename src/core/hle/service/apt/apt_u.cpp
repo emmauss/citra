@@ -33,15 +33,15 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00130000, nullptr,                         "GetPreparationState"},
     {0x00140040, nullptr,                         "SetPreparationState"},
     {0x00150140, nullptr,                         "PrepareToStartApplication"},
-    {0x00160040, nullptr,                         "PreloadLibraryApplet"},
+    {0x00160040, PreloadLibraryApplet,            "PreloadLibraryApplet"},
     {0x00170040, nullptr,                         "FinishPreloadingLibraryApplet"},
-    {0x00180040, nullptr,                         "PrepareToStartLibraryApplet"},
+    {0x00180040, PrepareToStartLibraryApplet,     "PrepareToStartLibraryApplet"},
     {0x00190040, nullptr,                         "PrepareToStartSystemApplet"},
     {0x001A0000, nullptr,                         "PrepareToStartNewestHomeMenu"},
     {0x001B00C4, nullptr,                         "StartApplication"},
     {0x001C0000, nullptr,                         "WakeupApplication"},
     {0x001D0000, nullptr,                         "CancelApplication"},
-    {0x001E0084, nullptr,                         "StartLibraryApplet"},
+    {0x001E0084, StartLibraryApplet,              "StartLibraryApplet"},
     {0x001F0084, nullptr,                         "StartSystemApplet"},
     {0x00200044, nullptr,                         "StartNewestHomeMenu"},
     {0x00210000, nullptr,                         "OrderToCloseApplication"},
@@ -92,6 +92,12 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x004E0000, nullptr,                         "HardwareResetAsync"},
     {0x004F0080, SetAppCpuTimeLimit,              "SetAppCpuTimeLimit"},
     {0x00500040, GetAppCpuTimeLimit,              "GetAppCpuTimeLimit"},
+    {0x00510080, nullptr,                         "GetStartupArgument"},
+    {0x00520104, nullptr,                         "Wrap1"},
+    {0x00530104, nullptr,                         "Unwrap1"},
+    {0x00580002, nullptr,                         "GetProgramID"},
+    {0x01010000, nullptr,                         "CheckNew3DSApp"},
+    {0x01020000, nullptr,                         "CheckNew3DS"}
 };
 
 APT_U_Interface::APT_U_Interface() {

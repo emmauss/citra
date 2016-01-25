@@ -4,9 +4,12 @@
 
 #pragma once
 
+#include <string>
+
 #include "common/common_types.h"
 
 #include "core/hle/kernel/kernel.h"
+#include "core/hle/result.h"
 
 namespace Kernel {
 
@@ -50,6 +53,13 @@ public:
     ResultCode Map(VAddr address, MemoryPermission permissions, MemoryPermission other_permissions);
 
     /**
+     * Unmaps a shared memory block from the specified address in system memory
+     * @param address Address in system memory where the shared memory block is mapped
+     * @return Result code of the unmap operation
+     */
+    ResultCode Unmap(VAddr address);
+
+    /**
     * Gets a pointer to the shared memory block
     * @param offset Offset from the start of the shared memory block to get pointer
     * @return Pointer to the shared memory block from the specified offset
@@ -58,6 +68,8 @@ public:
 
     /// Address of shared memory block in the process.
     VAddr base_address;
+    /// Fixed address to allow mapping to. Used for blocks created from the linear heap.
+    VAddr fixed_address;
     /// Size of the memory block. Page-aligned.
     u32 size;
     /// Permission restrictions applied to the process which created the block.

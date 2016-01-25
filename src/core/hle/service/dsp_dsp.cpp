@@ -150,13 +150,13 @@ static void RegisterInterruptEvents(Service::Interface* self) {
 }
 
 /**
- * DSP_DSP::WriteReg0x10 service function
+ * DSP_DSP::SetSemaphore service function
  *  Inputs:
  *      1 : Unknown (observed only half word used)
  *  Outputs:
  *      1 : Result of function, 0 on success, otherwise error code
  */
-static void WriteReg0x10(Service::Interface* self) {
+static void SetSemaphore(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     SignalInterrupt();
@@ -212,10 +212,10 @@ static void ReadPipeIfPossible(Service::Interface* self) {
 
     // Canned DSP responses that games expect. These were taken from HW by 3dmoo team.
     // TODO: Remove this hack :)
-    static const std::array<u16, 16> canned_read_pipe = {
+    static const std::array<u16, 16> canned_read_pipe = {{
         0x000F, 0xBFFF, 0x9E8E, 0x8680, 0xA78E, 0x9430, 0x8400, 0x8540,
         0x948E, 0x8710, 0x8410, 0xA90E, 0xAA0E, 0xAACE, 0xAC4E, 0xAC58
-    };
+    }};
 
     u32 initial_size = read_pipe_count;
 
@@ -276,12 +276,17 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00020040, nullptr,                          "RecvDataIsReady"},
     {0x00030080, nullptr,                          "SendData"},
     {0x00040040, nullptr,                          "SendDataIsEmpty"},
-    {0x00070040, WriteReg0x10,                     "WriteReg0x10"},
+    {0x000500C2, nullptr,                          "SendFifoEx"},
+    {0x000600C0, nullptr,                          "RecvFifoEx"},
+    {0x00070040, SetSemaphore,                     "SetSemaphore"},
     {0x00080000, nullptr,                          "GetSemaphore"},
     {0x00090040, nullptr,                          "ClearSemaphore"},
+    {0x000A0040, nullptr,                          "MaskSemaphore"},
     {0x000B0000, nullptr,                          "CheckSemaphoreRequest"},
     {0x000C0040, ConvertProcessAddressFromDspDram, "ConvertProcessAddressFromDspDram"},
     {0x000D0082, WriteProcessPipe,                 "WriteProcessPipe"},
+    {0x000E00C0, nullptr,                          "ReadPipe"},
+    {0x000F0080, nullptr,                          "GetPipeReadableSize"},
     {0x001000C0, ReadPipeIfPossible,               "ReadPipeIfPossible"},
     {0x001100C2, LoadComponent,                    "LoadComponent"},
     {0x00120000, nullptr,                          "UnloadComponent"},
@@ -295,7 +300,10 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x001A0042, nullptr,                          "SetIirFilterI2S1_cmd1"},
     {0x001B0042, nullptr,                          "SetIirFilterI2S1_cmd2"},
     {0x001C0082, nullptr,                          "SetIirFilterEQ"},
+    {0x001D00C0, nullptr,                          "ReadMultiEx_SPI2"},
+    {0x001E00C2, nullptr,                          "WriteMultiEx_SPI2"},
     {0x001F0000, GetHeadphoneStatus,               "GetHeadphoneStatus"},
+    {0x00200040, nullptr,                          "ForceHeadphoneOut"},
     {0x00210000, nullptr,                          "GetIsDspOccupied"},
 };
 
@@ -308,6 +316,11 @@ Interface::Interface() {
     read_pipe_count = 0;
 
     Register(FunctionTable);
+}
+
+Interface::~Interface() {
+    semaphore_event = nullptr;
+    interrupt_event = nullptr;
 }
 
 } // namespace

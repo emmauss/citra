@@ -14,10 +14,6 @@ namespace Core {
 /// Generic ARM11 CPU interface
 class ARM_Interface : NonCopyable {
 public:
-    ARM_Interface() {
-        num_instructions = 0;
-    }
-
     virtual ~ARM_Interface() {
     }
 
@@ -60,6 +56,34 @@ public:
      * @param value Value to set register to
      */
     virtual void SetReg(int index, u32 value) = 0;
+
+    /**
+     * Gets the value of a VFP register
+     * @param index Register index (0-31)
+     * @return Returns the value in the register
+     */
+    virtual u32 GetVFPReg(int index) const = 0;
+
+    /**
+     * Sets a VFP register to the given value
+     * @param index Register index (0-31)
+     * @param value Value to set register to
+     */
+    virtual void SetVFPReg(int index, u32 value) = 0;
+
+    /**
+     * Gets the current value within a given VFP system register
+     * @param reg The VFP system register
+     * @return The value within the VFP system register
+     */
+    virtual u32 GetVFPSystemReg(VFPSystemRegister reg) const = 0;
+
+    /**
+     * Sets the VFP system register to the given value
+     * @param reg   The VFP system register
+     * @param value Value to set the VFP system register to
+     */
+    virtual void SetVFPSystemReg(VFPSystemRegister reg, u32 value) = 0;
 
     /**
      * Get the current CPSR register
@@ -118,11 +142,11 @@ public:
     virtual void PrepareReschedule() = 0;
 
     /// Getter for num_instructions
-    u64 GetNumInstructions() {
+    u64 GetNumInstructions() const {
         return num_instructions;
     }
 
-    s64 down_count; ///< A decreasing counter of remaining cycles before the next event, decreased by the cpu run loop
+    s64 down_count = 0; ///< A decreasing counter of remaining cycles before the next event, decreased by the cpu run loop
 
 protected:
 
@@ -134,6 +158,5 @@ protected:
 
 private:
 
-    u64 num_instructions; ///< Number of instructions executed
-
+    u64 num_instructions = 0; ///< Number of instructions executed
 };

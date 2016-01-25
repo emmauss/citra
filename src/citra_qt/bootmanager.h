@@ -6,17 +6,18 @@
 #include <condition_variable>
 #include <mutex>
 
-#include <QThread>
 #include <QGLWidget>
+#include <QThread>
 
 #include "common/emu_window.h"
 #include "common/thread.h"
 
-class QScreen;
 class QKeyEvent;
+class QScreen;
 
-class GRenderWindow;
+class GGLWidgetInternal;
 class GMainWindow;
+class GRenderWindow;
 
 class EmuThread : public QThread
 {
@@ -35,7 +36,10 @@ public:
      * Steps the emulation thread by a single CPU instruction (if the CPU is not already running)
      * @note This function is thread-safe
      */
-    void ExecStep() { exec_step = true; }
+    void ExecStep() {
+        exec_step = true;
+        running_cv.notify_all();
+    }
 
     /**
      * Sets whether the emulation thread is running or not
@@ -80,7 +84,7 @@ signals:
      * @warning When connecting to this signal from other threads, make sure to specify either Qt::QueuedConnection (invoke slot within the destination object's message thread) or even Qt::BlockingQueuedConnection (additionally block source thread until slot returns)
      */
     void DebugModeEntered();
-    
+
     /**
      * Emitted right before the CPU continues execution
      *
@@ -107,6 +111,10 @@ public:
     void restoreGeometry(const QByteArray& geometry); // overridden
     QByteArray saveGeometry();  // overridden
 
+    qreal windowPixelRatio();
+
+    void closeEvent(QCloseEvent* event) override;
+
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
 
@@ -118,18 +126,21 @@ public:
 
     void OnClientAreaResized(unsigned width, unsigned height);
 
-    void OnFramebufferSizeChanged();
-
 public slots:
     void moveContext();  // overridden
 
     void OnEmulationStarting(EmuThread* emu_thread);
     void OnEmulationStopping();
+    void OnFramebufferSizeChanged();
+
+signals:
+    /// Emitted when the window is closed
+    void Closed();
 
 private:
     void OnMinimalClientAreaChangeRequest(const std::pair<unsigned,unsigned>& minimal_size) override;
 
-    QGLWidget* child;
+    GGLWidgetInternal* child;
 
     QByteArray geometry;
 
@@ -137,4 +148,7 @@ private:
     int keyboard_id;
 
     EmuThread* emu_thread;
+
+protected:
+    void showEvent(QShowEvent* event) override;
 };

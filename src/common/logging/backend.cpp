@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdio>
 
+#include "common/assert.h"
 #include "common/common_funcs.h" // snprintf compatibility define
 #include "common/logging/backend.h"
 #include "common/logging/filter.h"
@@ -28,6 +29,7 @@ namespace Log {
         SUB(Debug, Emulated) \
         SUB(Debug, GPU) \
         SUB(Debug, Breakpoint) \
+        SUB(Debug, GDBStub) \
         CLS(Kernel) \
         SUB(Kernel, SVC) \
         CLS(Service) \
@@ -37,14 +39,17 @@ namespace Log {
         SUB(Service, APT) \
         SUB(Service, GSP) \
         SUB(Service, AC) \
+        SUB(Service, AM) \
         SUB(Service, PTM) \
         SUB(Service, LDR) \
         SUB(Service, NIM) \
         SUB(Service, NWM) \
+        SUB(Service, CAM) \
         SUB(Service, CFG) \
         SUB(Service, DSP) \
         SUB(Service, HID) \
         SUB(Service, SOC) \
+        SUB(Service, Y2R) \
         CLS(HW) \
         SUB(HW, Memory) \
         SUB(HW, LCD) \
@@ -63,8 +68,9 @@ const char* GetLogClassName(Class log_class) {
         ALL_LOG_CLASSES()
 #undef CLS
 #undef SUB
+        case Class::Count:
+            UNREACHABLE();
     }
-    return "Unknown";
 }
 
 const char* GetLevelName(Level log_level) {
@@ -76,8 +82,9 @@ const char* GetLevelName(Level log_level) {
         LVL(Warning);
         LVL(Error);
         LVL(Critical);
+        case Level::Count:
+            UNREACHABLE();
     }
-    return "Unknown";
 #undef LVL
 }
 

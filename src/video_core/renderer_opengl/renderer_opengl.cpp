@@ -2,22 +2,62 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "core/hw/gpu.h"
-#include "core/hw/hw.h"
-#include "core/hw/lcd.h"
-#include "core/memory.h"
-#include "core/settings.h"
+#include <algorithm>
+#include <cstddef>
+#include <cstdlib>
 
+#include "common/assert.h"
 #include "common/emu_window.h"
 #include "common/logging/log.h"
 #include "common/profiler_reporting.h"
 
-#include "video_core/video_core.h"
-#include "video_core/renderer_opengl/renderer_opengl.h"
-#include "video_core/renderer_opengl/gl_shader_util.h"
-#include "video_core/renderer_opengl/gl_shaders.h"
+#include "core/memory.h"
+#include "core/settings.h"
+#include "core/hw/gpu.h"
+#include "core/hw/hw.h"
+#include "core/hw/lcd.h"
 
-#include <algorithm>
+#include "video_core/video_core.h"
+#include "video_core/debug_utils/debug_utils.h"
+#include "video_core/renderer_opengl/gl_rasterizer.h"
+#include "video_core/renderer_opengl/gl_shader_util.h"
+#include "video_core/renderer_opengl/renderer_opengl.h"
+
+static const char vertex_shader[] = R"(
+#version 150 core
+
+in vec2 vert_position;
+in vec2 vert_tex_coord;
+out vec2 frag_tex_coord;
+
+// This is a truncated 3x3 matrix for 2D transformations:
+// The upper-left 2x2 submatrix performs scaling/rotation/mirroring.
+// The third column performs translation.
+// The third row could be used for projection, which we don't need in 2D. It hence is assumed to
+// implicitly be [0, 0, 1]
+uniform mat3x2 modelview_matrix;
+
+void main() {
+    // Multiply input position by the rotscale part of the matrix and then manually translate by
+    // the last column. This is equivalent to using a full 3x3 matrix and expanding the vector
+    // to `vec3(vert_position.xy, 1.0)`
+    gl_Position = vec4(mat2(modelview_matrix) * vert_position + modelview_matrix[2], 0.0, 1.0);
+    frag_tex_coord = vert_tex_coord;
+}
+)";
+
+static const char fragment_shader[] = R"(
+#version 150 core
+
+in vec2 frag_tex_coord;
+out vec4 color;
+
+uniform sampler2D color_texture;
+
+void main() {
+    color = texture(color_texture, frag_tex_coord);
+}
+)";
 
 /**
  * Vertex structure that the drawn screen rectangles are composed of.
@@ -63,7 +103,9 @@ RendererOpenGL::~RendererOpenGL() {
 
 /// Swap buffers (render frame)
 void RendererOpenGL::SwapBuffers() {
-    render_window->MakeCurrent();
+    // Maintain the rasterizer's state as a priority
+    OpenGLState prev_state = OpenGLState::GetCurState();
+    state.Apply();
 
     for(int i : {0, 1}) {
         const auto& framebuffer = GPU::g_regs.framebuffer_config[i];
@@ -110,7 +152,15 @@ void RendererOpenGL::SwapBuffers() {
     render_window->PollEvents();
     render_window->SwapBuffers();
 
+    prev_state.Apply();
+
     profiler.BeginFrame();
+
+    RefreshRasterizerSetting();
+
+    if (Pica::g_debug_context && Pica::g_debug_context->recorder) {
+        Pica::g_debug_context->recorder->FrameFinished();
+    }
 }
 
 /**
@@ -139,7 +189,10 @@ void RendererOpenGL::LoadFBToActiveGLTexture(const GPU::Regs::FramebufferConfig&
     // only allows rows to have a memory alignement of 4.
     ASSERT(pixel_stride % 4 == 0);
 
-    glBindTexture(GL_TEXTURE_2D, texture.handle);
+    state.texture_units[0].texture_2d = texture.handle;
+    state.Apply();
+
+    glActiveTexture(GL_TEXTURE0);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, (GLint)pixel_stride);
 
     // Update existing texture
@@ -151,7 +204,9 @@ void RendererOpenGL::LoadFBToActiveGLTexture(const GPU::Regs::FramebufferConfig&
                     texture.gl_format, texture.gl_type, framebuffer_data);
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
+
+    state.texture_units[0].texture_2d = 0;
+    state.Apply();
 }
 
 /**
@@ -161,13 +216,14 @@ void RendererOpenGL::LoadFBToActiveGLTexture(const GPU::Regs::FramebufferConfig&
  */
 void RendererOpenGL::LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color_b,
                                                 const TextureInfo& texture) {
-    glBindTexture(GL_TEXTURE_2D, texture.handle);
+    state.texture_units[0].texture_2d = texture.handle;
+    state.Apply();
 
+    glActiveTexture(GL_TEXTURE0);
     u8 framebuffer_data[3] = { color_r, color_g, color_b };
 
     // Update existing texture
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, framebuffer_data);
-    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 /**
@@ -175,10 +231,9 @@ void RendererOpenGL::LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color
  */
 void RendererOpenGL::InitOpenGLObjects() {
     glClearColor(Settings::values.bg_red, Settings::values.bg_green, Settings::values.bg_blue, 0.0f);
-    glDisable(GL_DEPTH_TEST);
 
     // Link shaders and get variable locations
-    program_id = ShaderUtil::LoadShaders(GLShaders::g_vertex_shader, GLShaders::g_fragment_shader);
+    program_id = GLShader::LoadProgram(vertex_shader, fragment_shader);
     uniform_modelview_matrix = glGetUniformLocation(program_id, "modelview_matrix");
     uniform_color_texture = glGetUniformLocation(program_id, "color_texture");
     attrib_position = glGetAttribLocation(program_id, "vert_position");
@@ -189,10 +244,13 @@ void RendererOpenGL::InitOpenGLObjects() {
 
     // Generate VAO
     glGenVertexArrays(1, &vertex_array_handle);
-    glBindVertexArray(vertex_array_handle);
+
+    state.draw.vertex_array = vertex_array_handle;
+    state.draw.vertex_buffer = vertex_buffer_handle;
+    state.draw.uniform_buffer = 0;
+    state.Apply();
 
     // Attach vertex data to VAO
-    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_handle);
     glBufferData(GL_ARRAY_BUFFER, sizeof(ScreenRectVertex) * 4, nullptr, GL_STREAM_DRAW);
     glVertexAttribPointer(attrib_position,  2, GL_FLOAT, GL_FALSE, sizeof(ScreenRectVertex), (GLvoid*)offsetof(ScreenRectVertex, position));
     glVertexAttribPointer(attrib_tex_coord, 2, GL_FLOAT, GL_FALSE, sizeof(ScreenRectVertex), (GLvoid*)offsetof(ScreenRectVertex, tex_coord));
@@ -206,14 +264,19 @@ void RendererOpenGL::InitOpenGLObjects() {
         // Allocation of storage is deferred until the first frame, when we
         // know the framebuffer size.
 
-        glBindTexture(GL_TEXTURE_2D, texture.handle);
+        state.texture_units[0].texture_2d = texture.handle;
+        state.Apply();
+
+        glActiveTexture(GL_TEXTURE0);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
-    glBindTexture(GL_TEXTURE_2D, 0);
+
+    state.texture_units[0].texture_2d = 0;
+    state.Apply();
 }
 
 void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
@@ -264,7 +327,10 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
         UNIMPLEMENTED();
     }
 
-    glBindTexture(GL_TEXTURE_2D, texture.handle);
+    state.texture_units[0].texture_2d = texture.handle;
+    state.Apply();
+
+    glActiveTexture(GL_TEXTURE0);
     glTexImage2D(GL_TEXTURE_2D, 0, internal_format, texture.width, texture.height, 0,
             texture.gl_format, texture.gl_type, nullptr);
 }
@@ -273,15 +339,16 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
  * Draws a single texture to the emulator window, rotating the texture to correct for the 3DS's LCD rotation.
  */
 void RendererOpenGL::DrawSingleScreenRotated(const TextureInfo& texture, float x, float y, float w, float h) {
-    std::array<ScreenRectVertex, 4> vertices = {
+    std::array<ScreenRectVertex, 4> vertices = {{
         ScreenRectVertex(x,   y,   1.f, 0.f),
         ScreenRectVertex(x+w, y,   1.f, 1.f),
         ScreenRectVertex(x,   y+h, 0.f, 0.f),
         ScreenRectVertex(x+w, y+h, 0.f, 1.f),
-    };
+    }};
 
-    glBindTexture(GL_TEXTURE_2D, texture.handle);
-    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_handle);
+    state.texture_units[0].texture_2d = texture.handle;
+    state.Apply();
+
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices.data());
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
@@ -295,7 +362,8 @@ void RendererOpenGL::DrawScreens() {
     glViewport(0, 0, layout.width, layout.height);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    glUseProgram(program_id);
+    state.draw.shader_program = program_id;
+    state.Apply();
 
     // Set projection matrix
     std::array<GLfloat, 3 * 2> ortho_matrix = MakeOrthographicMatrix((float)layout.width,
@@ -326,18 +394,79 @@ void RendererOpenGL::SetWindow(EmuWindow* window) {
     render_window = window;
 }
 
+static const char* GetSource(GLenum source) {
+#define RET(s) case GL_DEBUG_SOURCE_##s: return #s
+    switch (source) {
+    RET(API);
+    RET(WINDOW_SYSTEM);
+    RET(SHADER_COMPILER);
+    RET(THIRD_PARTY);
+    RET(APPLICATION);
+    RET(OTHER);
+    default:
+        UNREACHABLE();
+    }
+#undef RET
+}
+
+static const char* GetType(GLenum type) {
+#define RET(t) case GL_DEBUG_TYPE_##t: return #t
+    switch (type) {
+    RET(ERROR);
+    RET(DEPRECATED_BEHAVIOR);
+    RET(UNDEFINED_BEHAVIOR);
+    RET(PORTABILITY);
+    RET(PERFORMANCE);
+    RET(OTHER);
+    RET(MARKER);
+    default:
+        UNREACHABLE();
+    }
+#undef RET
+}
+
+static void DebugHandler(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+                         const GLchar* message, const void* user_param) {
+    Log::Level level;
+    switch (severity) {
+    case GL_DEBUG_SEVERITY_HIGH:
+        level = Log::Level::Error;
+        break;
+    case GL_DEBUG_SEVERITY_MEDIUM:
+        level = Log::Level::Warning;
+        break;
+    case GL_DEBUG_SEVERITY_NOTIFICATION:
+        level = Log::Level::Info;
+        break;
+    case GL_DEBUG_SEVERITY_LOW:
+        level = Log::Level::Debug;
+        break;
+    }
+    LOG_GENERIC(Log::Class::Render_OpenGL, level, "%s %s %d: %s",
+                GetSource(source), GetType(type), id, message);
+}
+
 /// Initialize the renderer
 void RendererOpenGL::Init() {
     render_window->MakeCurrent();
 
-    int err = ogl_LoadFunctions();
-    if (ogl_LOAD_SUCCEEDED != err) {
+    // TODO: Make frontends initialize this, so they can use gladLoadGLLoader with their own loaders
+    if (!gladLoadGL()) {
         LOG_CRITICAL(Render_OpenGL, "Failed to initialize GL functions! Exiting...");
         exit(-1);
     }
 
+    if (GLAD_GL_KHR_debug) {
+        glEnable(GL_DEBUG_OUTPUT);
+        glDebugMessageCallback(DebugHandler, nullptr);
+    }
+
     LOG_INFO(Render_OpenGL, "GL_VERSION: %s", glGetString(GL_VERSION));
+    LOG_INFO(Render_OpenGL, "GL_VENDOR: %s", glGetString(GL_VENDOR));
+    LOG_INFO(Render_OpenGL, "GL_RENDERER: %s", glGetString(GL_RENDERER));
     InitOpenGLObjects();
+
+    RefreshRasterizerSetting();
 }
 
 /// Shutdown the renderer

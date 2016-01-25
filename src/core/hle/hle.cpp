@@ -10,7 +10,6 @@
 #include "core/hle/hle.h"
 #include "core/hle/config_mem.h"
 #include "core/hle/shared_page.h"
-#include "core/hle/kernel/thread.h"
 #include "core/hle/service/service.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -35,8 +34,6 @@ void Reschedule(const char *reason) {
 
 void Init() {
     Service::Init();
-    ConfigMem::Init();
-    SharedPage::Init();
 
     g_reschedule = false;
 
@@ -44,8 +41,6 @@ void Init() {
 }
 
 void Shutdown() {
-    ConfigMem::Shutdown();
-    SharedPage::Shutdown();
     Service::Shutdown();
 
     LOG_DEBUG(Kernel, "shutdown OK");

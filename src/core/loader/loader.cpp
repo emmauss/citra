@@ -2,10 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <memory>
 #include <string>
 
 #include "common/logging/log.h"
 #include "common/make_unique.h"
+#include "common/string_util.h"
 
 #include "core/file_sys/archive_romfs.h"
 #include "core/hle/kernel/process.h"
@@ -24,12 +26,7 @@ const std::initializer_list<Kernel::AddressMapping> default_address_mappings = {
     { 0x1F000000, 0x600000, false }, // entire VRAM
 };
 
-/**
- * Identifies the type of a bootable file
- * @param file open file
- * @return FileType of file
- */
-static FileType IdentifyFile(FileUtil::IOFile& file) {
+FileType IdentifyFile(FileUtil::IOFile& file) {
     FileType type;
 
 #define CHECK_TYPE(loader) \
@@ -46,35 +43,42 @@ static FileType IdentifyFile(FileUtil::IOFile& file) {
     return FileType::Unknown;
 }
 
-/**
- * Guess the type of a bootable file from its extension
- * @param extension String extension of bootable file
- * @return FileType of file
- */
-static FileType GuessFromExtension(const std::string& extension_) {
+FileType IdentifyFile(const std::string& file_name) {
+    FileUtil::IOFile file(file_name, "rb");
+    if (!file.IsOpen()) {
+        LOG_ERROR(Loader, "Failed to load file %s", file_name.c_str());
+        return FileType::Unknown;
+    }
+
+    return IdentifyFile(file);
+}
+
+FileType GuessFromExtension(const std::string& extension_) {
     std::string extension = Common::ToLower(extension_);
 
-    if (extension == ".elf")
+    if (extension == ".elf" || extension == ".axf")
         return FileType::ELF;
-    else if (extension == ".axf")
-        return FileType::ELF;
-    else if (extension == ".cxi")
+
+    if (extension == ".cci" || extension == ".3ds")
+        return FileType::CCI;
+
+    if (extension == ".cxi")
         return FileType::CXI;
-    else if (extension == ".cci")
-        return FileType::CCI;
-    else if (extension == ".3ds")
-        return FileType::CCI;
-    else if (extension == ".3dsx")
+
+    if (extension == ".3dsx")
         return FileType::THREEDSX;
+
     return FileType::Unknown;
 }
 
-static const char* GetFileTypeString(FileType type) {
+const char* GetFileTypeString(FileType type) {
     switch (type) {
     case FileType::CCI:
         return "NCSD";
     case FileType::CXI:
         return "NCCH";
+    case FileType::CIA:
+        return "CIA";
     case FileType::ELF:
         return "ELF";
     case FileType::THREEDSX:
@@ -88,8 +92,8 @@ static const char* GetFileTypeString(FileType type) {
 }
 
 ResultStatus LoadFile(const std::string& filename) {
-    std::unique_ptr<FileUtil::IOFile> file(new FileUtil::IOFile(filename, "rb"));
-    if (!file->IsOpen()) {
+    FileUtil::IOFile file(filename, "rb");
+    if (!file.IsOpen()) {
         LOG_ERROR(Loader, "Failed to load file %s", filename.c_str());
         return ResultStatus::Error;
     }
@@ -97,7 +101,7 @@ ResultStatus LoadFile(const std::string& filename) {
     std::string filename_filename, filename_extension;
     Common::SplitPath(filename, nullptr, &filename_filename, &filename_extension);
 
-    FileType type = IdentifyFile(*file);
+    FileType type = IdentifyFile(file);
     FileType filename_type = GuessFromExtension(filename_extension);
 
     if (type != filename_type) {
@@ -112,7 +116,15 @@ ResultStatus LoadFile(const std::string& filename) {
 
     //3DSX file format...
     case FileType::THREEDSX:
-        return AppLoader_THREEDSX(std::move(file), filename_filename).Load();
+    {
+        AppLoader_THREEDSX app_loader(std::move(file), filename_filename, filename);
+        // Load application and RomFS
+        if (ResultStatus::Success == app_loader.Load()) {
+            Service::FS::RegisterArchiveType(Common::make_unique<FileSys::ArchiveFactory_RomFS>(app_loader), Service::FS::ArchiveIdCode::RomFS);
+            return ResultStatus::Success;
+        }
+        break;
+    }
 
     // Standard ELF file format...
     case FileType::ELF:
@@ -122,7 +134,7 @@ ResultStatus LoadFile(const std::string& filename) {
     case FileType::CXI:
     case FileType::CCI:
     {
-        AppLoader_NCCH app_loader(std::move(file));
+        AppLoader_NCCH app_loader(std::move(file), filename);
 
         // Load application and RomFS
         if (ResultStatus::Success == app_loader.Load()) {
@@ -131,6 +143,10 @@ ResultStatus LoadFile(const std::string& filename) {
         }
         break;
     }
+
+    // CIA file format...
+    case FileType::CIA:
+        return ResultStatus::ErrorNotImplemented;
 
     // Error occurred durring IdentifyFile...
     case FileType::Error:

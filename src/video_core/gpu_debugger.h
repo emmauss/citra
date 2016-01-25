@@ -10,9 +10,6 @@
 
 #include "core/hle/service/gsp_gpu.h"
 
-#include "command_processor.h"
-#include "pica.h"
-
 class GraphicsDebugger
 {
 public:
@@ -48,7 +45,6 @@ public:
 
     private:
         GraphicsDebugger* observed;
-        bool in_destruction;
 
         friend class GraphicsDebugger;
     };

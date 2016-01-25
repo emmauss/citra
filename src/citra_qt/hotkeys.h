@@ -2,12 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <QShortcut>
-#include <QDialog>
 #include "ui_hotkeys.h"
 
+class QDialog;
 class QKeySequence;
 class QSettings;
+class QShortcut;
 
 /**
  * Register a hotkey.
@@ -47,7 +47,7 @@ class GHotkeysDialog : public QDialog
     Q_OBJECT
 
 public:
-    GHotkeysDialog(QWidget* parent = NULL);
+    GHotkeysDialog(QWidget* parent = nullptr);
 
 private:
     Ui::hotkeys ui;

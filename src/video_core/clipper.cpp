@@ -4,10 +4,10 @@
 
 #include <boost/container/static_vector.hpp>
 
-#include "clipper.h"
-#include "pica.h"
-#include "rasterizer.h"
-#include "vertex_shader.h"
+#include "video_core/clipper.h"
+#include "video_core/pica.h"
+#include "video_core/rasterizer.h"
+#include "video_core/shader/shader_interpreter.h"
 
 namespace Pica {
 
@@ -58,12 +58,13 @@ static void InitScreenCoordinates(OutputVertex& vtx)
         float24 offset_z;
     } viewport;
 
-    viewport.halfsize_x = float24::FromRawFloat24(registers.viewport_size_x);
-    viewport.halfsize_y = float24::FromRawFloat24(registers.viewport_size_y);
-    viewport.offset_x   = float24::FromFloat32(static_cast<float>(registers.viewport_corner.x));
-    viewport.offset_y   = float24::FromFloat32(static_cast<float>(registers.viewport_corner.y));
-    viewport.zscale     = float24::FromRawFloat24(registers.viewport_depth_range);
-    viewport.offset_z   = float24::FromRawFloat24(registers.viewport_depth_far_plane);
+    const auto& regs = g_state.regs;
+    viewport.halfsize_x = float24::FromRawFloat24(regs.viewport_size_x);
+    viewport.halfsize_y = float24::FromRawFloat24(regs.viewport_size_y);
+    viewport.offset_x   = float24::FromFloat32(static_cast<float>(regs.viewport_corner.x));
+    viewport.offset_y   = float24::FromFloat32(static_cast<float>(regs.viewport_corner.y));
+    viewport.zscale     = float24::FromRawFloat24(regs.viewport_depth_range);
+    viewport.offset_z   = float24::FromRawFloat24(regs.viewport_depth_far_plane);
 
     float24 inv_w = float24::FromFloat32(1.f) / vtx.pos.w;
     vtx.color *= inv_w;
@@ -77,7 +78,7 @@ static void InitScreenCoordinates(OutputVertex& vtx)
     vtx.screenpos[2] = viewport.offset_z + vtx.pos.z * inv_w * viewport.zscale;
 }
 
-void ProcessTriangle(OutputVertex &v0, OutputVertex &v1, OutputVertex &v2) {
+void ProcessTriangle(const OutputVertex &v0, const OutputVertex &v1, const OutputVertex &v2) {
     using boost::container::static_vector;
 
     // Clipping a planar n-gon against a plane will remove at least 1 vertex and introduces 2 at
@@ -93,7 +94,7 @@ void ProcessTriangle(OutputVertex &v0, OutputVertex &v1, OutputVertex &v2) {
     // NOTE: We clip against a w=epsilon plane to guarantee that the output has a positive w value.
     // TODO: Not sure if this is a valid approach. Also should probably instead use the smallest
     //       epsilon possible within float24 accuracy.
-    static const float24 EPSILON = float24::FromFloat32(0.00001);
+    static const float24 EPSILON = float24::FromFloat32(0.00001f);
     static const float24 f0 = float24::FromFloat32(0.0);
     static const float24 f1 = float24::FromFloat32(1.0);
     static const std::array<ClippingEdge, 7> clipping_edges = {{
@@ -152,7 +153,7 @@ void ProcessTriangle(OutputVertex &v0, OutputVertex &v1, OutputVertex &v2) {
                   "Triangle %lu/%lu at position (%.3f, %.3f, %.3f, %.3f), "
                   "(%.3f, %.3f, %.3f, %.3f), (%.3f, %.3f, %.3f, %.3f) and "
                   "screen position (%.2f, %.2f, %.2f), (%.2f, %.2f, %.2f), (%.2f, %.2f, %.2f)",
-                  i, output_list->size(),
+                  i + 1, output_list->size() - 2,
                   vtx0.pos.x.ToFloat32(), vtx0.pos.y.ToFloat32(), vtx0.pos.z.ToFloat32(), vtx0.pos.w.ToFloat32(),
                   vtx1.pos.x.ToFloat32(), vtx1.pos.y.ToFloat32(), vtx1.pos.z.ToFloat32(), vtx1.pos.w.ToFloat32(),
                   vtx2.pos.x.ToFloat32(), vtx2.pos.y.ToFloat32(), vtx2.pos.z.ToFloat32(), vtx2.pos.w.ToFloat32(),

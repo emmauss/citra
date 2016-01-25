@@ -9,16 +9,16 @@
 #include <QPushButton>
 #include <QSpinBox>
 
-#include "core/hw/gpu.h"
-#include "core/memory.h"
+#include "citra_qt/debugger/graphics_framebuffer.h"
+#include "citra_qt/util/spinbox.h"
 
-#include "video_core/color.h"
+#include "common/color.h"
+
+#include "core/memory.h"
+#include "core/hw/gpu.h"
+
 #include "video_core/pica.h"
 #include "video_core/utils.h"
-
-#include "graphics_framebuffer.h"
-
-#include "util/spinbox.h"
 
 GraphicsFramebufferWidget::GraphicsFramebufferWidget(std::shared_ptr<Pica::DebugContext> debug_context,
                                                      QWidget* parent)
@@ -54,7 +54,9 @@ GraphicsFramebufferWidget::GraphicsFramebufferWidget(std::shared_ptr<Pica::Debug
     framebuffer_format_control->addItem(tr("RGBA4"));
     framebuffer_format_control->addItem(tr("D16"));
     framebuffer_format_control->addItem(tr("D24"));
-    framebuffer_format_control->addItem(tr("D24S8"));
+    framebuffer_format_control->addItem(tr("D24X8"));
+    framebuffer_format_control->addItem(tr("X24S8"));
+    framebuffer_format_control->addItem(tr("(unknown)"));
 
     // TODO: This QLabel should shrink the image to the available space rather than just expanding...
     framebuffer_picture_label = new QLabel;
@@ -178,25 +180,66 @@ void GraphicsFramebufferWidget::OnUpdate()
     {
         // TODO: Store a reference to the registers in the debug context instead of accessing them directly...
 
-        const auto& framebuffer = Pica::registers.framebuffer;
+        const auto& framebuffer = Pica::g_state.regs.framebuffer;
 
         framebuffer_address = framebuffer.GetColorBufferPhysicalAddress();
         framebuffer_width = framebuffer.GetWidth();
         framebuffer_height = framebuffer.GetHeight();
-        // TODO: It's unknown how this format is actually specified
-        framebuffer_format = Format::RGBA8;
+
+        switch (framebuffer.color_format) {
+        case Pica::Regs::ColorFormat::RGBA8:
+            framebuffer_format = Format::RGBA8;
+            break;
+
+        case Pica::Regs::ColorFormat::RGB8:
+            framebuffer_format = Format::RGB8;
+            break;
+
+        case Pica::Regs::ColorFormat::RGB5A1:
+            framebuffer_format = Format::RGB5A1;
+            break;
+
+        case Pica::Regs::ColorFormat::RGB565:
+            framebuffer_format = Format::RGB565;
+            break;
+
+        case Pica::Regs::ColorFormat::RGBA4:
+            framebuffer_format = Format::RGBA4;
+            break;
+
+        default:
+            framebuffer_format = Format::Unknown;
+            break;
+        }
 
         break;
     }
 
     case Source::DepthBuffer:
     {
-        const auto& framebuffer = Pica::registers.framebuffer;
+        const auto& framebuffer = Pica::g_state.regs.framebuffer;
 
         framebuffer_address = framebuffer.GetDepthBufferPhysicalAddress();
         framebuffer_width = framebuffer.GetWidth();
         framebuffer_height = framebuffer.GetHeight();
-        framebuffer_format = Format::D16;
+
+        switch (framebuffer.depth_format) {
+        case Pica::Regs::DepthFormat::D16:
+            framebuffer_format = Format::D16;
+            break;
+
+        case Pica::Regs::DepthFormat::D24:
+            framebuffer_format = Format::D24;
+            break;
+
+        case Pica::Regs::DepthFormat::D24S8:
+            framebuffer_format = Format::D24X8;
+            break;
+
+        default:
+            framebuffer_format = Format::Unknown;
+            break;
+        }
 
         break;
     }
@@ -257,12 +300,18 @@ void GraphicsFramebufferWidget::OnUpdate()
                 color.b() = (data >> 16) & 0xFF;
                 break;
             }
-            case Format::D24S8:
+            case Format::D24X8:
             {
                 Math::Vec2<u32> data = Color::DecodeD24S8(pixel);
                 color.r() = data.x & 0xFF;
                 color.g() = (data.x >> 8) & 0xFF;
                 color.b() = (data.x >> 16) & 0xFF;
+                break;
+            }
+            case Format::X24S8:
+            {
+                Math::Vec2<u32> data = Color::DecodeD24S8(pixel);
+                color.r() = color.g() = color.b() = data.y;
                 break;
             }
             default:
@@ -285,7 +334,8 @@ void GraphicsFramebufferWidget::OnUpdate()
 u32 GraphicsFramebufferWidget::BytesPerPixel(GraphicsFramebufferWidget::Format format) {
     switch (format) {
         case Format::RGBA8:
-        case Format::D24S8:
+        case Format::D24X8:
+        case Format::X24S8:
             return 4;
         case Format::RGB8:
         case Format::D24:

@@ -115,7 +115,8 @@ static void OpenFileDirectly(Service::Interface* self) {
 
     ResultVal<ArchiveHandle> archive_handle = OpenArchive(archive_id, archive_path);
     if (archive_handle.Failed()) {
-        LOG_ERROR(Service_FS, "failed to get a handle for archive");
+        LOG_ERROR(Service_FS, "failed to get a handle for archive archive_id=0x%08X archive_path=%s",
+                  archive_id, archive_path.DebugStr().c_str());
         cmd_buff[1] = archive_handle.Code().raw;
         cmd_buff[3] = 0;
         return;
@@ -128,7 +129,8 @@ static void OpenFileDirectly(Service::Interface* self) {
         cmd_buff[3] = Kernel::g_handle_table.Create(*file_res).MoveFrom();
     } else {
         cmd_buff[3] = 0;
-        LOG_ERROR(Service_FS, "failed to get a handle for file %s", file_path.DebugStr().c_str());
+        LOG_ERROR(Service_FS, "failed to get a handle for file %s mode=%u attributes=%d",
+                  file_path.DebugStr().c_str(), mode.hex, attributes);
     }
 }
 
@@ -347,7 +349,8 @@ static void OpenDirectory(Service::Interface* self) {
     if (dir_res.Succeeded()) {
         cmd_buff[3] = Kernel::g_handle_table.Create(*dir_res).MoveFrom();
     } else {
-        LOG_ERROR(Service_FS, "failed to get a handle for directory");
+        LOG_ERROR(Service_FS, "failed to get a handle for directory type=%d size=%d data=%s",
+                  dirname_type, dirname_size, dir_path.DebugStr().c_str());
     }
 }
 
@@ -382,7 +385,8 @@ static void OpenArchive(Service::Interface* self) {
         cmd_buff[3] = (*handle >> 32) & 0xFFFFFFFF;
     } else {
         cmd_buff[2] = cmd_buff[3] = 0;
-        LOG_ERROR(Service_FS, "failed to get a handle for archive");
+        LOG_ERROR(Service_FS, "failed to get a handle for archive archive_id=0x%08X archive_path=%s",
+                  archive_id, archive_path.DebugStr().c_str());
     }
 }
 
@@ -434,7 +438,7 @@ static void IsSdmcWriteable(Service::Interface* self) {
 }
 
 /**
- * FS_User::FormatSaveData service function, 
+ * FS_User::FormatSaveData service function,
  * formats the SaveData specified by the input path.
  *  Inputs:
  *      0  : 0x084C0242
@@ -493,6 +497,33 @@ static void FormatThisUserSaveData(Service::Interface* self) {
 }
 
 /**
+ * FS_User::GetFreeBytes service function
+ *  Inputs:
+ *      0: 0x08120080
+ *      1: Archive handle low word
+ *      2: Archive handle high word
+ *  Outputs:
+ *      1: Result of function, 0 on success, otherwise error code
+ *      2: Free byte count low word
+ *      3: Free byte count high word
+ */
+static void GetFreeBytes(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    ArchiveHandle archive_handle = MakeArchiveHandle(cmd_buff[1], cmd_buff[2]);
+    ResultVal<u64> bytes_res = GetFreeBytesInArchive(archive_handle);
+
+    cmd_buff[1] = bytes_res.Code().raw;
+    if (bytes_res.Succeeded()) {
+        cmd_buff[2] = (u32)*bytes_res;
+        cmd_buff[3] = *bytes_res >> 32;
+    } else {
+        cmd_buff[2] = 0;
+        cmd_buff[3] = 0;
+    }
+}
+
+/**
  * FS_User::CreateExtSaveData service function
  *  Inputs:
  *      0 : 0x08510242
@@ -504,9 +535,9 @@ static void FormatThisUserSaveData(Service::Interface* self) {
  *      6 : Unknown
  *      7 : Unknown
  *      8 : Unknown
- *      9 : Unknown
- *      10: Unknown
- *      11: Unknown
+ *      9 : Size of the SMDH icon
+ *      10: (SMDH Size << 4) | 0x0000000A
+ *      11: Pointer to the SMDH icon for the new ExtSaveData
  *  Outputs:
  *      1 : Result of function, 0 on success, otherwise error code
  */
@@ -516,14 +547,16 @@ static void CreateExtSaveData(Service::Interface* self) {
     MediaType media_type = static_cast<MediaType>(cmd_buff[1] & 0xFF);
     u32 save_low = cmd_buff[2];
     u32 save_high = cmd_buff[3];
+    u32 icon_size = cmd_buff[9];
+    VAddr icon_buffer = cmd_buff[11];
 
     LOG_WARNING(Service_FS, "(STUBBED) savedata_high=%08X savedata_low=%08X cmd_buff[3]=%08X "
             "cmd_buff[4]=%08X cmd_buff[5]=%08X cmd_buff[6]=%08X cmd_buff[7]=%08X cmd_buff[8]=%08X "
-            "cmd_buff[9]=%08X cmd_buff[10]=%08X cmd_buff[11]=%08X", save_high, save_low,
-            cmd_buff[3], cmd_buff[4], cmd_buff[5], cmd_buff[6], cmd_buff[7], cmd_buff[8], cmd_buff[9], 
-            cmd_buff[10], cmd_buff[11]);
+            "icon_size=%08X icon_descriptor=%08X icon_buffer=%08X", save_high, save_low,
+            cmd_buff[3], cmd_buff[4], cmd_buff[5], cmd_buff[6], cmd_buff[7], cmd_buff[8], icon_size,
+            cmd_buff[10], icon_buffer);
 
-    cmd_buff[1] = CreateExtSaveData(media_type, save_high, save_low).raw;
+    cmd_buff[1] = CreateExtSaveData(media_type, save_high, save_low, icon_buffer, icon_size).raw;
 }
 
 /**
@@ -544,7 +577,7 @@ static void DeleteExtSaveData(Service::Interface* self) {
     u32 save_high = cmd_buff[3];
     u32 unknown = cmd_buff[4]; // TODO(Subv): Figure out what this is
 
-    LOG_WARNING(Service_FS, "(STUBBED) save_low=%08X save_high=%08X media_type=%08X unknown=%08X", 
+    LOG_WARNING(Service_FS, "(STUBBED) save_low=%08X save_high=%08X media_type=%08X unknown=%08X",
             save_low, save_high, cmd_buff[1] & 0xFF, unknown);
 
     cmd_buff[1] = DeleteExtSaveData(media_type, save_high, save_low).raw;
@@ -675,96 +708,114 @@ static void GetPriority(Service::Interface* self) {
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
-    {0x000100C6, nullptr,               "Dummy1"},
-    {0x040100C4, nullptr,               "Control"},
-    {0x08010002, Initialize,            "Initialize"},
-    {0x080201C2, OpenFile,              "OpenFile"},
-    {0x08030204, OpenFileDirectly,      "OpenFileDirectly"},
-    {0x08040142, DeleteFile,            "DeleteFile"},
-    {0x08050244, RenameFile,            "RenameFile"},
-    {0x08060142, DeleteDirectory,       "DeleteDirectory"},
-    {0x08070142, nullptr,               "DeleteDirectoryRecursively"},
-    {0x08080202, CreateFile,            "CreateFile"},
-    {0x08090182, CreateDirectory,       "CreateDirectory"},
-    {0x080A0244, RenameDirectory,       "RenameDirectory"},
-    {0x080B0102, OpenDirectory,         "OpenDirectory"},
-    {0x080C00C2, OpenArchive,           "OpenArchive"},
-    {0x080D0144, nullptr,               "ControlArchive"},
-    {0x080E0080, CloseArchive,          "CloseArchive"},
-    {0x080F0180, FormatThisUserSaveData,"FormatThisUserSaveData"},
-    {0x08100200, nullptr,               "CreateSystemSaveData"},
-    {0x08110040, nullptr,               "DeleteSystemSaveData"},
-    {0x08120080, nullptr,               "GetFreeBytes"},
-    {0x08130000, nullptr,               "GetCardType"},
-    {0x08140000, nullptr,               "GetSdmcArchiveResource"},
-    {0x08150000, nullptr,               "GetNandArchiveResource"},
-    {0x08160000, nullptr,               "GetSdmcFatfsErro"},
-    {0x08170000, IsSdmcDetected,        "IsSdmcDetected"},
-    {0x08180000, IsSdmcWriteable,       "IsSdmcWritable"},
-    {0x08190042, nullptr,               "GetSdmcCid"},
-    {0x081A0042, nullptr,               "GetNandCid"},
-    {0x081B0000, nullptr,               "GetSdmcSpeedInfo"},
-    {0x081C0000, nullptr,               "GetNandSpeedInfo"},
-    {0x081D0042, nullptr,               "GetSdmcLog"},
-    {0x081E0042, nullptr,               "GetNandLog"},
-    {0x081F0000, nullptr,               "ClearSdmcLog"},
-    {0x08200000, nullptr,               "ClearNandLog"},
-    {0x08210000, CardSlotIsInserted,    "CardSlotIsInserted"},
-    {0x08220000, nullptr,               "CardSlotPowerOn"},
-    {0x08230000, nullptr,               "CardSlotPowerOff"},
-    {0x08240000, nullptr,               "CardSlotGetCardIFPowerStatus"},
-    {0x08250040, nullptr,               "CardNorDirectCommand"},
-    {0x08260080, nullptr,               "CardNorDirectCommandWithAddress"},
-    {0x08270082, nullptr,               "CardNorDirectRead"},
-    {0x082800C2, nullptr,               "CardNorDirectReadWithAddress"},
-    {0x08290082, nullptr,               "CardNorDirectWrite"},
-    {0x082A00C2, nullptr,               "CardNorDirectWriteWithAddress"},
-    {0x082B00C2, nullptr,               "CardNorDirectRead_4xIO"},
-    {0x082C0082, nullptr,               "CardNorDirectCpuWriteWithoutVerify"},
-    {0x082D0040, nullptr,               "CardNorDirectSectorEraseWithoutVerify"},
-    {0x082E0040, nullptr,               "GetProductInfo"},
-    {0x082F0040, nullptr,               "GetProgramLaunchInfo"},
-    {0x08300182, nullptr,               "CreateExtSaveData"},
-    {0x08310180, nullptr,               "CreateSharedExtSaveData"},
-    {0x08320102, nullptr,               "ReadExtSaveDataIcon"},
-    {0x08330082, nullptr,               "EnumerateExtSaveData"},
-    {0x08340082, nullptr,               "EnumerateSharedExtSaveData"},
-    {0x08350080, nullptr,               "DeleteExtSaveData"},
-    {0x08360080, nullptr,               "DeleteSharedExtSaveData"},
-    {0x08370040, nullptr,               "SetCardSpiBaudRate"},
-    {0x08380040, nullptr,               "SetCardSpiBusMode"},
-    {0x08390000, nullptr,               "SendInitializeInfoTo9"},
-    {0x083A0100, nullptr,               "GetSpecialContentIndex"},
-    {0x083B00C2, nullptr,               "GetLegacyRomHeader"},
-    {0x083C00C2, nullptr,               "GetLegacyBannerData"},
-    {0x083D0100, nullptr,               "CheckAuthorityToAccessExtSaveData"},
-    {0x083E00C2, nullptr,               "QueryTotalQuotaSize"},
-    {0x083F00C0, nullptr,               "GetExtDataBlockSize"},
-    {0x08400040, nullptr,               "AbnegateAccessRight"},
-    {0x08410000, nullptr,               "DeleteSdmcRoot"},
-    {0x08420040, nullptr,               "DeleteAllExtSaveDataOnNand"},
-    {0x08430000, nullptr,               "InitializeCtrFileSystem"},
-    {0x08440000, nullptr,               "CreateSeed"},
-    {0x084500C2, nullptr,               "GetFormatInfo"},
-    {0x08460102, nullptr,               "GetLegacyRomHeader2"},
-    {0x08470180, nullptr,               "FormatCtrCardUserSaveData"},
-    {0x08480042, nullptr,               "GetSdmcCtrRootPath"},
-    {0x08490040, nullptr,               "GetArchiveResource"},
-    {0x084A0002, nullptr,               "ExportIntegrityVerificationSeed"},
-    {0x084B0002, nullptr,               "ImportIntegrityVerificationSeed"},
-    {0x084C0242, FormatSaveData,        "FormatSaveData"},
-    {0x084D0102, nullptr,               "GetLegacySubBannerData"},
-    {0x084E0342, nullptr,               "UpdateSha256Context"},
-    {0x084F0102, nullptr,               "ReadSpecialFile"},
-    {0x08500040, nullptr,               "GetSpecialFileSize"},
-    {0x08510242, CreateExtSaveData,     "CreateExtSaveData"},
-    {0x08520100, DeleteExtSaveData,     "DeleteExtSaveData"},
-    {0x08560240, CreateSystemSaveData,  "CreateSystemSaveData"},
-    {0x08570080, DeleteSystemSaveData,  "DeleteSystemSaveData"},
-    {0x08580000, nullptr,               "GetMovableSedHashedKeyYRandomData"},
+    {0x000100C6, nullptr,                  "Dummy1"},
+    {0x040100C4, nullptr,                  "Control"},
+    {0x08010002, Initialize,               "Initialize"},
+    {0x080201C2, OpenFile,                 "OpenFile"},
+    {0x08030204, OpenFileDirectly,         "OpenFileDirectly"},
+    {0x08040142, DeleteFile,               "DeleteFile"},
+    {0x08050244, RenameFile,               "RenameFile"},
+    {0x08060142, DeleteDirectory,          "DeleteDirectory"},
+    {0x08070142, nullptr,                  "DeleteDirectoryRecursively"},
+    {0x08080202, CreateFile,               "CreateFile"},
+    {0x08090182, CreateDirectory,          "CreateDirectory"},
+    {0x080A0244, RenameDirectory,          "RenameDirectory"},
+    {0x080B0102, OpenDirectory,            "OpenDirectory"},
+    {0x080C00C2, OpenArchive,              "OpenArchive"},
+    {0x080D0144, nullptr,                  "ControlArchive"},
+    {0x080E0080, CloseArchive,             "CloseArchive"},
+    {0x080F0180, FormatThisUserSaveData,   "FormatThisUserSaveData"},
+    {0x08100200, nullptr,                  "CreateSystemSaveData"},
+    {0x08110040, nullptr,                  "DeleteSystemSaveData"},
+    {0x08120080, GetFreeBytes,             "GetFreeBytes"},
+    {0x08130000, nullptr,                  "GetCardType"},
+    {0x08140000, nullptr,                  "GetSdmcArchiveResource"},
+    {0x08150000, nullptr,                  "GetNandArchiveResource"},
+    {0x08160000, nullptr,                  "GetSdmcFatfsError"},
+    {0x08170000, IsSdmcDetected,           "IsSdmcDetected"},
+    {0x08180000, IsSdmcWriteable,          "IsSdmcWritable"},
+    {0x08190042, nullptr,                  "GetSdmcCid"},
+    {0x081A0042, nullptr,                  "GetNandCid"},
+    {0x081B0000, nullptr,                  "GetSdmcSpeedInfo"},
+    {0x081C0000, nullptr,                  "GetNandSpeedInfo"},
+    {0x081D0042, nullptr,                  "GetSdmcLog"},
+    {0x081E0042, nullptr,                  "GetNandLog"},
+    {0x081F0000, nullptr,                  "ClearSdmcLog"},
+    {0x08200000, nullptr,                  "ClearNandLog"},
+    {0x08210000, CardSlotIsInserted,       "CardSlotIsInserted"},
+    {0x08220000, nullptr,                  "CardSlotPowerOn"},
+    {0x08230000, nullptr,                  "CardSlotPowerOff"},
+    {0x08240000, nullptr,                  "CardSlotGetCardIFPowerStatus"},
+    {0x08250040, nullptr,                  "CardNorDirectCommand"},
+    {0x08260080, nullptr,                  "CardNorDirectCommandWithAddress"},
+    {0x08270082, nullptr,                  "CardNorDirectRead"},
+    {0x082800C2, nullptr,                  "CardNorDirectReadWithAddress"},
+    {0x08290082, nullptr,                  "CardNorDirectWrite"},
+    {0x082A00C2, nullptr,                  "CardNorDirectWriteWithAddress"},
+    {0x082B00C2, nullptr,                  "CardNorDirectRead_4xIO"},
+    {0x082C0082, nullptr,                  "CardNorDirectCpuWriteWithoutVerify"},
+    {0x082D0040, nullptr,                  "CardNorDirectSectorEraseWithoutVerify"},
+    {0x082E0040, nullptr,                  "GetProductInfo"},
+    {0x082F0040, nullptr,                  "GetProgramLaunchInfo"},
+    {0x08300182, nullptr,                  "CreateExtSaveData"},
+    {0x08310180, nullptr,                  "CreateSharedExtSaveData"},
+    {0x08320102, nullptr,                  "ReadExtSaveDataIcon"},
+    {0x08330082, nullptr,                  "EnumerateExtSaveData"},
+    {0x08340082, nullptr,                  "EnumerateSharedExtSaveData"},
+    {0x08350080, nullptr,                  "DeleteExtSaveData"},
+    {0x08360080, nullptr,                  "DeleteSharedExtSaveData"},
+    {0x08370040, nullptr,                  "SetCardSpiBaudRate"},
+    {0x08380040, nullptr,                  "SetCardSpiBusMode"},
+    {0x08390000, nullptr,                  "SendInitializeInfoTo9"},
+    {0x083A0100, nullptr,                  "GetSpecialContentIndex"},
+    {0x083B00C2, nullptr,                  "GetLegacyRomHeader"},
+    {0x083C00C2, nullptr,                  "GetLegacyBannerData"},
+    {0x083D0100, nullptr,                  "CheckAuthorityToAccessExtSaveData"},
+    {0x083E00C2, nullptr,                  "QueryTotalQuotaSize"},
+    {0x083F00C0, nullptr,                  "GetExtDataBlockSize"},
+    {0x08400040, nullptr,                  "AbnegateAccessRight"},
+    {0x08410000, nullptr,                  "DeleteSdmcRoot"},
+    {0x08420040, nullptr,                  "DeleteAllExtSaveDataOnNand"},
+    {0x08430000, nullptr,                  "InitializeCtrFileSystem"},
+    {0x08440000, nullptr,                  "CreateSeed"},
+    {0x084500C2, nullptr,                  "GetFormatInfo"},
+    {0x08460102, nullptr,                  "GetLegacyRomHeader2"},
+    {0x08470180, nullptr,                  "FormatCtrCardUserSaveData"},
+    {0x08480042, nullptr,                  "GetSdmcCtrRootPath"},
+    {0x08490040, nullptr,                  "GetArchiveResource"},
+    {0x084A0002, nullptr,                  "ExportIntegrityVerificationSeed"},
+    {0x084B0002, nullptr,                  "ImportIntegrityVerificationSeed"},
+    {0x084C0242, FormatSaveData,           "FormatSaveData"},
+    {0x084D0102, nullptr,                  "GetLegacySubBannerData"},
+    {0x084E0342, nullptr,                  "UpdateSha256Context"},
+    {0x084F0102, nullptr,                  "ReadSpecialFile"},
+    {0x08500040, nullptr,                  "GetSpecialFileSize"},
+    {0x08510242, CreateExtSaveData,        "CreateExtSaveData"},
+    {0x08520100, DeleteExtSaveData,        "DeleteExtSaveData"},
+    {0x08530142, nullptr,                  "ReadExtSaveDataIcon"},
+    {0x085400C0, nullptr,                  "GetExtDataBlockSize"},
+    {0x08550102, nullptr,                  "EnumerateExtSaveData"},
+    {0x08560240, CreateSystemSaveData,     "CreateSystemSaveData"},
+    {0x08570080, DeleteSystemSaveData,     "DeleteSystemSaveData"},
+    {0x08580000, nullptr,                  "StartDeviceMoveAsSource"},
+    {0x08590200, nullptr,                  "StartDeviceMoveAsDestination"},
+    {0x085A00C0, nullptr,                  "SetArchivePriority"},
+    {0x085B0080, nullptr,                  "GetArchivePriority"},
+    {0x085C00C0, nullptr,                  "SetCtrCardLatencyParameter"},
+    {0x085D01C0, nullptr,                  "SetFsCompatibilityInfo"},
+    {0x085E0040, nullptr,                  "ResetCardCompatibilityParameter"},
+    {0x085F0040, nullptr,                  "SwitchCleanupInvalidSaveData"},
+    {0x08600042, nullptr,                  "EnumerateSystemSaveData"},
     {0x08610042, InitializeWithSdkVersion, "InitializeWithSdkVersion"},
-    {0x08620040, SetPriority,           "SetPriority"},
-    {0x08630000, GetPriority,           "GetPriority"},
+    {0x08620040, SetPriority,              "SetPriority"},
+    {0x08630000, GetPriority,              "GetPriority"},
+    {0x08640000, nullptr,                  "GetNandInfo"},
+    {0x08650140, nullptr,                  "SetSaveDataSecureValue"},
+    {0x086600C0, nullptr,                  "GetSaveDataSecureValue"},
+    {0x086700C4, nullptr,                  "ControlSecureSave"},
+    {0x08680000, nullptr,                  "GetMediaType"},
+    {0x08690000, nullptr,                  "GetNandEraseCount"},
+    {0x086A0082, nullptr,                  "ReadNandReport"}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

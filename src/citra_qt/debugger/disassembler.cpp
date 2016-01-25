@@ -2,20 +2,20 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "disassembler.h"
+#include <QShortcut>
 
-#include "../bootmanager.h"
-#include "../hotkeys.h"
+#include "citra_qt/bootmanager.h"
+#include "citra_qt/hotkeys.h"
+#include "citra_qt/debugger/disassembler.h"
+#include "citra_qt/util/util.h"
 
-#include "core/memory.h"
-
-#include "core/core.h"
 #include "common/break_points.h"
 #include "common/symbols.h"
-#include "core/arm/arm_interface.h"
-#include "core/arm/skyeye_common/armdefs.h"
-#include "core/arm/disassembler/arm_disasm.h"
 
+#include "core/core.h"
+#include "core/memory.h"
+#include "core/arm/arm_interface.h"
+#include "core/arm/disassembler/arm_disasm.h"
 
 DisassemblerModel::DisassemblerModel(QObject* parent) :
     QAbstractListModel(parent), base_address(0), code_size(0), program_counter(0), selection(QModelIndex()) {
@@ -74,6 +74,14 @@ QVariant DisassemblerModel::data(const QModelIndex& index, int role) const {
             else if (address == program_counter)
                 return QBrush(QColor(0xC0, 0xC0, 0xFF));
 
+            break;
+        }
+
+        case Qt::FontRole:
+        {
+            if (index.column() == 0 || index.column() == 1) { // 2 is the symbols column
+                return GetMonospaceFont();
+            }
             break;
         }
 
@@ -158,7 +166,7 @@ void DisassemblerModel::SetNextInstruction(unsigned int address) {
 }
 
 DisassemblerWidget::DisassemblerWidget(QWidget* parent, EmuThread* emu_thread) :
-    QDockWidget(parent), emu_thread(emu_thread), base_addr(0) {
+    QDockWidget(parent), base_addr(0), emu_thread(emu_thread) {
 
     disasm_ui.setupUi(this);
 
@@ -217,7 +225,7 @@ void DisassemblerWidget::OnToggleStartStop() {
 }
 
 void DisassemblerWidget::OnDebugModeEntered() {
-    ARMword next_instr = Core::g_app_core->GetPC();
+    u32 next_instr = Core::g_app_core->GetPC();
 
     if (model->GetBreakPoints().IsAddressBreakPoint(next_instr))
         emu_thread->SetRunning(false);

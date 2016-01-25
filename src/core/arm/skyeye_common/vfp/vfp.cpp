@@ -20,35 +20,31 @@
 
 /* Note: this file handles interface with arm core and vfp registers */
 
+#include "common/common_funcs.h"
+#include "common/common_types.h"
 #include "common/logging/log.h"
 
-#include "core/arm/skyeye_common/armdefs.h"
+#include "core/arm/skyeye_common/armstate.h"
 #include "core/arm/skyeye_common/vfp/asm_vfp.h"
 #include "core/arm/skyeye_common/vfp/vfp.h"
 
-unsigned VFPInit(ARMul_State* state)
+void VFPInit(ARMul_State* state)
 {
     state->VFP[VFP_FPSID] = VFP_FPSID_IMPLMEN<<24 | VFP_FPSID_SW<<23 | VFP_FPSID_SUBARCH<<16 |
                             VFP_FPSID_PARTNUM<<8 | VFP_FPSID_VARIANT<<4 | VFP_FPSID_REVISION;
     state->VFP[VFP_FPEXC] = 0;
     state->VFP[VFP_FPSCR] = 0;
 
-    return 0;
+    // ARM11 MPCore instruction register reset values.
+    state->VFP[VFP_FPINST]  = 0xEE000A00;
+    state->VFP[VFP_FPINST2] = 0;
+
+    // ARM11 MPCore feature register values.
+    state->VFP[VFP_MVFR0] = 0x11111111;
+    state->VFP[VFP_MVFR1] = 0;
 }
 
-void VMSR(ARMul_State* state, ARMword reg, ARMword Rt)
-{
-    if (reg == 1)
-    {
-        state->VFP[VFP_FPSCR] = state->Reg[Rt];
-    }
-    else if (reg == 8)
-    {
-        state->VFP[VFP_FPEXC] = state->Reg[Rt];
-    }
-}
-
-void VMOVBRS(ARMul_State* state, ARMword to_arm, ARMword t, ARMword n, ARMword* value)
+void VMOVBRS(ARMul_State* state, u32 to_arm, u32 t, u32 n, u32* value)
 {
     if (to_arm)
     {
@@ -60,7 +56,7 @@ void VMOVBRS(ARMul_State* state, ARMword to_arm, ARMword t, ARMword n, ARMword* 
     }
 }
 
-void VMOVBRRD(ARMul_State* state, ARMword to_arm, ARMword t, ARMword t2, ARMword n, ARMword* value1, ARMword* value2)
+void VMOVBRRD(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1, u32* value2)
 {
     if (to_arm)
     {
@@ -73,7 +69,7 @@ void VMOVBRRD(ARMul_State* state, ARMword to_arm, ARMword t, ARMword t2, ARMword
         state->ExtReg[n*2] = *value1;
     }
 }
-void VMOVBRRSS(ARMul_State* state, ARMword to_arm, ARMword t, ARMword t2, ARMword n, ARMword* value1, ARMword* value2)
+void VMOVBRRSS(ARMul_State* state, u32 to_arm, u32 t, u32 t2, u32 n, u32* value1, u32* value2)
 {
     if (to_arm)
     {
@@ -87,7 +83,7 @@ void VMOVBRRSS(ARMul_State* state, ARMword to_arm, ARMword t, ARMword t2, ARMwor
     }
 }
 
-void VMOVI(ARMul_State* state, ARMword single, ARMword d, ARMword imm)
+void VMOVI(ARMul_State* state, u32 single, u32 d, u32 imm)
 {
     if (single)
     {
@@ -100,7 +96,7 @@ void VMOVI(ARMul_State* state, ARMword single, ARMword d, ARMword imm)
         state->ExtReg[d*2] = 0;
     }
 }
-void VMOVR(ARMul_State* state, ARMword single, ARMword d, ARMword m)
+void VMOVR(ARMul_State* state, u32 single, u32 d, u32 m)
 {
     if (single)
     {
@@ -115,30 +111,30 @@ void VMOVR(ARMul_State* state, ARMword single, ARMword d, ARMword m)
 }
 
 /* Miscellaneous functions */
-int32_t vfp_get_float(ARMul_State* state, unsigned int reg)
+s32 vfp_get_float(ARMul_State* state, unsigned int reg)
 {
-    LOG_TRACE(Core_ARM11, "VFP get float: s%d=[%08x]\n", reg, state->ExtReg[reg]);
+    LOG_TRACE(Core_ARM11, "VFP get float: s%d=[%08x]", reg, state->ExtReg[reg]);
     return state->ExtReg[reg];
 }
 
-void vfp_put_float(ARMul_State* state, int32_t val, unsigned int reg)
+void vfp_put_float(ARMul_State* state, s32 val, unsigned int reg)
 {
-    LOG_TRACE(Core_ARM11, "VFP put float: s%d <= [%08x]\n", reg, val);
+    LOG_TRACE(Core_ARM11, "VFP put float: s%d <= [%08x]", reg, val);
     state->ExtReg[reg] = val;
 }
 
-uint64_t vfp_get_double(ARMul_State* state, unsigned int reg)
+u64 vfp_get_double(ARMul_State* state, unsigned int reg)
 {
-    uint64_t result = ((uint64_t) state->ExtReg[reg*2+1])<<32 | state->ExtReg[reg*2];
-    LOG_TRACE(Core_ARM11, "VFP get double: s[%d-%d]=[%016llx]\n", reg * 2 + 1, reg * 2, result);
+    u64 result = ((u64) state->ExtReg[reg*2+1])<<32 | state->ExtReg[reg*2];
+    LOG_TRACE(Core_ARM11, "VFP get double: s[%d-%d]=[%016llx]", reg * 2 + 1, reg * 2, result);
     return result;
 }
 
-void vfp_put_double(ARMul_State* state, uint64_t val, unsigned int reg)
+void vfp_put_double(ARMul_State* state, u64 val, unsigned int reg)
 {
-    LOG_TRACE(Core_ARM11, "VFP put double: s[%d-%d] <= [%08x-%08x]\n", reg * 2 + 1, reg * 2, (uint32_t)(val >> 32), (uint32_t)(val & 0xffffffff));
-    state->ExtReg[reg*2] = (uint32_t) (val & 0xffffffff);
-    state->ExtReg[reg*2+1] = (uint32_t) (val>>32);
+    LOG_TRACE(Core_ARM11, "VFP put double: s[%d-%d] <= [%08x-%08x]", reg * 2 + 1, reg * 2, (u32)(val >> 32), (u32)(val & 0xffffffff));
+    state->ExtReg[reg*2] = (u32) (val & 0xffffffff);
+    state->ExtReg[reg*2+1] = (u32) (val>>32);
 }
 
 /*
@@ -146,12 +142,11 @@ void vfp_put_double(ARMul_State* state, uint64_t val, unsigned int reg)
  */
 void vfp_raise_exceptions(ARMul_State* state, u32 exceptions, u32 inst, u32 fpscr)
 {
-    LOG_TRACE(Core_ARM11, "VFP: raising exceptions %08x\n", exceptions);
+    LOG_TRACE(Core_ARM11, "VFP: raising exceptions %08x", exceptions);
 
     if (exceptions == VFP_EXCEPTION_ERROR) {
-        LOG_TRACE(Core_ARM11, "unhandled bounce %x\n", inst);
-        exit(-1);
-        return;
+        LOG_CRITICAL(Core_ARM11, "unhandled bounce %x", inst);
+        Crash();
     }
 
     /*

@@ -2,12 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "pica.h"
-#include "primitive_assembly.h"
-#include "vertex_shader.h"
-
 #include "common/logging/log.h"
+
+#include "video_core/pica.h"
+#include "video_core/primitive_assembly.h"
 #include "video_core/debug_utils/debug_utils.h"
+#include "video_core/shader/shader_interpreter.h"
 
 namespace Pica {
 
@@ -20,8 +20,9 @@ template<typename VertexType>
 void PrimitiveAssembler<VertexType>::SubmitVertex(VertexType& vtx, TriangleHandler triangle_handler)
 {
     switch (topology) {
+        // TODO: Figure out what's different with TriangleTopology::Shader.
         case Regs::TriangleTopology::List:
-        case Regs::TriangleTopology::ListIndexed:
+        case Regs::TriangleTopology::Shader:
             if (buffer_index < 2) {
                 buffer[buffer_index++] = vtx;
             } else {
@@ -38,13 +39,12 @@ void PrimitiveAssembler<VertexType>::SubmitVertex(VertexType& vtx, TriangleHandl
 
             buffer[buffer_index] = vtx;
 
-            if (topology == Regs::TriangleTopology::Strip) {
-                strip_ready |= (buffer_index == 1);
+            strip_ready |= (buffer_index == 1);
+
+            if (topology == Regs::TriangleTopology::Strip)
                 buffer_index = !buffer_index;
-            } else if (topology == Regs::TriangleTopology::Fan) {
+            else if (topology == Regs::TriangleTopology::Fan)
                 buffer_index = 1;
-                strip_ready = true;
-            }
             break;
 
         default:
@@ -55,7 +55,7 @@ void PrimitiveAssembler<VertexType>::SubmitVertex(VertexType& vtx, TriangleHandl
 
 // explicitly instantiate use cases
 template
-struct PrimitiveAssembler<VertexShader::OutputVertex>;
+struct PrimitiveAssembler<Shader::OutputVertex>;
 template
 struct PrimitiveAssembler<DebugUtils::GeometryDumper::Vertex>;
 
