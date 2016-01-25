@@ -36,4 +36,3 @@ deploy:
     secure: U0ksP/ootcmbZcebIK89O8CPgjsKAnDiFVKWA1qyqTyAAlvD/gJ7zIPiVCrppKkD
   draft: true
   prerelease: true
- environment:
