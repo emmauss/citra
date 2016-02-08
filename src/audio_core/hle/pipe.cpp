@@ -5,50 +5,117 @@
 #include <array>
 #include <vector>
 
+#include "audio_core/hle/dsp.h"
 #include "audio_core/hle/pipe.h"
 
+#include "common/assert.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
 
 namespace DSP {
 namespace HLE {
 
+static bool is_active = false;
+
 static size_t pipe2position = 0;
+
+/*
+ * DSP addresses address 16-bit words, hence the division by two.
+ * These DSP addresses are converted by the application into ARM11 virtual addresses using
+ * the dsp::DSP ConvertProcessAddressFromDspDram service call.
+ */
+
+constexpr size_t num_structs = 15;
+static const std::array<u16_le, num_structs + 1> pipe2payload = {
+    num_structs,
+    0x8000 + offsetof(SharedMemory, frame_counter) / 2,
+    0x8000 + offsetof(SharedMemory, source_configurations) / 2,
+    0x8000 + offsetof(SharedMemory, source_statuses) / 2,
+    0x8000 + offsetof(SharedMemory, adpcm_coefficients) / 2,
+    0x8000 + offsetof(SharedMemory, dsp_configuration) / 2,
+    0x8000 + offsetof(SharedMemory, dsp_status) / 2,
+    0x8000 + offsetof(SharedMemory, final_samples) / 2,
+    0x8000 + offsetof(SharedMemory, intermediate_mix_samples) / 2,
+    0x8000 + offsetof(SharedMemory, compressor) / 2,
+    0x8000 + offsetof(SharedMemory, dsp_debug) / 2,
+    0x8000 + offsetof(SharedMemory, unknown10) / 2,
+    0x8000 + offsetof(SharedMemory, unknown11) / 2,
+    0x8000 + offsetof(SharedMemory, unknown12) / 2,
+    0x8000 + offsetof(SharedMemory, unknown13) / 2,
+    0x8000 + offsetof(SharedMemory, unknown14) / 2
+};
 
 void ResetPipes() {
     pipe2position = 0;
+    is_active = false;
 }
 
 std::vector<u8> PipeRead(u32 pipe_number, u32 length) {
-    if (pipe_number != 2) {
-        LOG_WARNING(Audio_DSP, "pipe_number = %u (!= 2), unimplemented", pipe_number);
-        return {}; // We currently don't handle anything other than the audio pipe.
+    switch (pipe_number) {
+    case 2: {
+        const static size_t max_end = sizeof(pipe2payload); ///< Length of the entire response in bytes
+        const static u8* entire_response_bytes = reinterpret_cast<const u8*>(pipe2payload.data());
+
+        // Start and end positions of this read request.
+        size_t start = pipe2position;
+        size_t end = pipe2position + length;
+        if (end > max_end) end = max_end;
+
+        pipe2position = end;
+        ASSERT(pipe2position <= max_end);
+
+        return std::vector<u8>(entire_response_bytes + start, entire_response_bytes + end);
     }
-
-    // Canned DSP responses that games expect. These were taken from HW by 3dmoo team.
-    // TODO: Our implementation will actually use a slightly different response than this one.
-    // TODO: Use offsetof on DSP structures instead for a proper response.
-    static const std::array<u8, 32> canned_response {{
-        0x0F, 0x00, 0xFF, 0xBF, 0x8E, 0x9E, 0x80, 0x86, 0x8E, 0xA7, 0x30, 0x94, 0x00, 0x84, 0x40, 0x85,
-        0x8E, 0x94, 0x10, 0x87, 0x10, 0x84, 0x0E, 0xA9, 0x0E, 0xAA, 0xCE, 0xAA, 0x4E, 0xAC, 0x58, 0xAC
-    }};
-
-    // TODO: Move this into dsp::DSP service since it happens on the service side.
-    // Hardware observation: No data is returned if requested length reads beyond the end of the data in-pipe.
-    if (pipe2position + length > canned_response.size()) {
+    default:
+        LOG_ERROR(Audio_DSP, "pipe_number = %u unimplemented", pipe_number);
         return {};
     }
+}
 
-    std::vector<u8> ret;
-    for (size_t i = 0; i < length; i++, pipe2position++) {
-        ret.emplace_back(canned_response[pipe2position]);
+size_t GetPipeReadableSize(u32 pipe_number) {
+    switch (pipe_number) {
+    case 2:
+        return sizeof(pipe2payload) - pipe2position;
+    default:
+        LOG_ERROR(Audio_DSP, "pipe_number = %u unimplemented", pipe_number);
+        return 0;
     }
-
-    return ret;
 }
 
 void PipeWrite(u32 pipe_number, const std::vector<u8>& buffer) {
-    // TODO: proper pipe behaviour
+    switch (pipe_number) {
+    case 2: {
+        if (buffer.size() != 4) {
+            LOG_ERROR(Audio_DSP, "Pipe 2: Unexpected buffer length %zu was written", buffer.size());
+            return;
+        }
+
+        switch (buffer[0]) {
+        case 0:
+            LOG_INFO(Audio_DSP, "Application has requested initialization of DSP hardware");
+            ResetPipes();
+            is_active = true;
+            break;
+        case 1:
+            LOG_INFO(Audio_DSP, "Application has requested shutdown of DSP hardware");
+            is_active = false;
+            break;
+        default:
+            LOG_ERROR(Audio_DSP, "Application has requested transition of DSP hardware into unknown state %hhu", buffer[0]);
+            is_active = false;
+            break;
+        }
+
+        return;
+    }
+    default:
+        LOG_ERROR(Audio_DSP, "pipe_number = %u unimplemented", pipe_number);
+        return;
+    }
+}
+
+bool IsActivated() {
+    return is_active;
 }
 
 } // namespace HLE

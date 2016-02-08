@@ -472,12 +472,46 @@ struct SharedMemory {
 
     AdpcmCoefficients adpcm_coefficients;
 
-    /// Unknown 10-14 (Surround sound related)
-    INSERT_PADDING_DSPWORDS(0x16ED);
+    struct {
+        INSERT_PADDING_DSPWORDS(0x100);
+    } unknown10;
+
+    struct {
+        INSERT_PADDING_DSPWORDS(0xC0);
+    } unknown11;
+
+    struct {
+        INSERT_PADDING_DSPWORDS(0x180);
+    } unknown12;
+
+    struct {
+        INSERT_PADDING_DSPWORDS(0xA);
+    } unknown13;
+
+    struct {
+        INSERT_PADDING_DSPWORDS(0x13A3);
+    } unknown14;
 
     u16_le frame_counter;
 };
 ASSERT_DSP_STRUCT(SharedMemory, 0x8000);
+
+// Structures must have an offset that is a multiple of two.
+static_assert(offsetof(SharedMemory, frame_counter) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, source_configurations) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, source_statuses) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, adpcm_coefficients) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, dsp_configuration) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, dsp_status) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, final_samples) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, intermediate_mix_samples) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, compressor) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, dsp_debug) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, unknown10) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, unknown11) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, unknown12) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, unknown13) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
+static_assert(offsetof(SharedMemory, unknown14) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");
 
 #undef INSERT_PADDING_DSPWORDS
 #undef ASSERT_DSP_STRUCT

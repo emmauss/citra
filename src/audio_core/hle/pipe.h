@@ -28,11 +28,21 @@ void ResetPipes();
 std::vector<u8> PipeRead(u32 pipe_number, u32 length);
 
 /**
+ * How much data is left in pipe
+ * @param pipe_number The Pipe ID
+ * @return The amount of data remaning in the pipe. This is the maximum length PipeRead will return.
+ */
+std::size_t GetPipeReadableSize(u32 pipe_number);
+
+/**
  * Write to a DSP pipe.
  * @param pipe_number The Pipe ID
  * @param buffer The data to write to the pipe.
  */
 void PipeWrite(u32 pipe_number, const std::vector<u8>& buffer);
+
+/// Has the DSP hardware been activated by the application?
+bool IsActivated();
 
 } // namespace HLE
 } // namespace DSP
