@@ -262,13 +262,13 @@ static void SetAlpha(Service::Interface* self) {
 static void StartConversion(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    HW::Y2R::PerformConversion(conversion);
-
     // dst_image_size would seem to be perfect for this, but it doesn't include the gap :(
     u32 total_output_size = conversion.input_lines *
         (conversion.dst.transfer_unit + conversion.dst.gap);
-    VideoCore::g_renderer->rasterizer->InvalidateRegion(
-        Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size);
+    VideoCore::g_renderer->rasterizer->FlushRegion(
+        Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size, true);
+
+    HW::Y2R::PerformConversion(conversion);
 
     LOG_DEBUG(Service_Y2R, "called");
     completion_event->Signal();
