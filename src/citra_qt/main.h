@@ -108,6 +108,7 @@ private slots:
     void SetHardwareRendererEnabled(bool);
     void SetGdbstubEnabled(bool);
     void SetShaderJITEnabled(bool);
+    void SetScaledResolutionEnabled(bool);
     void ToggleWindowMode();
 
 private:
