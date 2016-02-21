@@ -89,9 +89,12 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    while (emu_window->IsOpen()) {
-        Core::RunLoop();
-    }
+    extern void TestSystem();
+    TestSystem();
+
+    //while (emu_window->IsOpen()) {
+    //    Core::RunLoop();
+    //}
 
     System::Shutdown();
 

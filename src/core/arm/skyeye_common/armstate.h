@@ -23,6 +23,10 @@
 #include "common/common_types.h"
 #include "core/arm/skyeye_common/arm_regformat.h"
 
+namespace Gen {
+struct JitBasicBlock;
+}
+
 // Signal levels
 enum {
     LOW     = 0,
@@ -239,6 +243,10 @@ public:
     // TODO(bunnei): Move this cache to a better place - it should be per codeset (likely per
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
     std::unordered_map<u32, int> instruction_cache;
+
+    // TODO: Like the above instruction_cache, this reaaaaaaaaaaaaaaaaally shouldn't be here.
+    // Move it somewhere else, pretty please.
+    std::unordered_map<u32, Gen::JitBasicBlock*> jit_cache;
 
 private:
     void ResetMPCoreCP15Registers();
