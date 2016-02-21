@@ -4,6 +4,7 @@ set(SRCS
             arm/dyncom/arm_dyncom.cpp
             arm/dyncom/arm_dyncom_dec.cpp
             arm/dyncom/arm_dyncom_interpreter.cpp
+            arm/dyncom/arm_dyncom_jit.cpp
             arm/dyncom/arm_dyncom_thumb.cpp
             arm/skyeye_common/armstate.cpp
             arm/skyeye_common/armsupp.cpp
@@ -129,6 +130,7 @@ set(HEADERS
             arm/dyncom/arm_dyncom.h
             arm/dyncom/arm_dyncom_dec.h
             arm/dyncom/arm_dyncom_interpreter.h
+            arm/dyncom/arm_dyncom_jit.h
             arm/dyncom/arm_dyncom_run.h
             arm/dyncom/arm_dyncom_thumb.h
             arm/skyeye_common/arm_regformat.h
