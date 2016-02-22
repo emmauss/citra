@@ -133,6 +133,7 @@ set(HEADERS
             arm/dyncom/arm_dyncom_jit.h
             arm/dyncom/arm_dyncom_run.h
             arm/dyncom/arm_dyncom_thumb.h
+            arm/dyncom/arm_dyncom_translate.h
             arm/skyeye_common/arm_regformat.h
             arm/skyeye_common/armstate.h
             arm/skyeye_common/armsupp.h

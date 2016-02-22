@@ -18,6 +18,7 @@
 #include "core/arm/dyncom/arm_dyncom_dec.h"
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
 #include "core/arm/dyncom/arm_dyncom_thumb.h"
+#include "core/arm/dyncom/arm_dyncom_translate.h"
 #include "core/arm/dyncom/arm_dyncom_run.h"
 #include "core/arm/skyeye_common/armstate.h"
 #include "core/arm/skyeye_common/armsupp.h"
@@ -28,17 +29,6 @@
 Common::Profiling::TimingCategory profile_execute("DynCom::Execute");
 Common::Profiling::TimingCategory profile_decode("DynCom::Decode");
 
-enum {
-    COND            = (1 << 0),
-    NON_BRANCH      = (1 << 1),
-    DIRECT_BRANCH   = (1 << 2),
-    INDIRECT_BRANCH = (1 << 3),
-    CALL            = (1 << 4),
-    RET             = (1 << 5),
-    END_OF_PAGE     = (1 << 6),
-    THUMB           = (1 << 7)
-};
-
 #define RM    BITS(sht_oper, 0, 3)
 #define RS    BITS(sht_oper, 8, 11)
 
@@ -48,8 +38,6 @@ enum {
 #define ROTATE_LEFT(n, i, l)  ((n >> (l - i)) | (n << i))
 #define ROTATE_RIGHT_32(n, i) ROTATE_RIGHT(n, i, 32)
 #define ROTATE_LEFT_32(n, i)  ROTATE_LEFT(n, i, 32)
-
-typedef unsigned int (*shtop_fp_t)(ARMul_State* cpu, unsigned int sht_oper);
 
 static bool CondPassed(const ARMul_State* cpu, unsigned int cond) {
     const bool n_flag = cpu->NFlag != 0;
@@ -94,7 +82,7 @@ static bool CondPassed(const ARMul_State* cpu, unsigned int cond) {
     return false;
 }
 
-static unsigned int DPO(Immediate)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(Immediate)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int immed_8 = BITS(sht_oper, 0, 7);
     unsigned int rotate_imm = BITS(sht_oper, 8, 11);
     unsigned int shifter_operand = ROTATE_RIGHT_32(immed_8, rotate_imm * 2);
@@ -105,14 +93,14 @@ static unsigned int DPO(Immediate)(ARMul_State* cpu, unsigned int sht_oper) {
     return shifter_operand;
 }
 
-static unsigned int DPO(Register)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(Register)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand = rm;
     cpu->shifter_carry_out = cpu->CFlag;
     return shifter_operand;
 }
 
-static unsigned int DPO(LogicalShiftLeftByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(LogicalShiftLeftByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
     int shift_imm = BITS(sht_oper, 7, 11);
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand;
@@ -126,7 +114,7 @@ static unsigned int DPO(LogicalShiftLeftByImmediate)(ARMul_State* cpu, unsigned 
     return shifter_operand;
 }
 
-static unsigned int DPO(LogicalShiftLeftByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(LogicalShiftLeftByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
     int shifter_operand;
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int rs = CHECK_READ_REG15(cpu, RS);
@@ -146,7 +134,7 @@ static unsigned int DPO(LogicalShiftLeftByRegister)(ARMul_State* cpu, unsigned i
     return shifter_operand;
 }
 
-static unsigned int DPO(LogicalShiftRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(LogicalShiftRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand;
     int shift_imm = BITS(sht_oper, 7, 11);
@@ -160,7 +148,7 @@ static unsigned int DPO(LogicalShiftRightByImmediate)(ARMul_State* cpu, unsigned
     return shifter_operand;
 }
 
-static unsigned int DPO(LogicalShiftRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(LogicalShiftRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rs = CHECK_READ_REG15(cpu, RS);
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand;
@@ -180,7 +168,7 @@ static unsigned int DPO(LogicalShiftRightByRegister)(ARMul_State* cpu, unsigned 
     return shifter_operand;
 }
 
-static unsigned int DPO(ArithmeticShiftRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(ArithmeticShiftRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand;
     int shift_imm = BITS(sht_oper, 7, 11);
@@ -197,7 +185,7 @@ static unsigned int DPO(ArithmeticShiftRightByImmediate)(ARMul_State* cpu, unsig
     return shifter_operand;
 }
 
-static unsigned int DPO(ArithmeticShiftRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(ArithmeticShiftRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rs = CHECK_READ_REG15(cpu, RS);
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int shifter_operand;
@@ -217,7 +205,7 @@ static unsigned int DPO(ArithmeticShiftRightByRegister)(ARMul_State* cpu, unsign
     return shifter_operand;
 }
 
-static unsigned int DPO(RotateRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(RotateRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int shifter_operand;
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     int shift_imm = BITS(sht_oper, 7, 11);
@@ -231,7 +219,7 @@ static unsigned int DPO(RotateRightByImmediate)(ARMul_State* cpu, unsigned int s
     return shifter_operand;
 }
 
-static unsigned int DPO(RotateRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
+unsigned int DPO(RotateRightByRegister)(ARMul_State* cpu, unsigned int sht_oper) {
     unsigned int rm = CHECK_READ_REG15(cpu, RM);
     unsigned int rs = CHECK_READ_REG15(cpu, RS);
     unsigned int shifter_operand;
@@ -670,463 +658,6 @@ static void LnSWoUB(ScaledRegisterOffset)(ARMul_State* cpu, unsigned int inst, u
 
     virt_addr = addr;
 }
-
-struct arm_inst {
-    unsigned int idx;
-    unsigned int cond;
-    int br;
-    char component[0];
-};
-
-struct generic_arm_inst {
-    u32 Ra;
-    u32 Rm;
-    u32 Rn;
-    u32 Rd;
-    u8 op1;
-    u8 op2;
-};
-
-struct adc_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct add_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct orr_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct and_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct eor_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct bbl_inst {
-    unsigned int L;
-    int signed_immed_24;
-    unsigned int next_addr;
-    unsigned int jmp_addr;
-};
-
-struct bx_inst {
-    unsigned int Rm;
-};
-
-struct blx_inst {
-    union {
-        s32 signed_immed_24;
-        u32 Rm;
-    } val;
-    unsigned int inst;
-};
-
-struct clz_inst {
-    unsigned int Rm;
-    unsigned int Rd;
-};
-
-struct cps_inst {
-    unsigned int imod0;
-    unsigned int imod1;
-    unsigned int mmod;
-    unsigned int A, I, F;
-    unsigned int mode;
-};
-
-struct clrex_inst {
-};
-
-struct cpy_inst {
-    unsigned int Rm;
-    unsigned int Rd;
-};
-
-struct bic_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct sub_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct tst_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct cmn_inst {
-    unsigned int I;
-    unsigned int Rn;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct teq_inst {
-    unsigned int I;
-    unsigned int Rn;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct stm_inst {
-    unsigned int inst;
-};
-
-struct bkpt_inst {
-    u32 imm;
-};
-
-struct stc_inst {
-};
-
-struct ldc_inst {
-};
-
-struct swi_inst {
-    unsigned int num;
-};
-
-struct cmp_inst {
-    unsigned int I;
-    unsigned int Rn;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct mov_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct mvn_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct rev_inst {
-    unsigned int Rd;
-    unsigned int Rm;
-    unsigned int op1;
-    unsigned int op2;
-};
-
-struct rsb_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct rsc_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct sbc_inst {
-    unsigned int I;
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int shifter_operand;
-    shtop_fp_t shtop_func;
-};
-
-struct mul_inst {
-    unsigned int S;
-    unsigned int Rd;
-    unsigned int Rs;
-    unsigned int Rm;
-};
-
-struct smul_inst {
-    unsigned int Rd;
-    unsigned int Rs;
-    unsigned int Rm;
-    unsigned int x;
-    unsigned int y;
-};
-
-struct umull_inst {
-    unsigned int S;
-    unsigned int RdHi;
-    unsigned int RdLo;
-    unsigned int Rs;
-    unsigned int Rm;
-};
-
-struct smlad_inst {
-    unsigned int m;
-    unsigned int Rm;
-    unsigned int Rd;
-    unsigned int Ra;
-    unsigned int Rn;
-    unsigned int op1;
-    unsigned int op2;
-};
-
-struct smla_inst {
-    unsigned int x;
-    unsigned int y;
-    unsigned int Rm;
-    unsigned int Rd;
-    unsigned int Rs;
-    unsigned int Rn;
-};
-
-struct smlalxy_inst {
-    unsigned int x;
-    unsigned int y;
-    unsigned int RdLo;
-    unsigned int RdHi;
-    unsigned int Rm;
-    unsigned int Rn;
-};
-
-struct ssat_inst {
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int imm5;
-    unsigned int sat_imm;
-    unsigned int shift_type;
-};
-
-struct umaal_inst {
-    unsigned int Rn;
-    unsigned int Rm;
-    unsigned int RdHi;
-    unsigned int RdLo;
-};
-
-struct umlal_inst {
-    unsigned int S;
-    unsigned int Rm;
-    unsigned int Rs;
-    unsigned int RdHi;
-    unsigned int RdLo;
-};
-
-struct smlal_inst {
-    unsigned int S;
-    unsigned int Rm;
-    unsigned int Rs;
-    unsigned int RdHi;
-    unsigned int RdLo;
-};
-
-struct smlald_inst {
-    unsigned int RdLo;
-    unsigned int RdHi;
-    unsigned int Rm;
-    unsigned int Rn;
-    unsigned int swap;
-    unsigned int op1;
-    unsigned int op2;
-};
-
-struct mla_inst {
-    unsigned int S;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int Rs;
-    unsigned int Rm;
-};
-
-struct mrc_inst {
-    unsigned int opcode_1;
-    unsigned int opcode_2;
-    unsigned int cp_num;
-    unsigned int crn;
-    unsigned int crm;
-    unsigned int Rd;
-    unsigned int inst;
-};
-
-struct mcr_inst {
-    unsigned int opcode_1;
-    unsigned int opcode_2;
-    unsigned int cp_num;
-    unsigned int crn;
-    unsigned int crm;
-    unsigned int Rd;
-    unsigned int inst;
-};
-
-struct mcrr_inst {
-    unsigned int opcode_1;
-    unsigned int cp_num;
-    unsigned int crm;
-    unsigned int rt;
-    unsigned int rt2;
-};
-
-struct mrs_inst {
-    unsigned int R;
-    unsigned int Rd;
-};
-
-struct msr_inst {
-    unsigned int field_mask;
-    unsigned int R;
-    unsigned int inst;
-};
-
-struct pld_inst {
-};
-
-struct sxtb_inst {
-    unsigned int Rd;
-    unsigned int Rm;
-    unsigned int rotate;
-};
-
-struct sxtab_inst {
-    unsigned int Rd;
-    unsigned int Rn;
-    unsigned int Rm;
-    unsigned rotate;
-};
-
-struct sxtah_inst {
-    unsigned int Rd;
-    unsigned int Rn;
-    unsigned int Rm;
-    unsigned int rotate;
-};
-
-struct sxth_inst {
-    unsigned int Rd;
-    unsigned int Rm;
-    unsigned int rotate;
-};
-
-struct uxtab_inst {
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int rotate;
-    unsigned int Rm;
-};
-
-struct uxtah_inst {
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int rotate;
-    unsigned int Rm;
-};
-
-struct uxth_inst {
-    unsigned int Rd;
-    unsigned int Rm;
-    unsigned int rotate;
-};
-
-struct cdp_inst {
-    unsigned int opcode_1;
-    unsigned int CRn;
-    unsigned int CRd;
-    unsigned int cp_num;
-    unsigned int opcode_2;
-    unsigned int CRm;
-    unsigned int inst;
-};
-
-struct uxtb_inst {
-    unsigned int Rd;
-    unsigned int Rm;
-    unsigned int rotate;
-};
-
-struct swp_inst {
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned int Rm;
-};
-
-struct setend_inst {
-    unsigned int set_bigend;
-};
-
-struct b_2_thumb {
-    unsigned int imm;
-};
-struct b_cond_thumb {
-    unsigned int imm;
-    unsigned int cond;
-};
-
-struct bl_1_thumb {
-    unsigned int imm;
-};
-struct bl_2_thumb {
-    unsigned int imm;
-};
-struct blx_1_thumb {
-    unsigned int imm;
-    unsigned int instr;
-};
-
-struct pkh_inst {
-    unsigned int Rm;
-    unsigned int Rn;
-    unsigned int Rd;
-    unsigned char imm;
-};
 
 typedef arm_inst * ARM_INST_PTR;
 
@@ -3522,7 +3053,7 @@ translated:
     return KEEP_GOING;
 }
 
-static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr) {
+arm_inst *InterpreterTranslateSingle(const u32 TFlag, int& bb_start, u32 addr, unsigned* inst_size_ret) {
     Common::Profiling::ScopeTimer timer_decode(profile_decode);
     MICROPROFILE_SCOPE(DynCom_Decode);
 
@@ -3534,18 +3065,15 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr)
     unsigned int inst, inst_size = 4;
     int idx;
     int ret = NON_BRANCH;
-    int size = 0; // instruction size of basic block
     bb_start = top;
 
     u32 phys_addr = addr;
-    u32 pc_start = cpu->Reg[15];
 
     {
         inst = Memory::Read32(phys_addr & 0xFFFFFFFC);
 
-        size++;
         // If we are in Thumb mode, we'll translate one Thumb instruction to the corresponding ARM instruction
-        if (cpu->TFlag) {
+        if (TFlag) {
             u32 arm_inst;
             ThumbDecodeStatus state = DecodeThumbInstruction(inst, phys_addr, &arm_inst, &inst_size, &inst_base);
 
@@ -3559,7 +3087,7 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr)
         if (DecodeARMInstruction(inst, &idx) == ARMDecodeStatus::FAILURE) {
             std::string disasm = ARM_Disasm::Disassemble(phys_addr, inst);
             LOG_ERROR(Core_ARM11, "Decode failure.\tPC : [0x%x]\tInstruction : %s [%x]", phys_addr, disasm.c_str(), inst);
-            LOG_ERROR(Core_ARM11, "cpsr=0x%x, cpu->TFlag=%d, r15=0x%x", cpu->Cpsr, cpu->TFlag, cpu->Reg[15]);
+            LOG_ERROR(Core_ARM11, "cpu->TFlag=%d, r15=0x%x", TFlag, addr);
             CITRA_IGNORE_EXIT(-1);
         }
         inst_base = arm_instruction_trans[idx](inst, idx);
@@ -3573,9 +3101,11 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr)
         ret = inst_base->br;
     }
 
+    if (inst_size_ret) *inst_size_ret = inst_size;
+
     top = bb_start; // Don't clutter up the entire cache with our nonsense.
 
-    return KEEP_GOING;
+    return inst_base;
 }
 
 static int clz(unsigned int x) {
@@ -3933,7 +3463,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
                     goto END;
             }
         } else {
-            if (InterpreterTranslateSingle(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
+            if (!InterpreterTranslateSingle(cpu->TFlag, ptr, cpu->Reg[15]))
                 goto END;
         }
 
