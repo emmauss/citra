@@ -1476,7 +1476,8 @@ void XEmitter::MOVQ_xmm(X64Reg dest, OpArg arg)
 #endif
 }
 
-void XEmitter::MOVQ_mmx(X64Reg dest, X64Reg src) {
+void XEmitter::MOVQ_mmx(X64Reg dest, X64Reg src)
+{
     if (dest >= MM0) {
         int mmx = dest;
         int reg = src;

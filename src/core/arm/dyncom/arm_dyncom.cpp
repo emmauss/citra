@@ -12,6 +12,7 @@
 
 #include "core/arm/dyncom/arm_dyncom.h"
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
+#include "core/arm/dyncom/arm_dyncom_jit.h"
 #include "core/arm/dyncom/arm_dyncom_run.h"
 
 #include "core/core.h"
@@ -79,12 +80,13 @@ void ARM_DynCom::AddTicks(u64 ticks) {
 }
 
 void ARM_DynCom::ExecuteInstructions(int num_instructions) {
-    state->NumInstrsToExecute = num_instructions;
+    state->NumInstrsToExecute = 1;// num_instructions;
 
     // Dyncom only breaks on instruction dispatch. This only happens on every instruction when
     // executing one instruction at a time. Otherwise, if a block is being executed, more
     // instructions may actually be executed than specified.
-    unsigned ticks_executed = InterpreterMainLoop(state.get());
+    //unsigned ticks_executed = InterpreterMainLoop(state.get());
+    unsigned ticks_executed = JitMainLoop(state.get());
     AddTicks(ticks_executed);
 }
 

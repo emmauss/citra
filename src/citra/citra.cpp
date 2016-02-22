@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     }
 
     while (emu_window->IsOpen()) {
-        Core::SingleStep();
+        Core::RunLoop();
     }
 
     System::Shutdown();
