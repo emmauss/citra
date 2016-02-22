@@ -3573,7 +3573,7 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr)
         ret = inst_base->br;
     }
 
-    top = bb_start; // Don't clutter up the entire stack with our nonsense.
+    top = bb_start; // Don't clutter up the entire cache with our nonsense.
 
     return KEEP_GOING;
 }
@@ -3936,7 +3936,6 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             if (InterpreterTranslateSingle(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
                 goto END;
         }
-
 
         // Find breakpoint if one exists withiInten the block
         if (GDBStub::g_server_enabled && GDBStub::IsConnected()) {
