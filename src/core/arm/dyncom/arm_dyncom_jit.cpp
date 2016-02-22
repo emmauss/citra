@@ -18,136 +18,11 @@
 #include "core/arm/dyncom/arm_dyncom_dec.h"
 #include "core/arm/dyncom/arm_dyncom_jit.h"
 #include "core/arm/dyncom/arm_dyncom_thumb.h"
+#include "core/arm/dyncom/arm_dyncom_translate.h"
 #include "core/arm/dyncom/arm_dyncom_run.h"
 #include "core/arm/skyeye_common/armstate.h"
 #include "core/arm/skyeye_common/armsupp.h"
 #include "core/arm/skyeye_common/vfp/vfp.h"
-
-#define RM    BITS(sht_oper, 0, 3)
-#define RS    BITS(sht_oper, 8, 11)
-
-#define glue(x, y)            x ## y
-#define DPO(s)                glue(DataProcessingOperands, s)
-#define ROTATE_RIGHT(n, i, l) ((n << (l - i)) | (n >> i))
-#define ROTATE_LEFT(n, i, l)  ((n >> (l - i)) | (n << i))
-#define ROTATE_RIGHT_32(n, i) ROTATE_RIGHT(n, i, 32)
-#define ROTATE_LEFT_32(n, i)  ROTATE_LEFT(n, i, 32)
-
-#define LnSWoUB(s)   glue(LnSWoUB, s)
-#define MLnS(s)      glue(MLnS, s)
-#define LdnStM(s)    glue(LdnStM, s)
-
-#define W_BIT        BIT(inst, 21)
-#define U_BIT        BIT(inst, 23)
-#define I_BIT        BIT(inst, 25)
-#define P_BIT        BIT(inst, 24)
-#define OFFSET_12    BITS(inst, 0, 11)
-
-
-enum ShtOp {
-    DPO(Immediate),
-    DPO(Register),
-    DPO(LogicalShiftLeftByImmediate),
-    DPO(LogicalShiftLeftByRegister),
-    DPO(LogicalShiftRightByImmediate),
-    DPO(LogicalShiftRightByRegister),
-    DPO(ArithmeticShiftRightByImmediate),
-    DPO(ArithmeticShiftRightByRegister),
-    DPO(RotateRightByImmediate),
-    DPO(RotateRightByRegister),
-    ShtOp_ERROR
-};
-
-static ShtOp get_shtop(unsigned int inst) {
-    if (BIT(inst, 25)) {
-        return DPO(Immediate);
-    } else if (BITS(inst, 4, 11) == 0) {
-        return DPO(Register);
-    } else if (BITS(inst, 4, 6) == 0) {
-        return DPO(LogicalShiftLeftByImmediate);
-    } else if (BITS(inst, 4, 7) == 1) {
-        return DPO(LogicalShiftLeftByRegister);
-    } else if (BITS(inst, 4, 6) == 2) {
-        return DPO(LogicalShiftRightByImmediate);
-    } else if (BITS(inst, 4, 7) == 3) {
-        return DPO(LogicalShiftRightByRegister);
-    } else if (BITS(inst, 4, 6) == 4) {
-        return DPO(ArithmeticShiftRightByImmediate);
-    } else if (BITS(inst, 4, 7) == 5) {
-        return DPO(ArithmeticShiftRightByRegister);
-    } else if (BITS(inst, 4, 6) == 6) {
-        return DPO(RotateRightByImmediate);
-    } else if (BITS(inst, 4, 7) == 7) {
-        return DPO(RotateRightByRegister);
-    }
-    return ShtOp_ERROR;
-}
-
-enum CalcAddrOp {
-    LnSWoUB(ImmediateOffset),
-    LnSWoUB(RegisterOffset),
-    LnSWoUB(ScaledRegisterOffset),
-    LnSWoUB(ImmediatePreIndexed),
-    LnSWoUB(RegisterPreIndexed),
-    LnSWoUB(ScaledRegisterPreIndexed),
-    LnSWoUB(ImmediatePostIndexed),
-    LnSWoUB(RegisterPostIndexed),
-    LnSWoUB(ScaledRegisterPostIndexed),
-    MLnS(ImmediateOffset),
-    MLnS(RegisterOffset),
-    MLnS(ImmediatePreIndexed),
-    MLnS(RegisterPreIndexed),
-    MLnS(ImmediatePostIndexed),
-    MLnS(RegisterPostIndexed),
-    LdnStM(IncrementAfter),
-    LdnStM(IncrementBefore),
-    LdnStM(DecrementAfter),
-    LdnStM(DecrementBefore),
-    CalcAddrOp_ERROR
-};
-
-static CalcAddrOp get_calc_addr_op(unsigned int inst) {
-    if (BITS(inst, 24, 27) == 5 && BIT(inst, 21) == 0) {
-        return LnSWoUB(ImmediateOffset);
-    } else if (BITS(inst, 24, 27) == 7 && BIT(inst, 21) == 0 && BITS(inst, 4, 11) == 0) {
-        return LnSWoUB(RegisterOffset);
-    } else if (BITS(inst, 24, 27) == 7 && BIT(inst, 21) == 0 && BIT(inst, 4) == 0) {
-        return LnSWoUB(ScaledRegisterOffset);
-    } else if (BITS(inst, 24, 27) == 5 && BIT(inst, 21) == 1) {
-        return LnSWoUB(ImmediatePreIndexed);
-    } else if (BITS(inst, 24, 27) == 7 && BIT(inst, 21) == 1 && BITS(inst, 4, 11) == 0) {
-        return LnSWoUB(RegisterPreIndexed);
-    } else if (BITS(inst, 24, 27) == 7 && BIT(inst, 21) == 1 && BIT(inst, 4) == 0) {
-        return LnSWoUB(ScaledRegisterPreIndexed);
-    } else if (BITS(inst, 24, 27) == 4 && BIT(inst, 21) == 0) {
-        return LnSWoUB(ImmediatePostIndexed);
-    } else if (BITS(inst, 24, 27) == 6 && BIT(inst, 21) == 0 && BITS(inst, 4, 11) == 0) {
-        return LnSWoUB(RegisterPostIndexed);
-    } else if (BITS(inst, 24, 27) == 6 && BIT(inst, 21) == 0 && BIT(inst, 4) == 0) {
-        return LnSWoUB(ScaledRegisterPostIndexed);
-    } else if (BITS(inst, 24, 27) == 1 && BITS(inst, 21, 22) == 2 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(ImmediateOffset);
-    } else if (BITS(inst, 24, 27) == 1 && BITS(inst, 21, 22) == 0 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(RegisterOffset);
-    } else if (BITS(inst, 24, 27) == 1 && BITS(inst, 21, 22) == 3 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(ImmediatePreIndexed);
-    } else if (BITS(inst, 24, 27) == 1 && BITS(inst, 21, 22) == 1 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(RegisterPreIndexed);
-    } else if (BITS(inst, 24, 27) == 0 && BITS(inst, 21, 22) == 2 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(ImmediatePostIndexed);
-    } else if (BITS(inst, 24, 27) == 0 && BITS(inst, 21, 22) == 0 && BIT(inst, 7) == 1 && BIT(inst, 4) == 1) {
-        return MLnS(RegisterPostIndexed);
-    } else if (BITS(inst, 23, 27) == 0x11) {
-        return LdnStM(IncrementAfter);
-    } else if (BITS(inst, 23, 27) == 0x13) {
-        return LdnStM(IncrementBefore);
-    } else if (BITS(inst, 23, 27) == 0x10) {
-        return LdnStM(DecrementAfter);
-    } else if (BITS(inst, 23, 27) == 0x12) {
-        return LdnStM(DecrementBefore);
-    }
-    return CalcAddrOp_ERROR;
-}
 
 constexpr std::size_t NUM_REG_GPR = 15;
 
@@ -248,12 +123,10 @@ private:
     ConditionCode current_cond = ConditionCode::AL;
     void CompileCond(ConditionCode new_cond);
 
-    Gen::X64Reg CompileShtOp(ShtOp op, u32 shifter_operand);
-
 private:
     int pc;
     int TFlag;
-    int CompileArmInstruction(u32 inst, int inst_size = 4);
+    bool CompileSingleInstruction();
 };
 
 #define SAVE_NZCVT cpu->Cpsr = (cpu->Cpsr & 0x0fffffdf) | \
@@ -403,9 +276,13 @@ int Gen::JitBasicBlock::Compile(ARMul_State* cpu, void*& bb_start, u32 addr) {
     AllocCodeSpace(4096);
     bb_start = this->region;
 
-    CallHostFunction(InterpretSingleInstruction, pc, this->TFlag, 0);
+    int cycles = 0;
+    bool cont = true;
 
-    int cycles = 1;
+    while (cont && ((GetCodePtr() - region) < (region_size - 100))) {
+        cont = CompileSingleInstruction();
+        cycles++;
+    }
 
     ResetAllocation();
     //MOV(32, MDisp(JitStateReg, offsetof(JitState, final_PC)), Imm32(this->pc));
@@ -415,36 +292,56 @@ int Gen::JitBasicBlock::Compile(ARMul_State* cpu, void*& bb_start, u32 addr) {
     return 0;
 }
 
-int Gen::JitBasicBlock::CompileArmInstruction(u32 inst, int inst_size) {
-    int idx;
-    if (DecodeARMInstruction(inst, &idx) == ARMDecodeStatus::FAILURE) {
-        std::string disasm = ARM_Disasm::Disassemble(pc, inst);
-        LOG_ERROR(Core_ARM11, "Decode failure.\tPC : [0x%x]\tInstruction : %s [%x]", pc, disasm.c_str(), inst);
-    }
+/// Returns false if you should not continue
+bool Gen::JitBasicBlock::CompileSingleInstruction() {
+    int dummy = 0;
+    unsigned inst_size = 4;
+    arm_inst *inst = InterpreterTranslateSingle(TFlag, dummy, pc, &inst_size);
 
-#define COMPILE_INSTRUCTION(name) CompileInstruction_ ## name (inst, idx, inst_size)
-    switch (idx) {
+    switch (inst->idx) {
     default:
-        break;
+        CallHostFunction(InterpretSingleInstruction, pc, this->TFlag, 0);
+        ReleaseAllRegisters();
+        return false;
     }
-    return 0;
+    return true;
 }
 
 unsigned JitMainLoop(ARMul_State* cpu) {
-    void *ptr;
+    int cycles_required = cpu->NumInstrsToExecute;
+    unsigned cycles_done = 0;
 
-    auto itr = cpu->jit_cache.find(cpu->Reg[15]);
-    if (itr != cpu->jit_cache.end()) {
-        ptr = itr->second->GetRunPtr();
-    } else {
-        auto bb = new Gen::JitBasicBlock();
-        bb->Compile(cpu, ptr, cpu->Reg[15]);
-        cpu->jit_cache[cpu->Reg[15]] = bb;
+    while (cycles_required > 0) {
+        LOAD_NZCVT;
+
+        if (!cpu->NirqSig) {
+            ASSERT_MSG(0, "Unimplemented");
+        }
+
+        if (cpu->TFlag)
+            cpu->Reg[15] &= 0xfffffffe;
+        else
+            cpu->Reg[15] &= 0xfffffffc;
+
+        SAVE_NZCVT;
+
+        void *ptr;
+
+        auto itr = cpu->jit_cache.find(cpu->Reg[15]);
+        if (itr != cpu->jit_cache.end()) {
+            ptr = itr->second->GetRunPtr();
+        } else {
+            auto bb = new Gen::JitBasicBlock();
+            bb->Compile(cpu, ptr, cpu->Reg[15]);
+            cpu->jit_cache[cpu->Reg[15]] = bb;
+        }
+
+        unsigned cycles = run_jit.CallCode(cpu, ptr, cycles_required);
+        cycles_required -= cycles;
+        cycles_done += cycles;
     }
 
-    int cycles = cpu->NumInstrsToExecute;
-    run_jit.CallCode(cpu, ptr, cycles);
-    return 0;
+    return cycles_done;
 }
 
 void Gen::JitBasicBlock::CompileCond(ConditionCode new_cond) {
@@ -672,155 +569,3 @@ void Gen::JitBasicBlock::CallHostFunction(void *fn, u64 a, u64 b, u64 c) {
 #define FLAG_SET_C() SETcc(CC_C, MDisp(JitStateReg, offsetof(JitState, C)))
 #define FLAG_SET_V() SETcc(CC_O, MDisp(JitStateReg, offsetof(JitState, V)))
 #define FLAG_SET_N() SETcc(CC_S, MDisp(JitStateReg, offsetof(JitState, N)))
-
-Gen::X64Reg Gen::JitBasicBlock::CompileShtOp(ShtOp op, u32 sht_oper) {
-    bool shifter_carry_out_CFlag = false;
-    int shifter_carry_out = 0;
-
-    // This is not ideal, but it'll do for now.
-    switch (op) {
-    case DPO(Immediate): {
-        unsigned int immed_8 = BITS(sht_oper, 0, 7);
-        unsigned int rotate_imm = BITS(sht_oper, 8, 11);
-        unsigned int shifter_operand = ROTATE_RIGHT_32(immed_8, rotate_imm * 2);
-
-        if (rotate_imm == 0) {
-            shifter_carry_out_CFlag = true;
-        } else {
-            shifter_carry_out = BIT(shifter_operand, 31);
-        }
-
-        X64Reg tmp = AcquireTemporaryRegister();
-        MOV(32, R(tmp), Imm32(shifter_operand));
-        return tmp;
-    }
-    case DPO(Register): {
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-
-        shifter_carry_out_CFlag = true;
-
-        return AcquireArmRegister(Rm);
-    }
-    case DPO(LogicalShiftLeftByImmediate): {
-        int shift_imm = BITS(sht_oper, 7, 11);
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-
-        if (shift_imm == 0) {
-            shifter_carry_out_CFlag = true;
-            return AcquireArmRegister(Rm);
-        } else {
-            //shifter_carry_out = BIT(shifter_operand, 31);
-            auto Rm_reg = AcquireArmRegister(Rm);
-            auto tmp = AcquireTemporaryRegister();
-            MOV(32, R(tmp), R(Rm_reg));
-            SHL(32, R(tmp), Imm8(shift_imm));
-            return tmp;
-        }
-    }
-    case DPO(LogicalShiftLeftByRegister): {
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-        unsigned int Rs = BITS(sht_oper, 8, 11);
-        ASSERT_MSG(Rs != 15, "Unimplemented");
-
-        auto Rm_reg = AcquireArmRegister(Rm);
-        auto Rs_reg = AcquireArmRegister(Rs);
-        auto tmp = AcquireTemporaryRegister();
-
-        //shifter_carry_out = BIT(shifter_operand, 31);
-
-        MOV(32, R(tmp), R(Rm_reg));
-        SHL(32, R(tmp), R(Rs_reg));
-        return tmp;
-    }
-    case DPO(LogicalShiftRightByImmediate): {
-        int shift_imm = BITS(sht_oper, 7, 11);
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-
-        if (shift_imm == 0) {
-            shifter_carry_out_CFlag = true;
-            return AcquireArmRegister(Rm);
-        }
-        else {
-            //shifter_carry_out = BIT(shifter_operand, 31);
-            auto Rm_reg = AcquireArmRegister(Rm);
-            auto tmp = AcquireTemporaryRegister();
-            MOV(32, R(tmp), R(Rm_reg));
-            SHR(32, R(tmp), Imm8(shift_imm));
-            return tmp;
-        }
-    }
-    case DPO(LogicalShiftRightByRegister): {
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-        unsigned int Rs = BITS(sht_oper, 8, 11);
-        ASSERT_MSG(Rs != 15, "Unimplemented");
-
-        auto Rm_reg = AcquireArmRegister(Rm);
-        auto Rs_reg = AcquireArmRegister(Rs);
-        auto tmp = AcquireTemporaryRegister();
-
-        //shifter_carry_out = BIT(shifter_operand, 31);
-
-        MOV(32, R(tmp), R(Rm_reg));
-        SHR(32, R(tmp), R(Rs_reg));
-        return tmp;
-    }
-    case DPO(ArithmeticShiftRightByImmediate): {
-        int shift_imm = BITS(sht_oper, 7, 11);
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-
-        if (shift_imm == 0) {
-            shifter_carry_out_CFlag = true;
-            return AcquireArmRegister(Rm);
-        }
-        else {
-            //shifter_carry_out = BIT(shifter_operand, 31);
-            auto Rm_reg = AcquireArmRegister(Rm);
-            auto tmp = AcquireTemporaryRegister();
-            MOV(32, R(tmp), R(Rm_reg));
-            SAR(32, R(tmp), Imm8(shift_imm));
-            return tmp;
-        }
-    }
-    case DPO(ArithmeticShiftRightByRegister): {
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-        unsigned int Rs = BITS(sht_oper, 8, 11);
-        ASSERT_MSG(Rs != 15, "Unimplemented");
-
-        auto Rm_reg = AcquireArmRegister(Rm);
-        auto Rs_reg = AcquireArmRegister(Rs);
-        auto tmp = AcquireTemporaryRegister();
-
-        //shifter_carry_out = BIT(shifter_operand, 31);
-
-        MOV(32, R(tmp), R(Rm_reg));
-        SAR(32, R(tmp), R(Rs_reg));
-        return tmp;
-    }
-    case DPO(RotateRightByImmediate): {
-        int shift_imm = BITS(sht_oper, 7, 11);
-        unsigned int Rm = BITS(sht_oper, 0, 3);
-        ASSERT_MSG(Rm != 15, "Unimplemented");
-
-        if (shift_imm == 0) {
-            ASSERT_MSG(0, "Unimplemented shift in CFlag");
-        } else {
-            //shifter_carry_out = BIT(shifter_operand, 31);
-            auto Rm_reg = AcquireArmRegister(Rm);
-            auto tmp = AcquireTemporaryRegister();
-            MOV(32, R(tmp), R(Rm_reg));
-            ROR(32, R(tmp), Imm8(shift_imm));
-            return tmp;
-        }
-    }
-    case DPO(RotateRightByRegister): {
-        ASSERT_MSG(0, "Umplemented");
-    }
-    }
-}

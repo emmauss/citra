@@ -80,7 +80,7 @@ void ARM_DynCom::AddTicks(u64 ticks) {
 }
 
 void ARM_DynCom::ExecuteInstructions(int num_instructions) {
-    state->NumInstrsToExecute = 1;// num_instructions;
+    state->NumInstrsToExecute = num_instructions;// num_instructions;
 
     // Dyncom only breaks on instruction dispatch. This only happens on every instruction when
     // executing one instruction at a time. Otherwise, if a block is being executed, more
