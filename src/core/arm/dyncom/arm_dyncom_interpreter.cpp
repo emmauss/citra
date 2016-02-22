@@ -3522,6 +3522,62 @@ translated:
     return KEEP_GOING;
 }
 
+static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr) {
+    Common::Profiling::ScopeTimer timer_decode(profile_decode);
+    MICROPROFILE_SCOPE(DynCom_Decode);
+
+    // Decode instruction, get index
+    // Allocate memory and init InsCream
+    // Go on next, until terminal instruction
+    // Save start addr of basicblock in CreamCache
+    ARM_INST_PTR inst_base = nullptr;
+    unsigned int inst, inst_size = 4;
+    int idx;
+    int ret = NON_BRANCH;
+    int size = 0; // instruction size of basic block
+    bb_start = top;
+
+    u32 phys_addr = addr;
+    u32 pc_start = cpu->Reg[15];
+
+    {
+        inst = Memory::Read32(phys_addr & 0xFFFFFFFC);
+
+        size++;
+        // If we are in Thumb mode, we'll translate one Thumb instruction to the corresponding ARM instruction
+        if (cpu->TFlag) {
+            u32 arm_inst;
+            ThumbDecodeStatus state = DecodeThumbInstruction(inst, phys_addr, &arm_inst, &inst_size, &inst_base);
+
+            // We have translated the Thumb branch instruction in the Thumb decoder
+            if (state == ThumbDecodeStatus::BRANCH) {
+                goto translated;
+            }
+            inst = arm_inst;
+        }
+
+        if (DecodeARMInstruction(inst, &idx) == ARMDecodeStatus::FAILURE) {
+            std::string disasm = ARM_Disasm::Disassemble(phys_addr, inst);
+            LOG_ERROR(Core_ARM11, "Decode failure.\tPC : [0x%x]\tInstruction : %s [%x]", phys_addr, disasm.c_str(), inst);
+            LOG_ERROR(Core_ARM11, "cpsr=0x%x, cpu->TFlag=%d, r15=0x%x", cpu->Cpsr, cpu->TFlag, cpu->Reg[15]);
+            CITRA_IGNORE_EXIT(-1);
+        }
+        inst_base = arm_instruction_trans[idx](inst, idx);
+
+    translated:
+        phys_addr += inst_size;
+
+        if ((phys_addr & 0xfff) == 0) {
+            inst_base->br = END_OF_PAGE;
+        }
+        ret = inst_base->br;
+    }
+
+    top = bb_start; // Don't clutter up the entire stack with our nonsense.
+
+    return KEEP_GOING;
+}
+
 static int clz(unsigned int x) {
     int n;
     if (x == 0) return (32);
@@ -3868,15 +3924,21 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             cpu->Reg[15] &= 0xfffffffc;
 
         // Find the cached instruction cream, otherwise translate it...
-        auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
-        if (itr != cpu->instruction_cache.end()) {
-            ptr = itr->second;
+        if (cpu->NumInstrsToExecute != 1) {
+            auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
+            if (itr != cpu->instruction_cache.end()) {
+                ptr = itr->second;
+            } else {
+                if (InterpreterTranslate(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
+                    goto END;
+            }
         } else {
-            if (InterpreterTranslate(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
+            if (InterpreterTranslateSingle(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
                 goto END;
         }
 
-        // Find breakpoint if one exists within the block
+
+        // Find breakpoint if one exists withiInten the block
         if (GDBStub::g_server_enabled && GDBStub::IsConnected()) {
             breakpoint_data = GDBStub::GetNextBreakpointFromAddress(cpu->Reg[15], GDBStub::BreakpointType::Execute);
         }
