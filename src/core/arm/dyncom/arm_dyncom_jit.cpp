@@ -357,7 +357,7 @@ public:
 
 Gen::RunJit run_jit;
 
-JitState* InterpretSingleInstruction(JitState* jit_state, u64 pc, u64 T) {
+JitState* __cdecl InterpretSingleInstruction(JitState* jit_state, u64 pc, u64 TFlag) {
     ARMul_State* cpu = jit_state->interp_state;
 
     cpu->Reg[15] = pc;
@@ -366,7 +366,7 @@ JitState* InterpretSingleInstruction(JitState* jit_state, u64 pc, u64 T) {
     cpu->ZFlag = jit_state->Z;
     cpu->CFlag = jit_state->C;
     cpu->VFlag = jit_state->V;
-    cpu->TFlag = jit_state->T;
+    cpu->TFlag = TFlag ? 1 : 0;
 
     for (int i = 0; i < NUM_REG_GPR; i++) {
         cpu->Reg[i] = jit_state->spill[i];
@@ -403,7 +403,7 @@ int Gen::JitBasicBlock::Compile(ARMul_State* cpu, void*& bb_start, u32 addr) {
     AllocCodeSpace(4096);
     bb_start = this->region;
 
-    CallHostFunction(InterpretSingleInstruction, pc, TFlag, 0);
+    CallHostFunction(InterpretSingleInstruction, pc, this->TFlag, 0);
 
     int cycles = 1;
 
