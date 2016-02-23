@@ -3467,7 +3467,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             if (!InterpreterTranslateSingle(cpu->TFlag, ptr, cpu->Reg[15], 0)) goto END;
         }
 
-        // Find breakpoint if one exists withiInten the block
+        // Find breakpoint if one exists within the block
         if (GDBStub::g_server_enabled && GDBStub::IsConnected()) {
             breakpoint_data = GDBStub::GetNextBreakpointFromAddress(cpu->Reg[15], GDBStub::BreakpointType::Execute);
         }
