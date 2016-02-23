@@ -200,7 +200,6 @@ public:
         auto fn = (void(*)(u64))region;
         fn((u64)jit_state);
 
-        cycles_to_run = jit_state->cycles_remaining;
         cpu->Reg[15] = jit_state->final_PC;
 
         cpu->NFlag = jit_state->N;
@@ -307,41 +306,42 @@ bool Gen::JitBasicBlock::CompileSingleInstruction() {
     return true;
 }
 
-unsigned JitMainLoop(ARMul_State* cpu) {
-    int cycles_required = cpu->NumInstrsToExecute;
-    unsigned cycles_done = 0;
+static unsigned DoOneJit(ARMul_State* cpu) {
+    LOAD_NZCVT;
 
-    while (cycles_required > 0) {
-        LOAD_NZCVT;
-
-        if (!cpu->NirqSig) {
-            ASSERT_MSG(0, "Unimplemented");
-        }
-
-        if (cpu->TFlag)
-            cpu->Reg[15] &= 0xfffffffe;
-        else
-            cpu->Reg[15] &= 0xfffffffc;
-
-        SAVE_NZCVT;
-
-        void *ptr;
-
-        auto itr = cpu->jit_cache.find(cpu->Reg[15]);
-        if (itr != cpu->jit_cache.end()) {
-            ptr = itr->second->GetRunPtr();
-        } else {
-            auto bb = new Gen::JitBasicBlock();
-            bb->Compile(cpu, ptr, cpu->Reg[15]);
-            cpu->jit_cache[cpu->Reg[15]] = bb;
-        }
-
-        unsigned cycles = run_jit.CallCode(cpu, ptr, cycles_required);
-        cycles_required -= cycles;
-        cycles_done += cycles;
+    if (!cpu->NirqSig) {
+        ASSERT_MSG(0, "Unimplemented");
     }
 
-    return cycles_done;
+    if (cpu->TFlag)
+        cpu->Reg[15] &= 0xfffffffe;
+    else
+        cpu->Reg[15] &= 0xfffffffc;
+
+    SAVE_NZCVT;
+
+    void *ptr;
+
+    auto itr = cpu->jit_cache.find(cpu->Reg[15]);
+    if (itr != cpu->jit_cache.end()) {
+        ptr = itr->second->GetRunPtr();
+    }
+    else {
+        auto bb = new Gen::JitBasicBlock();
+        bb->Compile(cpu, ptr, cpu->Reg[15]);
+        cpu->jit_cache[cpu->Reg[15]] = bb;
+    }
+
+    return run_jit.CallCode(cpu, ptr, 1);
+}
+
+unsigned JitMainLoop(ARMul_State* cpu) {
+    unsigned cycles = 0;
+
+    cycles += DoOneJit(cpu);
+
+    cpu->NumInstrsToExecute = 0;
+    return cycles;
 }
 
 void Gen::JitBasicBlock::CompileCond(ConditionCode new_cond) {
