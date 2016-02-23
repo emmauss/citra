@@ -71,10 +71,7 @@ int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     } while (cont);
 
     ResetAllocation();
-    if (current_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
-        SetJumpTarget(current_cond_fixup);
-        current_cond_fixup.ptr = nullptr;
-    }
+    CompileCond(ConditionCode::AL);
 
     //MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(this->pc));
     SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
@@ -98,6 +95,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 }
 
 bool Gen::JitCompiler::CompileInstruction_Interpret() {
+    CompileCond(ConditionCode::AL);
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
     return false;
@@ -111,7 +109,6 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
         SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
         cycles = 0;
 
-        ReleaseAllRegisters();
         ResetAllocation();
         ASSERT(current_cond_fixup.ptr);
         SetJumpTarget(current_cond_fixup);
@@ -161,6 +158,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)));
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), R(tmp));
             cc = CC_BE;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         case ConditionCode::LS: { //!c | z
@@ -168,6 +166,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)));
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), R(tmp));
             cc = CC_A;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         case ConditionCode::GE: { // n == v
@@ -175,6 +174,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)));
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)), R(tmp));
             cc = CC_NE;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         case ConditionCode::LT: { // n != v
@@ -182,15 +182,17 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)));
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)), R(tmp));
             cc = CC_E;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         case ConditionCode::GT: { // !z & (n == v)
             X64Reg tmp = AcquireTemporaryRegister();
-            MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)));
-            CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)), R(tmp));
-            SETcc(CC_E, R(tmp));
-            CMP(8, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)));
-            cc = CC_BE;
+            MOVZX(64, 8, tmp, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)));
+            XOR(8, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)));
+            OR(8, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)));
+            TEST(8, R(tmp), R(tmp));
+            cc = CC_NZ;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         case ConditionCode::LE: { // z | (n != v)
@@ -200,6 +202,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             OR(8, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)));
             TEST(8, R(tmp), R(tmp));
             cc = CC_Z;
+            ReleaseTemporaryRegister(tmp);
             break;
         }
         default:
@@ -207,7 +210,6 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             break;
         }
 
-        ReleaseAllRegisters();
         ResetAllocation();
         this->current_cond_fixup = J_CC(cc, true);
     }
@@ -216,6 +218,8 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
 }
 
 Gen::X64Reg Gen::JitCompiler::AcquireArmRegister(int arm_reg) {
+    current_register_allocation.arm_reg_last_used[arm_reg] = pc;
+
     if (!current_register_allocation.is_spilled[arm_reg]) {
         current_register_allocation.is_in_use[arm_reg] = true;
         return Jit::IntToArmGPR[arm_reg];
@@ -251,6 +255,8 @@ Gen::X64Reg Gen::JitCompiler::AcquireTemporaryRegister() {
         }
     }
     ASSERT(bestreg != -1);
+    ASSERT(!current_register_allocation.is_spilled[bestreg]);
+    ASSERT(!current_register_allocation.is_in_use[bestreg]);
 
     MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + bestreg * sizeof(u32)), R(Jit::IntToArmGPR[bestreg]));
 
@@ -287,6 +293,7 @@ void Gen::JitCompiler::ReleaseTemporaryRegister(Gen::X64Reg reg) {
     for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
         if (reg == Jit::IntToArmGPR[i]) {
             ASSERT(current_register_allocation.is_spilled[i]);
+            ASSERT(current_register_allocation.is_in_use[i]);
             current_register_allocation.is_in_use[i] = false;
             return;
         }
@@ -306,11 +313,10 @@ void Gen::JitCompiler::SpillAllRegisters() {
 
 // Reset allocation MUST NOT TOUCH any conditional flags
 void Gen::JitCompiler::ResetAllocation() {
-    ReleaseAllRegisters();
-
     for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
         if (current_register_allocation.is_spilled[i]) {
             MOV(32, R(Jit::IntToArmGPR[i]), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + i * sizeof(u32)));
+            current_register_allocation.is_spilled[i] = false;
         }
     }
 
@@ -330,7 +336,6 @@ void Gen::JitCompiler::RestoreRSP() {
 
 void Gen::JitCompiler::CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*,u64,u64,u64), u64 a, u64 b, u64 c) {
     SpillAllRegisters();
-    ResetAllocation();
     RestoreRSP();
     MOV(64, R(ABI_PARAM1), R(Jit::JitStateReg));
     MOV(64, R(ABI_PARAM2), Imm64(a));
@@ -540,8 +545,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     return Gen::INVALID_REG;
 }
 
-#define BEFORE_COMPILE_INSTRUCTION            \
-    CompileCond((ConditionCode)inst->cond);
+#define BEFORE_COMPILE_INSTRUCTION CompileCond((ConditionCode)inst->cond);
 
 #define OPARG_SET_Z(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)), (oparg))
 #define OPARG_SET_C(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), (oparg))
@@ -555,7 +559,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
     add_inst* const inst_cream = (add_inst*)inst->component;
 
-    if (inst_cream->Rn == 15 || inst_cream->shtop_func != DPO(Immediate) || inst->cond != ConditionCode::AL) {
+    if (inst_cream->Rn == 15 || !(inst_cream->shtop_func == DPO(Immediate) || inst_cream->shtop_func == DPO(Register) || inst_cream->shtop_func == DPO(LogicalShiftLeftByRegister))) {
         return CompileInstruction_Interpret();
     }
 
