@@ -120,17 +120,32 @@ void GetLockHandle(Service::Interface* self);
 void Enable(Service::Interface* self);
 
 /**
- * APT::GetAppletManInfo service function.
- *  Inputs:
- *      1 : Unknown
- *  Outputs:
- *      1 : Result of function, 0 on success, otherwise error code
- *      2 : Unknown u32 value
- *      3 : Unknown u8 value
- *      4 : Home Menu AppId
- *      5 : AppID of currently active app
- */
+* APT::GetAppletManInfo service function.
+*  Inputs:
+*      1 : AppletPos
+*  Outputs:
+*      1 : Result of function, 0 on success, otherwise error code
+*      2 : AppletPos
+*      3 : Requested AppID
+*      4 : Home Menu AppId
+*      5 : AppID of currently active app
+*/
 void GetAppletManInfo(Service::Interface* self);
+
+/**
+* APT::GetAppletInfo service function.
+*  Inputs:
+*      1 : AppID
+*  Outputs:
+*      1 : Result of function, 0 on success, otherwise error code
+*      2 : TitleID (low 32 bits)
+*      3 : TitleID (hi 32 bits)
+*      4 : Media Type
+*      5 : Registered
+*      6 : Loaded
+*      7 : AppletAttr
+*/
+void GetAppletInfo(Service::Interface* self);
 
 /**
  * APT::IsRegistered service function. This returns whether the specified AppID is registered with NS yet.

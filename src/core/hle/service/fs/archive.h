@@ -41,7 +41,8 @@ enum class ArchiveIdCode : u32 {
 /// Media types for the archives
 enum class MediaType : u32 {
     NAND     = 0,
-    SDMC     = 1
+    SDMC     = 1,
+    GameCard = 2
 };
 
 typedef u64 ArchiveHandle;

@@ -136,6 +136,23 @@ void GetAppletManInfo(Service::Interface* self) {
     LOG_WARNING(Service_APT, "(STUBBED) called unk=0x%08X", unk);
 }
 
+
+void GetAppletInfo(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    AppletId app_id = static_cast<AppletId>(cmd_buff[1]);
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[2] = 0;
+    cmd_buff[3] = 0x00040030;
+    cmd_buff[4] = 0;
+    cmd_buff[5] = true;
+    cmd_buff[6] = true;
+    cmd_buff[7] = 0;
+
+    LOG_WARNING(Service_APT, "(STUBBED) called AppletID=0x%08X", app_id);
+}
+
 void IsRegistered(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 app_id = cmd_buff[1];
