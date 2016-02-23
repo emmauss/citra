@@ -167,7 +167,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), R(tmp));
             cc = CC_A;
             ReleaseTemporaryRegister(tmp);
-            break;
+break;
         }
         case ConditionCode::GE: { // n == v
             X64Reg tmp = AcquireTemporaryRegister();
@@ -218,6 +218,9 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
 }
 
 Gen::X64Reg Gen::JitCompiler::AcquireArmRegister(int arm_reg) {
+    ASSERT(arm_reg >= 0 && arm_reg <= 14);
+    ASSERT(!cl_active);
+
     current_register_allocation.arm_reg_last_used[arm_reg] = pc;
 
     if (!current_register_allocation.is_spilled[arm_reg]) {
@@ -267,21 +270,83 @@ Gen::X64Reg Gen::JitCompiler::AcquireTemporaryRegister() {
 }
 
 Gen::X64Reg Gen::JitCompiler::AcquireCopyOfArmRegister(int arm_reg) {
-    ASSERT(!current_register_allocation.is_in_use[arm_reg]);
+    ASSERT(arm_reg >= 0 && arm_reg <= 14);
 
-    if (current_register_allocation.is_spilled[arm_reg]) {
-        MOV(32, R(Jit::IntToArmGPR[arm_reg]), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)));
+    if (!current_register_allocation.is_in_use[arm_reg]) {
+        if (current_register_allocation.is_spilled[arm_reg]) {
+            MOV(32, R(Jit::IntToArmGPR[arm_reg]), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)));
+        } else {
+            MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)), R(Jit::IntToArmGPR[arm_reg]));
+        }
+
+        current_register_allocation.is_spilled[arm_reg] = true;
+        current_register_allocation.is_in_use[arm_reg] = true;
+
+        return Jit::IntToArmGPR[arm_reg];
     } else {
-        MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)), R(Jit::IntToArmGPR[arm_reg]));
+        Gen::X64Reg tmp = AcquireTemporaryRegister();
+
+        if (current_register_allocation.is_spilled[arm_reg]) {
+            MOV(32, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)));
+        } else {
+            MOV(32, R(tmp), R(Jit::IntToArmGPR[arm_reg]));
+        }
+
+        return tmp;
+    }
+}
+
+static int WhichArmRegInNativeReg(Gen::X64Reg native) {
+    for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
+        if (native == Jit::IntToArmGPR[i]) {
+            return i;
+        }
+    }
+    ASSERT_MSG(0, "Internal error");
+}
+
+void Gen::JitCompiler::AcquireCLRegister(int arm_reg_to_copy) {
+    ASSERT(arm_reg_to_copy <= 14);
+    cl_active = true;
+
+    int arm_reg = WhichArmRegInNativeReg(RCX);
+    if (!current_register_allocation.is_in_use[arm_reg]) {
+        current_register_allocation.is_in_use[arm_reg] = true;
+
+        cl_active_tmp = INVALID_REG;
+
+        if (current_register_allocation.is_spilled[arm_reg]) {
+            // HURRAH
+        } else {
+            MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)), R(RCX));
+            current_register_allocation.is_spilled[arm_reg] = true;
+        }
+    } else {
+        cl_active_tmp = AcquireTemporaryRegister();
+        MOV(32, R(cl_active_tmp), R(RCX));
     }
 
-    current_register_allocation.is_spilled[arm_reg] = true;
-    current_register_allocation.is_in_use[arm_reg] = true;
+    if (arm_reg_to_copy >= 0) {
+        if (current_register_allocation.is_spilled[arm_reg_to_copy]) {
+            MOV(32, R(RCX), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg_to_copy * sizeof(u32)));
+        } else if (arm_reg_to_copy != arm_reg) {
+            MOV(32, R(RCX), R(Jit::IntToArmGPR[arm_reg_to_copy]));
+        }
+    }
+}
 
-    return Jit::IntToArmGPR[arm_reg];
+void Gen::JitCompiler::ReleaseCLRegister() {
+    if (cl_active_tmp == INVALID_REG) {
+        current_register_allocation.is_in_use[WhichArmRegInNativeReg(RCX)] = false;
+    } else {
+        MOV(32, R(RCX), R(cl_active_tmp));
+    }
+    cl_active = false;
 }
 
 void Gen::JitCompiler::ReleaseAllRegisters() {
+    ASSERT(!cl_active);
+
     for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
         current_register_allocation.is_in_use[i] = false;
     }
@@ -290,19 +355,18 @@ void Gen::JitCompiler::ReleaseAllRegisters() {
 }
 
 void Gen::JitCompiler::ReleaseTemporaryRegister(Gen::X64Reg reg) {
-    for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
-        if (reg == Jit::IntToArmGPR[i]) {
-            ASSERT(current_register_allocation.is_spilled[i]);
-            ASSERT(current_register_allocation.is_in_use[i]);
-            current_register_allocation.is_in_use[i] = false;
-            return;
-        }
-    }
+    ASSERT(!cl_active);
 
-    ASSERT_MSG(0, "Internal error");
+    int i = WhichArmRegInNativeReg(reg);
+    ASSERT(current_register_allocation.is_spilled[i]);
+    ASSERT(current_register_allocation.is_in_use[i]);
+
+    current_register_allocation.is_in_use[i] = false;
 }
 
 void Gen::JitCompiler::SpillAllRegisters() {
+    ASSERT(!cl_active);
+
     for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
         if (!current_register_allocation.is_spilled[i]) {
             MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + i * sizeof(u32)), R(Jit::IntToArmGPR[i]));
@@ -313,6 +377,8 @@ void Gen::JitCompiler::SpillAllRegisters() {
 
 // Reset allocation MUST NOT TOUCH any conditional flags
 void Gen::JitCompiler::ResetAllocation() {
+    ASSERT(!cl_active);
+
     for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
         if (current_register_allocation.is_spilled[i]) {
             MOV(32, R(Jit::IntToArmGPR[i]), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + i * sizeof(u32)));
@@ -428,39 +494,40 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     if (shtop_func == DPO(LogicalShiftLeftByRegister)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
         unsigned int rs = BITS(sht_oper, 8, 11);
-        Gen::X64Reg Rm, Rs;
+        Gen::X64Reg Rm;
+        if (rs != 15) {
+            AcquireCLRegister(rs);
+            AND(32, R(RCX), Imm32(0xFF));
+        } else {
+            AcquireCLRegister();
+            MOV(32, R(RCX), Imm32(GetReg15(inst_size) & 0xFF));
+        }
         if (rm != 15) Rm = AcquireCopyOfArmRegister(rm);
         else {
             Rm = AcquireTemporaryRegister();
             MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
         }
-        if (rs != 15) {
-            Rs = AcquireCopyOfArmRegister(rs);
-            AND(32, R(Rs), Imm32(0xFF));
-        } else {
-            Rs = AcquireTemporaryRegister();
-            MOV(32, R(Rs), Imm32(GetReg15(inst_size) & 0xFF));
-        }
 
         if (!SCO) {
-            SHL(32, R(Rm), R(Rs));
+            SHL(32, R(Rm), R(CL));
+            ReleaseCLRegister();
             return Rm;
         }
 
-        TEST(32, R(Rs), R(Rs));
+        TEST(32, R(RCX), R(RCX));
         auto Rs_not_zero = J_CC(CC_NZ);
 
         // if (Rs & 0xFF == 0) {
-        MOVZX(64, 8, Rs, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(Rs));
+        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
         auto jmp_to_end_1 = J();
         // }
         SetJumpTarget(Rs_not_zero);
-        CMP(32, R(Rs), Imm8(32));
+        CMP(32, R(RCX), Imm8(32));
         auto Rs_gt32 = J_CC(CC_A);
         auto Rs_eq32 = J_CC(CC_E);
         // else if (Rs & 0xFF < 32) {
-        SHL(32, R(Rm), R(Rs));
+        SHL(32, R(Rm), R(CL));
         SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
         auto jmp_to_end_2 = J();
         // }
@@ -472,7 +539,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         // }
         SetJumpTarget(Rs_eq32);
         // else if (Rs & 0xFF == 32) {
-        BT(32, R(Rm), Imm8(31));
+        BT(32, R(Rm), Imm8(0));
         SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
         MOV(32, R(Rm), Imm32(0));
         // }
@@ -480,7 +547,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         SetJumpTarget(jmp_to_end_2);
         SetJumpTarget(jmp_to_end_3);
 
-        ReleaseTemporaryRegister(Rs);
+        ReleaseCLRegister();
         return Rm;
     }
     if (shtop_func == DPO(LogicalShiftRightByImmediate)) {
@@ -510,7 +577,65 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             return Rm;
         }
     }
-    if (shtop_func == DPO(LogicalShiftRightByRegister)) {}
+    if (shtop_func == DPO(LogicalShiftRightByRegister)) {
+        unsigned int rm = BITS(sht_oper, 0, 3);
+        unsigned int rs = BITS(sht_oper, 8, 11);
+        Gen::X64Reg Rm;
+        if (rs != 15) {
+            AcquireCLRegister(rs);
+            AND(32, R(RCX), Imm32(0xFF));
+        } else {
+            AcquireCLRegister();
+            MOV(32, R(RCX), Imm32(GetReg15(inst_size) & 0xFF));
+        }
+        if (rm != 15) Rm = AcquireCopyOfArmRegister(rm);
+        else {
+            Rm = AcquireTemporaryRegister();
+            MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
+        }
+
+        if (!SCO) {
+            SHR(32, R(Rm), R(CL));
+            ReleaseCLRegister();
+            return Rm;
+        }
+
+        TEST(32, R(RCX), R(RCX));
+        auto Rs_not_zero = J_CC(CC_NZ);
+
+        // if (Rs & 0xFF == 0) {
+        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
+        auto jmp_to_end_1 = J();
+        // }
+        SetJumpTarget(Rs_not_zero);
+        CMP(32, R(RCX), Imm8(32));
+        auto Rs_gt32 = J_CC(CC_A);
+        auto Rs_eq32 = J_CC(CC_E);
+        // else if (Rs & 0xFF < 32) {
+        SHR(32, R(Rm), R(RCX));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        auto jmp_to_end_2 = J();
+        // }
+        SetJumpTarget(Rs_gt32);
+        // else if (Rs & 0xFF > 32) {
+        MOV(32, R(Rm), Imm32(0));
+        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
+        auto jmp_to_end_3 = J();
+        // }
+        SetJumpTarget(Rs_eq32);
+        // else if (Rs & 0xFF == 32) {
+        BT(32, R(Rm), Imm8(31));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        MOV(32, R(Rm), Imm32(0));
+        // }
+        SetJumpTarget(jmp_to_end_1);
+        SetJumpTarget(jmp_to_end_2);
+        SetJumpTarget(jmp_to_end_3);
+
+        ReleaseCLRegister();
+        return Rm;
+    }
     if (shtop_func == DPO(ArithmeticShiftRightByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
@@ -537,9 +662,117 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             return Rm;
         }
     }
-    if (shtop_func == DPO(ArithmeticShiftRightByRegister)) {}
-    if (shtop_func == DPO(RotateRightByImmediate)) {}
-    if (shtop_func == DPO(RotateRightByRegister)) {}
+    if (shtop_func == DPO(ArithmeticShiftRightByRegister)) {
+        unsigned int rm = BITS(sht_oper, 0, 3);
+        unsigned int rs = BITS(sht_oper, 8, 11);
+        Gen::X64Reg Rm;
+        if (rs != 15) {
+            AcquireCLRegister(rs);
+            AND(32, R(RCX), Imm32(0xFF));
+        } else {
+            AcquireCLRegister();
+            MOV(32, R(RCX), Imm32(GetReg15(inst_size) & 0xFF));
+        }
+        if (rm != 15) Rm = AcquireCopyOfArmRegister(rm);
+        else {
+            Rm = AcquireTemporaryRegister();
+            MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
+        }
+
+        if (!SCO) {
+            SAR(32, R(Rm), R(CL));
+            ReleaseCLRegister();
+            return Rm;
+        }
+
+        TEST(32, R(RCX), R(RCX));
+        auto Rs_not_zero = J_CC(CC_NZ);
+
+        // if (Rs & 0xFF == 0) {
+        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
+        auto jmp_to_end_1 = J();
+        // }
+        SetJumpTarget(Rs_not_zero);
+        CMP(32, R(RCX), Imm8(31));
+        auto Rs_gt31 = J_CC(CC_A);
+        // else if (Rs & 0xFF < 32) {
+        SAR(32, R(Rm), R(CL));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        auto jmp_to_end_2 = J();
+        // }
+        SetJumpTarget(Rs_gt31);
+        // else if (Rs & 0xFF > 31) {
+        SAR(32, R(Rm), Imm8(31)); // Verified to have no incorrect counterexamples.
+        BT(32, R(Rm), Imm8(31));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        // }
+        SetJumpTarget(jmp_to_end_1);
+        SetJumpTarget(jmp_to_end_2);
+
+        ReleaseCLRegister();
+        return Rm;
+    }
+    if (shtop_func == DPO(RotateRightByImmediate)) {
+        int shift_imm = BITS(sht_oper, 7, 11);
+        unsigned int rm = BITS(sht_oper, 0, 3);
+        Gen::X64Reg Rm = AcquireCopyOfArmRegister(rm);
+        if (shift_imm == 0) { //RRX
+            BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(1));
+            RCR(32, R(Rm), Imm8(1));
+            if (SCO) SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            return Rm;
+        } else {
+            ROR(32, R(Rm), Imm8(shift_imm));
+            if (SCO) SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            return Rm;
+        }
+    }
+    if (shtop_func == DPO(RotateRightByRegister)) {
+        unsigned int rm = BITS(sht_oper, 0, 3);
+        unsigned int rs = BITS(sht_oper, 8, 11);
+        Gen::X64Reg Rm;
+        if (rs != 15) {
+            AcquireCLRegister(rs);
+        } else {
+            AcquireCLRegister();
+            MOV(32, R(RCX), Imm32(GetReg15(inst_size) & 0xFF));
+        }
+        if (rm != 15) Rm = AcquireCopyOfArmRegister(rm);
+        else {
+            Rm = AcquireTemporaryRegister();
+            MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
+        }
+
+        if (!SCO) {
+            ROR(32, R(Rm), R(RCX));
+            ReleaseCLRegister();
+            return Rm;
+        }
+
+        AND(32, R(RCX), Imm32(0xFF));
+        auto zero_FF = J_CC(CC_Z);
+        AND(32, R(RCX), Imm32(0x1F));
+        auto zero_1F = J_CC(CC_Z);
+        ROR(32, R(Rm), R(CL));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        auto done_1 = J();
+
+        SetJumpTarget(zero_FF);
+        BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(1));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+        auto done_2 = J();
+
+        SetJumpTarget(zero_1F);
+        BT(32, R(Rm), Imm8(31));
+        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+
+        SetJumpTarget(done_1);
+        SetJumpTarget(done_2);
+
+        ReleaseCLRegister();
+        return Rm;
+    }
 
     ASSERT_MSG(0, "Unreachable");
     return Gen::INVALID_REG;
@@ -559,18 +792,23 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
     add_inst* const inst_cream = (add_inst*)inst->component;
 
-    if (inst_cream->Rn == 15 || !(inst_cream->shtop_func == DPO(Immediate) || inst_cream->shtop_func == DPO(Register) || inst_cream->shtop_func == DPO(LogicalShiftLeftByRegister))) {
+    if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
     }
 
     BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg Rn = AcquireArmRegister(inst_cream->Rn);
+    Gen::X64Reg Rn;
+    if (Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
-    if (Rd != Rn) MOV(64, R(Rd), R(Rn));
+    if (Rn == 15) {
+        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+    } else if (Rd != Rn) {
+        MOV(64, R(Rd), R(Rn));
+    }
     ADD(32, R(Rd), R(operand));
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
