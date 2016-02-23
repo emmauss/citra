@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#pragma once
+
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 
@@ -10,7 +12,7 @@
 struct ARMul_State;
 struct arm_inst;
 
-arm_inst *InterpreterTranslateSingle(const u32 TFlag, int& bb_start, u32 addr, unsigned* inst_size_ret = 0);
+arm_inst *InterpreterTranslateSingle(const u32 TFlag, int& bb_start, u32 addr, unsigned* inst_size_ret);
 
 typedef unsigned int (*shtop_fp_t)(ARMul_State* cpu, unsigned int sht_oper);
 unsigned int DPO(Immediate)(ARMul_State* cpu, unsigned int sht_oper);

@@ -12,12 +12,17 @@
 #include "common/x64/abi.h"
 #include "common/x64/emitter.h"
 
+#include "core/arm/dyncom/arm_dyncom_translate.h"
 #include "core/arm/dyncom/jit/common.h"
 #include "core/arm/dyncom/jit/jit.h"
 
 namespace Jit {
 struct RegisterAllocation {
     RegisterAllocation() {
+        Reset();
+    }
+
+    void Reset() {
         /// Default state
 
         for (int i = 0; i < NUM_REG_GPR; i++) {
@@ -63,6 +68,8 @@ private:
     Jit::RegisterAllocation current_register_allocation;
     X64Reg AcquireArmRegister(int reg);
     X64Reg AcquireTemporaryRegister();
+    X64Reg AcquireCopyOfArmRegister(int reg);
+    void ReleaseTemporaryRegister(Gen::X64Reg reg);
     void ReleaseAllRegisters();
     void SpillAllRegisters();
     void ResetAllocation();
@@ -74,10 +81,16 @@ private:
     ConditionCode current_cond = ConditionCode::AL;
     void CompileCond(ConditionCode new_cond);
 
+    Gen::X64Reg CompileShifterOperand(shtop_fp_t shtop_func, unsigned shifter_operand, bool CSO, unsigned inst_size);
+
 private:
+    u32 GetReg15(unsigned inst_size) { return (this->pc & ~0x1) + inst_size * 2;  }
+    int cycles;
     int pc;
     int TFlag;
     bool CompileSingleInstruction();
+    bool CompileInstruction_Interpret();
+    bool CompileInstruction_add(arm_inst* inst, unsigned inst_size);
 };
 
 }

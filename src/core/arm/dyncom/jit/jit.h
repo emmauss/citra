@@ -33,6 +33,8 @@ struct alignas(64) JitState {
 
     u8 T;
 
+    u8 shifter_carry_out;
+
     //std::array<u32, 64> vfp_banks;
 
     u8 reschedule;

@@ -3454,12 +3454,17 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             cpu->Reg[15] &= 0xfffffffc;
 
         // Find the cached instruction cream, otherwise translate it...
-        auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
-        if (itr != cpu->instruction_cache.end()) {
-            ptr = itr->second;
+        if (cpu->NumInstrsToExecute != 1) {
+            auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
+            if (itr != cpu->instruction_cache.end()) {
+                ptr = itr->second;
+            }
+            else {
+                if (InterpreterTranslate(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
+                    goto END;
+            }
         } else {
-            if (InterpreterTranslate(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
-                goto END;
+            if (!InterpreterTranslateSingle(cpu->TFlag, ptr, cpu->Reg[15], 0)) goto END;
         }
 
         // Find breakpoint if one exists withiInten the block
