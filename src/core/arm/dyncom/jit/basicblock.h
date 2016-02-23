@@ -75,6 +75,11 @@ private:
     void ResetAllocation();
     void RestoreRSP();
 
+    bool cl_active = false;
+    Gen::X64Reg cl_active_tmp = INVALID_REG;
+    void AcquireCLRegister(int arm_reg_to_copy = -1);
+    void ReleaseCLRegister();
+
     void CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*, u64, u64, u64), u64, u64, u64);
 
     FixupBranch current_cond_fixup = {};
