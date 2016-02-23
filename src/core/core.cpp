@@ -12,6 +12,7 @@
 
 #include "core/arm/arm_interface.h"
 #include "core/arm/dyncom/arm_dyncom.h"
+#include "core/arm/dyncom/jit/jit.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/thread.h"
 #include "core/hw/hw.h"
@@ -74,8 +75,8 @@ void Stop() {
 
 /// Initialize the core
 int Init() {
-    g_sys_core = Common::make_unique<ARM_DynCom>(USER32MODE);
-    g_app_core = Common::make_unique<ARM_DynCom>(USER32MODE);
+    g_sys_core = Common::make_unique<Jit::ARM_Jit>(USER32MODE);
+    g_app_core = Common::make_unique<Jit::ARM_Jit>(USER32MODE);
 
     LOG_DEBUG(Core, "Initialized OK");
     return 0;

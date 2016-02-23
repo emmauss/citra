@@ -1,0 +1,87 @@
+// Copyright 2016 Citra Emulator Project
+// Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
+
+#pragma once
+
+#include <memory>
+
+#include "common/common_types.h"
+
+#include "common/common_types.h"
+#include "common/x64/abi.h"
+#include "common/x64/emitter.h"
+
+#include "core/arm/dyncom/jit/common.h"
+#include "core/arm/dyncom/jit/jit.h"
+
+namespace Jit {
+struct RegisterAllocation {
+    RegisterAllocation() {
+        /// Default state
+
+        for (int i = 0; i < NUM_REG_GPR; i++) {
+            is_spilled[i] = false;
+            is_in_use[i] = false;
+            arm_reg_last_used[i] = 2;
+        }
+
+        // Heurestic: When fresh, encourage spilling less commonly used registers first.
+        arm_reg_last_used[0] = 3;
+        arm_reg_last_used[1] = 3;
+        arm_reg_last_used[7] = 1;
+        arm_reg_last_used[8] = 0;
+        arm_reg_last_used[9] = 0;
+    }
+
+    void assert_no_temporaries() {
+        for (int i = 0; i < NUM_REG_GPR; i++) {
+            ASSERT(!is_in_use[i]);
+        }
+    }
+
+    /// Last ARM11 PC for which this ARM register was referenced.
+    /// Used to decide what to spill for temporaries.
+    std::array<int, NUM_REG_GPR> arm_reg_last_used;
+
+    std::array<bool, NUM_REG_GPR> is_spilled;
+    std::array<bool, NUM_REG_GPR> is_in_use;
+};
+}
+
+namespace Gen {
+
+struct JitCompiler final : private XCodeBlock {
+public:
+    JitCompiler() {
+        AllocCodeSpace(64 * 1024 * 2000);
+    }
+
+    int Compile(void*& bb_start, u32 addr, bool TFlag);
+
+private:
+    Jit::RegisterAllocation current_register_allocation;
+    X64Reg AcquireArmRegister(int reg);
+    X64Reg AcquireTemporaryRegister();
+    void ReleaseAllRegisters();
+    void SpillAllRegisters();
+    void ResetAllocation();
+    void RestoreRSP();
+
+    void CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*, u64, u64, u64), u64, u64, u64);
+
+    FixupBranch current_cond_fixup = {};
+    ConditionCode current_cond = ConditionCode::AL;
+    void CompileCond(ConditionCode new_cond);
+
+private:
+    int pc;
+    int TFlag;
+    bool CompileSingleInstruction();
+};
+
+}
+
+namespace Jit {
+JitState* InterpretSingleInstruction(JitState* jit_state, u64 pc, u64 TFlag, u64);
+}

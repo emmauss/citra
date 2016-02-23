@@ -244,10 +244,6 @@ public:
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
     std::unordered_map<u32, int> instruction_cache;
 
-    // TODO: Like the above instruction_cache, this reaaaaaaaaaaaaaaaaally shouldn't be here.
-    // Move it somewhere else, pretty please.
-    std::unordered_map<u32, Gen::JitBasicBlock*> jit_cache;
-
 private:
     void ResetMPCoreCP15Registers();
 
