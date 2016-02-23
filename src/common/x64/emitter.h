@@ -58,6 +58,10 @@ enum X64Reg
     YMM0=0, YMM1, YMM2, YMM3, YMM4, YMM5, YMM6, YMM7,
     YMM8, YMM9, YMM10, YMM11, YMM12, YMM13, YMM14, YMM15,
 
+    /// These are part of the MMX/ST(i) register set,
+    /// and have nothing to do with the SSE registers above.
+    MM0 = 24, MM1, MM2, MM3, MM4, MM5, MM6, MM7,
+
     INVALID_REG = 0xFFFFFFFF
 };
 
@@ -694,6 +698,12 @@ public:
     void MOVQ_xmm(X64Reg dest, OpArg arg);
     void MOVD_xmm(const OpArg& arg, X64Reg src);
     void MOVQ_xmm(OpArg arg, X64Reg src);
+
+    /// This function only supports:
+    /// * movq mmx, r64
+    /// * movq r64, mmx
+    void MOVQ_mmx(X64Reg dest, X64Reg src);
+    void EMMS();
 
     // SSE/SSE2: Generates a mask from the high bits of the components of the packed register in question.
     void MOVMSKPS(X64Reg dest, const OpArg& arg);

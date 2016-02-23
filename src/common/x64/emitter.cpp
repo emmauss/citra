@@ -1476,6 +1476,52 @@ void XEmitter::MOVQ_xmm(X64Reg dest, OpArg arg)
 #endif
 }
 
+void XEmitter::MOVQ_mmx(X64Reg dest, X64Reg src)
+{
+    if (dest >= MM0) {
+        int mmx = dest;
+        int reg = src;
+
+        ASSERT(mmx >= MM0 && mmx <= MM7);
+        ASSERT(reg >= 0 && reg <= 15);
+
+        if (reg >= 8) {
+            reg -= 8;
+            Write8(0x49);
+        } else {
+            Write8(0x48);
+        }
+        Write8(0x0F);
+        Write8(0x6E);
+        Write8((mmx << 3) | reg);
+    } else if (src >= MM0) {
+        int mmx = src;
+        int reg = dest;
+
+        ASSERT(mmx >= MM0 && mmx <= MM7);
+        ASSERT(reg >= 0 && reg <= 15);
+
+        if (reg >= 8) {
+            reg -= 8;
+            Write8(0x49);
+        }
+        else {
+            Write8(0x48);
+        }
+        Write8(0x0F);
+        Write8(0x7E);
+        Write8((mmx << 3) | reg);
+    } else {
+        ASSERT_MSG(0, "Misuse of MOVQ_mmx");
+    }
+}
+
+void XEmitter::EMMS()
+{
+    Write8(0x0F);
+    Write8(0x77);
+}
+
 void XEmitter::MOVQ_xmm(OpArg arg, X64Reg src)
 {
     if (src > 7 || arg.IsSimpleReg())
