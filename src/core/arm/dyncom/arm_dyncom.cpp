@@ -12,7 +12,6 @@
 
 #include "core/arm/dyncom/arm_dyncom.h"
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
-#include "core/arm/dyncom/arm_dyncom_jit.h"
 #include "core/arm/dyncom/arm_dyncom_run.h"
 
 #include "core/core.h"
