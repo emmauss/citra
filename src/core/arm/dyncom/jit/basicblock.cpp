@@ -90,7 +90,9 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 144: return CompileInstruction_and(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
+    case 151: return CompileInstruction_sbc(inst, inst_size);
     case 152: return CompileInstruction_adc(inst, inst_size);
+    case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
     default: return CompileInstruction_Interpret();
     }
@@ -792,59 +794,11 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 #define FLAG_SET_C() SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
 #define FLAG_SET_V() SETcc(CC_O, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)))
 #define FLAG_SET_N() SETcc(CC_S, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)))
+#define FLAG_SET_C_COMPLEMENT() SETcc(CC_NC, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
 
-bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size) {
-    adc_inst* const inst_cream = (adc_inst*)inst->component;
-
-    if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret();
-    }
-
-    BEFORE_COMPILE_INSTRUCTION;
-
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg Rn = INVALID_REG;
-    if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
-
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
-
-    BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
-    if (operand != Rd) {
-        if (inst_cream->Rn == 15) {
-            MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
-        } else if (Rd != Rn) {
-            MOV(64, R(Rd), R(Rn));
-        }
-        ADC(32, R(Rd), R(operand));
-    } else {
-        if (inst_cream->Rn == 15) {
-            ADC(32, R(Rd), Imm32(GetReg15(inst_size)));
-        } else {
-            ADC(32, R(Rd), R(Rn));
-        }
-    }
-
-    if (inst_cream->S && (inst_cream->Rd == 15)) {
-        ASSERT_MSG(0, "Unimplemented");
-    } else if (inst_cream->S) {
-        FLAG_SET_Z();
-        FLAG_SET_C();
-        FLAG_SET_V();
-        FLAG_SET_N();
-    }
-
-    if (inst_cream->Rd == 15) {
-        ASSERT_MSG(0, "Unimplemented");
-        return false;
-    }
-
-    ReleaseAllRegisters();
-    this->pc += inst_size;
-    return true;
-}
-
+template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2)) {
-    and_inst* const inst_cream = (and_inst*)inst->component;
+    T* const inst_cream = (T*)inst->component;
 
     if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
@@ -897,19 +851,20 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
 }
 
 bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::AND);
+    return CompileInstruction_Logical<and_inst>(inst, inst_size, &Gen::XEmitter::AND);
 }
 
 bool Gen::JitCompiler::CompileInstruction_eor(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::XOR);
+    return CompileInstruction_Logical<eor_inst>(inst, inst_size, &Gen::XEmitter::XOR);
 }
 
 bool Gen::JitCompiler::CompileInstruction_orr(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::OR);
+    return CompileInstruction_Logical<orr_inst>(inst, inst_size, &Gen::XEmitter::OR);
 }
 
-bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
-    add_inst* const inst_cream = (add_inst*)inst->component;
+template<typename T>
+bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), int carry, bool commutative) {
+    T* const inst_cream = (T*)inst->component;
 
     if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
@@ -923,28 +878,64 @@ bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
+    switch (carry) {
+    case 0:
+    case 2:
+        break;
+    case 1:
+        BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
+        break;
+    case 3:
+        BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
+        CMC();
+        break;
+    }
+
     if (operand != Rd) {
         if (inst_cream->Rn == 15) {
             MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
         } else if (Rd != Rn) {
             MOV(64, R(Rd), R(Rn));
         }
-        ADD(32, R(Rd), R(operand));
-    } else {
+        (this->*fn)(32, R(Rd), R(operand));
+    } else if (commutative) {
         if (inst_cream->Rn == 15) {
-            ADD(32, R(Rd), Imm32(GetReg15(inst_size)));
+            (this->*fn)(32, R(Rd), Imm32(GetReg15(inst_size)));
         } else {
-            ADD(32, R(Rd), R(Rn));
+            (this->*fn)(32, R(Rd), R(Rn));
         }
+    } else {
+        Gen::X64Reg tmp = AcquireTemporaryRegister();
+        MOV(32, R(tmp), R(operand));
+
+        if (inst_cream->Rn == 15) {
+            MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+        }
+        else if (Rd != Rn) {
+            MOV(64, R(Rd), R(Rn));
+        }
+        (this->*fn)(32, R(Rd), R(tmp));
+
+        ReleaseTemporaryRegister(tmp);
     }
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
     } else if (inst_cream->S) {
         FLAG_SET_Z();
-        FLAG_SET_C();
         FLAG_SET_V();
         FLAG_SET_N();
+
+        switch (carry) {
+        case 0:
+        case 1:
+            FLAG_SET_C();
+            break;
+        case 2:
+        case 3:
+            FLAG_SET_C_COMPLEMENT();
+            break;
+        }
     }
 
     if (inst_cream->Rd == 15) {
@@ -955,4 +946,20 @@ bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Arithmetic<add_inst>(inst, inst_size, &Gen::XEmitter::ADD, 0, true);
+}
+
+bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Arithmetic<adc_inst>(inst, inst_size, &Gen::XEmitter::ADC, 1, true);
+}
+
+bool Gen::JitCompiler::CompileInstruction_sub(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Arithmetic<sub_inst>(inst, inst_size, &Gen::XEmitter::SUB, 2, false);
+}
+
+bool Gen::JitCompiler::CompileInstruction_sbc(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Arithmetic<sbc_inst>(inst, inst_size, &Gen::XEmitter::SBB, 3, false);
 }
