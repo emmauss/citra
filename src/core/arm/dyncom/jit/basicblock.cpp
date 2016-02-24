@@ -88,6 +88,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
     switch (inst->idx) {
     case 148: return CompileInstruction_add(inst, inst_size);
+    case 152: return CompileInstruction_adc(inst, inst_size);
     default: return CompileInstruction_Interpret();
     }
 
@@ -479,7 +480,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 
         if (shift_imm == 0) {
             if (SCO) {
-                BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(1));
+                BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
                 SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
             }
             return Rm;
@@ -718,7 +719,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         unsigned int rm = BITS(sht_oper, 0, 3);
         Gen::X64Reg Rm = AcquireCopyOfArmRegister(rm);
         if (shift_imm == 0) { //RRX
-            BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(1));
+            BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
             RCR(32, R(Rm), Imm8(1));
             if (SCO) SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
             return Rm;
@@ -759,7 +760,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         auto done_1 = J();
 
         SetJumpTarget(zero_FF);
-        BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(1));
+        BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
         SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
         auto done_2 = J();
 
@@ -789,10 +790,10 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 #define FLAG_SET_V() SETcc(CC_O, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)))
 #define FLAG_SET_N() SETcc(CC_S, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)))
 
-bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
-    add_inst* const inst_cream = (add_inst*)inst->component;
+bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size) {
+    adc_inst* const inst_cream = (adc_inst*)inst->component;
 
-    if (inst_cream->Rd == 15) {
+    if (inst_cream->Rd == 15 || inst_cream->Rn == 15) {
         return CompileInstruction_Interpret();
     }
 
@@ -800,11 +801,55 @@ bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn;
-    if (Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+    if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
-    if (Rn == 15) {
+    if (inst_cream->Rn == 15) {
+        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+    }
+    else if (Rd != Rn) {
+        MOV(64, R(Rd), R(Rn));
+    }
+    BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
+    ADC(32, R(Rd), R(operand));
+
+    if (inst_cream->S && (inst_cream->Rd == 15)) {
+        ASSERT_MSG(0, "Unimplemented");
+    }
+    else if (inst_cream->S) {
+        FLAG_SET_Z();
+        FLAG_SET_C();
+        FLAG_SET_V();
+        FLAG_SET_N();
+    }
+
+    if (inst_cream->Rd == 15) {
+        ASSERT_MSG(0, "Unimplemented");
+        return false;
+    }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
+    add_inst* const inst_cream = (add_inst*)inst->component;
+
+    if (inst_cream->Rd == 15 || inst_cream->Rn == 15) {
+        return CompileInstruction_Interpret();
+    }
+
+    BEFORE_COMPILE_INSTRUCTION;
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rn;
+    if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+
+    if (inst_cream->Rn == 15) {
         MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
     } else if (Rd != Rn) {
         MOV(64, R(Rd), R(Rn));
