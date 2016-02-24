@@ -111,10 +111,11 @@ private:
     bool CompileInstruction_sub(arm_inst* inst, unsigned inst_size);
 
     template<typename T>
-    bool CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2));
+    bool CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool invert_operand);
     bool CompileInstruction_and(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_eor(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_orr(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_bic(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_cmp(arm_inst* inst, unsigned inst_size);
 

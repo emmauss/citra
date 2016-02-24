@@ -93,6 +93,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     switch (inst->idx) {
     case 130: return CompileInstruction_cmp(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
+    case 145: return CompileInstruction_bic(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
     case 151: return CompileInstruction_sbc(inst, inst_size);
@@ -484,7 +485,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         }
 
         if (rm != 15) {
-            return AcquireArmRegister(rm);
+            return AcquireCopyOfArmRegister(rm); // This needs to be optimized away at some point.
         } else {
             Gen::X64Reg ret = AcquireTemporaryRegister();
             MOV(32, R(ret), Imm32(GetReg15(inst_size)));
@@ -833,7 +834,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 #define FLAG_SET_C_COMPLEMENT() ASSERT(status_flag_update); SETcc(CC_NC, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
 
 template<typename T>
-bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2)) {
+bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool invert_operand) {
     T* const inst_cream = (T*)inst->component;
     if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
@@ -842,6 +843,7 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
+    if (invert_operand) NOT(32, R(operand));
 
     if (operand != Rd) {
         if (inst_cream->Rn == 15) {
@@ -876,15 +878,19 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
 }
 
 bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical<and_inst>(inst, inst_size, &Gen::XEmitter::AND);
+    return CompileInstruction_Logical<and_inst>(inst, inst_size, &Gen::XEmitter::AND, false);
 }
 
 bool Gen::JitCompiler::CompileInstruction_eor(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical<eor_inst>(inst, inst_size, &Gen::XEmitter::XOR);
+    return CompileInstruction_Logical<eor_inst>(inst, inst_size, &Gen::XEmitter::XOR, false);
 }
 
 bool Gen::JitCompiler::CompileInstruction_orr(arm_inst* inst, unsigned inst_size) {
-    return CompileInstruction_Logical<orr_inst>(inst, inst_size, &Gen::XEmitter::OR);
+    return CompileInstruction_Logical<orr_inst>(inst, inst_size, &Gen::XEmitter::OR, false);
+}
+
+bool Gen::JitCompiler::CompileInstruction_bic(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Logical<bic_inst>(inst, inst_size, &Gen::XEmitter::AND, true);
 }
 
 template<typename T>
