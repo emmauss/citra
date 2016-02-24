@@ -95,13 +95,11 @@ int main(int argc, char **argv) {
 
     int addr_ptr = 0;
 
-    srand(0);
+    srand(time(nullptr));
 
-    Memory::MapMemoryRegion(0, 4096, new u8[4096]);
+    Memory::MapMemoryRegion(0, 409600, new u8[409600]);
 
-    for (int j = 0; j < 1000; j++) {
-
-        addr_ptr = 0;
+    for (int j = 0; j < 10000; j++) {
 
         for (int i = 0; i < 15; i++) {
             u32 val = rand();
@@ -109,13 +107,18 @@ int main(int argc, char **argv) {
             jit.SetReg(i, val);
         }
 
-        for (int i = 0; i < 1; i++) {
+        int inst_ptr = addr_ptr;
+
+        interp.SetPC(addr_ptr);
+        jit.SetPC(addr_ptr);
+
+        for (int i = 0; i < 2; i++) {
             u32 inst = 0b1110 << 28;
 
             int opcode;
             do {
                 opcode = rand() & 0b00011111;
-            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || opcode & 0b11111100 == 0b00010100);
+            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || (opcode & 0b11111100) == 0b00010100 || opcode == 16 || opcode == 14);
 
             inst |= (opcode << 20);
             inst |= ((rand() % 15) << 18);
@@ -128,11 +131,10 @@ int main(int argc, char **argv) {
             addr_ptr += 4;
         }
 
-        Memory::Write32(addr_ptr, 0b11100010000011111111000000000000);
+        Memory::Write32(addr_ptr, 0b11100011001000000000111100000000);
 
-        interp.SetPC(0);
-        interp.Run(1);
-        jit.Run(1);
+        interp.ExecuteInstructions(3);
+        jit.ExecuteInstructions(3);
 
         bool pass = interp.GetCPSR() == jit.GetCPSR();
 
@@ -140,9 +142,14 @@ int main(int argc, char **argv) {
             if (interp.GetReg(i) != jit.GetReg(i)) pass = false;
         }
 
+        printf("%i\r", j);
+
         if (!pass) {
-            std::string disasm = ARM_Disasm::Disassemble(0, Memory::Read32(0));
+            std::string disasm;
             printf("\n");
+            disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr));
+            printf("%s\n", disasm.c_str());
+            disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr+4));
             printf("%s\n", disasm.c_str());
             for (int i = 0; i <= 15; i++) {
                 printf("%4i: %08x %08x %s\n", i, interp.GetReg(i), jit.GetReg(i), interp.GetReg(i) != jit.GetReg(i) ? "*" : "");
@@ -151,8 +158,6 @@ int main(int argc, char **argv) {
 
             system("pause");
         }
-
-        printf("%i\r", j);
     }
 
     /*

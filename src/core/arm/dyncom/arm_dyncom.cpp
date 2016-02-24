@@ -79,6 +79,7 @@ void ARM_DynCom::AddTicks(u64 ticks) {
 }
 
 void ARM_DynCom::ExecuteInstructions(int num_instructions) {
+    state->instruction_cache.clear();
     state->NumInstrsToExecute = num_instructions;
 
     // Dyncom only breaks on instruction dispatch. This only happens on every instruction when
