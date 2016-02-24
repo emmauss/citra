@@ -41,7 +41,7 @@ public:
         JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, bb)));
         return_from_run_jit = this->GetCodePtr();
 
-        for (int i = 1; i < Jit::NUM_REG_GPR; i++) {
+        for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
             MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + i * sizeof(u32)), R(Jit::IntToArmGPR[i]));
         }
 
@@ -240,12 +240,12 @@ void ARM_Jit::ExecuteInstructions(int num_instructions) {
 
         void *ptr;
 
-        auto itr = basic_blocks.find(interp_state->Reg[15]);
-        if (itr != basic_blocks.end()) {
+        auto itr = compiler.basic_blocks.find(interp_state->Reg[15]);
+        if (itr != compiler.basic_blocks.end()) {
             ptr = itr->second;
         } else {
             compiler.Compile(ptr, interp_state->Reg[15], interp_state->TFlag);
-            basic_blocks[interp_state->Reg[15]] = (u8*)ptr;
+            compiler.basic_blocks[interp_state->Reg[15]] = (u8*)ptr;
         }
 
         unsigned ticks_executed = run_jit.CallCode(state.get(), ptr, num_instructions, interp_state->Reg[15]);
@@ -304,7 +304,7 @@ void ARM_Jit::PrepareReschedule() {
 }
 
 void ARM_Jit::ClearCache() {
-    this->basic_blocks.clear();
+    compiler.basic_blocks.clear();
     this->interp_state->instruction_cache.clear();
     compiler.ClearCache();
 }

@@ -66,7 +66,10 @@ public:
 
     void ClearCache() {
         ResetCodePtr();
+        basic_blocks.clear();
     }
+
+    std::unordered_map<u32, u8*> basic_blocks;
 
     bool debug;
 
@@ -98,6 +101,9 @@ private:
 
     /// Warning: This destroys addr_reg
     void CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X64Reg addr_reg);
+
+    /// Update cycles_remaining before calling this function.
+    void CompileMaybeJumpToBB(u32 new_pc);
 
 private:
     u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
@@ -136,6 +142,8 @@ private:
     bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_ldr(arm_inst* inst, unsigned inst_size);
+
+    bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
 };
 
 }
