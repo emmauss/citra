@@ -6,6 +6,7 @@ extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 namespace Jit {
 Jit::JitState* __cdecl InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
     ARMul_State* cpu = jit_state->interp_state;
+    cpu->instruction_cache.clear();
 
     cpu->Reg[15] = pc;
 
@@ -96,16 +97,17 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
-    default: return CompileInstruction_Interpret();
+    default: return CompileInstruction_Interpret(inst_size);
     }
 
     ASSERT_MSG(0, "Unreachable code");
 }
 
-bool Gen::JitCompiler::CompileInstruction_Interpret() {
+bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
     CompileCond(ConditionCode::AL);
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
+    this->pc += inst_size;
     return false;
 }
 
@@ -332,8 +334,16 @@ void Gen::JitCompiler::AcquireCLRegister(int arm_reg_to_copy) {
             current_register_allocation.is_spilled[arm_reg] = true;
         }
     } else {
-        cl_active_tmp = AcquireTemporaryRegister();
-        MOV(32, R(cl_active_tmp), R(RCX));
+        if (current_register_allocation.is_spilled[arm_reg]) {
+            cl_active_tmp = AcquireTemporaryRegister();
+            ASSERT(cl_active_tmp != RCX);
+            ASSERT(cl_active_tmp != INVALID_REG);
+            MOV(32, R(cl_active_tmp), R(RCX));
+        } else {
+            MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)), R(RCX));
+            current_register_allocation.is_spilled[arm_reg] = true;
+            cl_active_tmp = RCX;
+        }
     }
 
     if (arm_reg_to_copy >= 0) {
@@ -348,8 +358,13 @@ void Gen::JitCompiler::AcquireCLRegister(int arm_reg_to_copy) {
 void Gen::JitCompiler::ReleaseCLRegister() {
     ASSERT(cl_active);
 
+    int arm_reg = WhichArmRegInNativeReg(RCX);
+
     if (cl_active_tmp == INVALID_REG) {
-        current_register_allocation.is_in_use[WhichArmRegInNativeReg(RCX)] = false;
+        current_register_allocation.is_in_use[arm_reg] = false;
+    } else if (cl_active_tmp == RCX) {
+        MOV(32, R(RCX), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, spill) + arm_reg * sizeof(u32)));
+        current_register_allocation.is_spilled[arm_reg] = false;
     } else {
         MOV(32, R(RCX), R(cl_active_tmp));
     }
@@ -726,7 +741,12 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     if (shtop_func == DPO(RotateRightByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
-        Gen::X64Reg Rm = AcquireCopyOfArmRegister(rm);
+        Gen::X64Reg Rm;
+        if (rm != 15) Rm = AcquireCopyOfArmRegister(rm);
+        else {
+            Rm = AcquireTemporaryRegister();
+            MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
+        }
         if (shift_imm == 0) { //RRX
             BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
             RCR(32, R(Rm), Imm8(1));
@@ -805,7 +825,7 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     T* const inst_cream = (T*)inst->component;
 
     if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret();
+        return CompileInstruction_Interpret(inst_size);
     }
 
     BEFORE_COMPILE_INSTRUCTION;
@@ -814,7 +834,7 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     if (operand != Rd) {
         if (inst_cream->Rn == 15) {
@@ -869,7 +889,7 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
     T* const inst_cream = (T*)inst->component;
 
     if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret();
+        return CompileInstruction_Interpret(inst_size);
     }
 
     BEFORE_COMPILE_INSTRUCTION;
@@ -878,7 +898,7 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     switch (carry) {
     case 0:
@@ -996,13 +1016,13 @@ bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size
     mov_inst* const inst_cream = (mov_inst*)inst->component;
 
     if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret();
+        return CompileInstruction_Interpret(inst_size);
     }
 
     BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     MOV(32, R(Rd), R(operand));
 

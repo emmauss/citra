@@ -94,7 +94,7 @@ private:
     u32 pc;
     int TFlag;
     bool CompileSingleInstruction();
-    bool CompileInstruction_Interpret();
+    bool CompileInstruction_Interpret(unsigned inst_size);
 
     template<typename T>
     bool CompileInstruction_Arithmetic(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), int carry, bool commutative);
