@@ -3458,16 +3458,16 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
             if (itr != cpu->instruction_cache.end()) {
                 ptr = itr->second;
-            } else {
+            }
+            else {
                 if (InterpreterTranslate(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
                     goto END;
             }
         } else {
-            if (!InterpreterTranslateSingle(cpu->TFlag, ptr, cpu->Reg[15]))
-                goto END;
+            if (!InterpreterTranslateSingle(cpu->TFlag, ptr, cpu->Reg[15], 0)) goto END;
         }
 
-        // Find breakpoint if one exists withiInten the block
+        // Find breakpoint if one exists within the block
         if (GDBStub::g_server_enabled && GDBStub::IsConnected()) {
             breakpoint_data = GDBStub::GetNextBreakpointFromAddress(cpu->Reg[15], GDBStub::BreakpointType::Execute);
         }
