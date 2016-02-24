@@ -91,7 +91,7 @@ private:
 private:
     u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
     int cycles;
-    int pc;
+    u32 pc;
     int TFlag;
     bool CompileSingleInstruction();
     bool CompileInstruction_Interpret();
