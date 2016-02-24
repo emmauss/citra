@@ -1011,6 +1011,31 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
     return true;
 }
 
+bool Gen::JitCompiler::CompileInstruction_cmn(arm_inst* inst, unsigned inst_size) {
+    cmn_inst* const inst_cream = (cmn_inst*)inst->component;
+
+    Gen::X64Reg Rn = INVALID_REG;
+    if (inst_cream->Rn != 15) Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
+    else {
+        Rn = AcquireTemporaryRegister();
+        MOV(32, R(Rn), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+
+    ADD(32, R(Rn), R(operand));
+
+    status_flag_update = true;
+    FLAG_SET_Z();
+    FLAG_SET_C();
+    FLAG_SET_N();
+    FLAG_SET_V();
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
 bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size) {
     mov_inst* const inst_cream = (mov_inst*)inst->component;
     if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
