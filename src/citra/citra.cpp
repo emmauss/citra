@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
             if (interp.GetReg(i) != jit.GetReg(i)) pass = false;
         }
 
-        if (j % 1000 == 0) printf("%i\r", j);
+        if (j % 1 == 0) printf("%i\r", j);
 
         if (!pass) {
             std::string disasm;

@@ -533,44 +533,52 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
         }
 
-        if (!SCO) {
+        if (SCO) {
+            TEST(32, R(RCX), R(RCX));
+            auto Rs_not_zero = J_CC(CC_NZ);
+
+            // if (Rs & 0xFF == 0) {
+            MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+            MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
+            auto jmp_to_end_1 = J();
+            // }
+            SetJumpTarget(Rs_not_zero);
+            CMP(32, R(RCX), Imm8(32));
+            auto Rs_gt32 = J_CC(CC_A);
+            auto Rs_eq32 = J_CC(CC_E);
+            // else if (Rs & 0xFF < 32) {
             SHL(32, R(Rm), R(CL));
-            ReleaseCLRegister();
-            return Rm;
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            auto jmp_to_end_2 = J();
+            // }
+            SetJumpTarget(Rs_gt32);
+            // else if (Rs & 0xFF > 32) {
+            MOV(32, R(Rm), Imm32(0));
+            MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
+            auto jmp_to_end_3 = J();
+            // }
+            SetJumpTarget(Rs_eq32);
+            // else if (Rs & 0xFF == 32) {
+            BT(32, R(Rm), Imm8(0));
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            MOV(32, R(Rm), Imm32(0));
+            // }
+            SetJumpTarget(jmp_to_end_1);
+            SetJumpTarget(jmp_to_end_2);
+            SetJumpTarget(jmp_to_end_3);
+        } else {
+            CMP(32, R(RCX), Imm8(32));
+            auto Rs_lt32 = J_CC(CC_B);
+            // if (Rs >= 32) {
+            MOV(32, R(Rm), Imm32(0));
+            auto jmp_to_end = J();
+            // } else {
+            SetJumpTarget(Rs_lt32);
+            SHL(32, R(Rm), R(CL));
+            auto jmp_to_end_2 = J();
+            // }
+            SetJumpTarget(jmp_to_end);
         }
-
-        TEST(32, R(RCX), R(RCX));
-        auto Rs_not_zero = J_CC(CC_NZ);
-
-        // if (Rs & 0xFF == 0) {
-        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
-        auto jmp_to_end_1 = J();
-        // }
-        SetJumpTarget(Rs_not_zero);
-        CMP(32, R(RCX), Imm8(32));
-        auto Rs_gt32 = J_CC(CC_A);
-        auto Rs_eq32 = J_CC(CC_E);
-        // else if (Rs & 0xFF < 32) {
-        SHL(32, R(Rm), R(CL));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        auto jmp_to_end_2 = J();
-        // }
-        SetJumpTarget(Rs_gt32);
-        // else if (Rs & 0xFF > 32) {
-        MOV(32, R(Rm), Imm32(0));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
-        auto jmp_to_end_3 = J();
-        // }
-        SetJumpTarget(Rs_eq32);
-        // else if (Rs & 0xFF == 32) {
-        BT(32, R(Rm), Imm8(0));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        MOV(32, R(Rm), Imm32(0));
-        // }
-        SetJumpTarget(jmp_to_end_1);
-        SetJumpTarget(jmp_to_end_2);
-        SetJumpTarget(jmp_to_end_3);
 
         ReleaseCLRegister();
         return Rm;
@@ -618,44 +626,50 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
         }
 
-        if (!SCO) {
-            SHR(32, R(Rm), R(CL));
-            ReleaseCLRegister();
-            return Rm;
+        if (SCO) {
+            TEST(32, R(RCX), R(RCX));
+            auto Rs_not_zero = J_CC(CC_NZ);
+            // if (Rs & 0xFF == 0) {
+            MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+            MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
+            auto jmp_to_end_1 = J();
+            // }
+            SetJumpTarget(Rs_not_zero);
+            CMP(32, R(RCX), Imm8(32));
+            auto Rs_gt32 = J_CC(CC_A);
+            auto Rs_eq32 = J_CC(CC_E);
+            // else if (Rs & 0xFF < 32) {
+            SHR(32, R(Rm), R(RCX));
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            auto jmp_to_end_2 = J();
+            // }
+            SetJumpTarget(Rs_gt32);
+            // else if (Rs & 0xFF > 32) {
+            MOV(32, R(Rm), Imm32(0));
+            MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
+            auto jmp_to_end_3 = J();
+            // }
+            SetJumpTarget(Rs_eq32);
+            // else if (Rs & 0xFF == 32) {
+            BT(32, R(Rm), Imm8(31));
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            MOV(32, R(Rm), Imm32(0));
+            // }
+            SetJumpTarget(jmp_to_end_1);
+            SetJumpTarget(jmp_to_end_2);
+            SetJumpTarget(jmp_to_end_3);
+        } else {
+            CMP(32, R(RCX), Imm8(32));
+            auto Rs_lt32 = J_CC(CC_B);
+            // if (Rs & 0xFF >= 32) {
+            MOV(32, R(Rm), Imm32(0));
+            auto jmp_to_end = J();
+            // } else {
+            SetJumpTarget(Rs_lt32);
+            SHR(32, R(Rm), R(RCX));
+            // }
+            SetJumpTarget(jmp_to_end);
         }
-
-        TEST(32, R(RCX), R(RCX));
-        auto Rs_not_zero = J_CC(CC_NZ);
-
-        // if (Rs & 0xFF == 0) {
-        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
-        auto jmp_to_end_1 = J();
-        // }
-        SetJumpTarget(Rs_not_zero);
-        CMP(32, R(RCX), Imm8(32));
-        auto Rs_gt32 = J_CC(CC_A);
-        auto Rs_eq32 = J_CC(CC_E);
-        // else if (Rs & 0xFF < 32) {
-        SHR(32, R(Rm), R(RCX));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        auto jmp_to_end_2 = J();
-        // }
-        SetJumpTarget(Rs_gt32);
-        // else if (Rs & 0xFF > 32) {
-        MOV(32, R(Rm), Imm32(0));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
-        auto jmp_to_end_3 = J();
-        // }
-        SetJumpTarget(Rs_eq32);
-        // else if (Rs & 0xFF == 32) {
-        BT(32, R(Rm), Imm8(31));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        MOV(32, R(Rm), Imm32(0));
-        // }
-        SetJumpTarget(jmp_to_end_1);
-        SetJumpTarget(jmp_to_end_2);
-        SetJumpTarget(jmp_to_end_3);
 
         ReleaseCLRegister();
         return Rm;
@@ -703,36 +717,43 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
         }
 
-        if (!SCO) {
-            SAR(32, R(Rm), R(CL));
-            ReleaseCLRegister();
-            return Rm;
-        }
-
         TEST(32, R(RCX), R(RCX));
         auto Rs_not_zero = J_CC(CC_NZ);
 
-        // if (Rs & 0xFF == 0) {
-        MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
-        MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
-        auto jmp_to_end_1 = J();
-        // }
-        SetJumpTarget(Rs_not_zero);
-        CMP(32, R(RCX), Imm8(31));
-        auto Rs_gt31 = J_CC(CC_A);
-        // else if (Rs & 0xFF < 32) {
-        SAR(32, R(Rm), R(CL));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        auto jmp_to_end_2 = J();
-        // }
-        SetJumpTarget(Rs_gt31);
-        // else if (Rs & 0xFF > 31) {
-        SAR(32, R(Rm), Imm8(31)); // Verified to have no incorrect counterexamples.
-        BT(32, R(Rm), Imm8(31));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
-        // }
-        SetJumpTarget(jmp_to_end_1);
-        SetJumpTarget(jmp_to_end_2);
+        if (SCO) {
+            // if (Rs & 0xFF == 0) {
+            MOVZX(64, 8, RCX, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)));
+            MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), R(RCX));
+            auto jmp_to_end_1 = J();
+            // }
+            SetJumpTarget(Rs_not_zero);
+            CMP(32, R(RCX), Imm8(31));
+            auto Rs_gt31 = J_CC(CC_A);
+            // else if (Rs & 0xFF < 32) {
+            SAR(32, R(Rm), R(CL));
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            auto jmp_to_end_2 = J();
+            // }
+            SetJumpTarget(Rs_gt31);
+            // else if (Rs & 0xFF > 31) {
+            SAR(32, R(Rm), Imm8(31)); // Verified to have no incorrect counterexamples.
+            BT(32, R(Rm), Imm8(31));
+            SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
+            // }
+            SetJumpTarget(jmp_to_end_1);
+            SetJumpTarget(jmp_to_end_2);
+        } else {
+            CMP(32, R(RCX), Imm8(31));
+            auto Rs_gt31 = J_CC(CC_A);
+            // if (Rs & 0xFF <= 31) {
+            SAR(32, R(Rm), R(CL));
+            auto jmp_to_end = J();
+            // } else {
+            SetJumpTarget(Rs_gt31);
+            SAR(32, R(Rm), Imm8(31)); // Verified to have no incorrect counterexamples.
+            // }
+            SetJumpTarget(jmp_to_end);
+        }
 
         ReleaseCLRegister();
         return Rm;
@@ -771,12 +792,6 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         else {
             Rm = AcquireTemporaryRegister();
             MOV(32, R(Rm), Imm32(GetReg15(inst_size)));
-        }
-
-        if (!SCO) {
-            ROR(32, R(Rm), R(RCX));
-            ReleaseCLRegister();
-            return Rm;
         }
 
         AND(32, R(RCX), Imm32(0xFF));
@@ -826,7 +841,7 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
 
     if (operand != Rd) {
         if (inst_cream->Rn == 15) {
@@ -971,7 +986,7 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false , inst_size);
 
     if (inst_cream->Rn != 15) {
         CMP(32, R(Rn), R(operand));
@@ -995,9 +1010,9 @@ bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size
     if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
 
-    MOV(32, R(Rd), R(operand));
+    if (Rd != operand) MOV(32, R(Rd), R(operand));
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
