@@ -37,6 +37,7 @@
 #include "core/memory.h"
 #include "core/memory_setup.h"
 #include <intrin.h>
+#include <random>
 
 static void PrintHelp()
 {
@@ -90,7 +91,6 @@ int main(int argc, char **argv) {
     System::Init(emu_window);
 
     /////////////////// TESTS ///////////////////
-#if 1
     Jit::ARM_Jit jit(PrivilegeMode::USER32MODE);
     ARM_DynCom interp(PrivilegeMode::USER32MODE);
 
@@ -98,16 +98,19 @@ int main(int argc, char **argv) {
 
     srand(time(nullptr));
 
-    Memory::MapMemoryRegion(0, 409600, new u8[409600]);
-
-    for (int j = 0; j < 10000000; j++) {
+    printf("JIT self-test in progress:\n");
+    Memory::MapMemoryRegion(0, 4096 * 2, new u8[4096 * 2]);
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_int<u32> rand;
+    for (int j = 0; j < 2000; j++) {
         jit.ClearCache();
         interp.ClearCache();
 
         u32 initial_regs[15];
 
         for (int i = 0; i < 15; i++) {
-            u32 val = rand();
+            u32 val = rand(mt);
             interp.SetReg(i, val);
             jit.SetReg(i, val);
             initial_regs[i] = val;
@@ -126,8 +129,8 @@ int main(int argc, char **argv) {
         for (int i = 0; i < NUM_INST; i++) {
             u32 inst;
 
-            if (rand() % 10 < 2) {
-                inst = (rand() % 0xE) << 28;
+            if (rand(mt) % 10 < 2) {
+                inst = (rand(mt) % 0xE) << 28;
             } else {
                 inst = 0b1110 << 28;
             }
@@ -135,15 +138,15 @@ int main(int argc, char **argv) {
             int opcode;
             //if (rand() % 2 == 0) opcode = 0b00011010; else opcode = 0b00011011; // mov and movs only.
             do {
-                opcode = rand() & 0b00111111;
+                opcode = rand(mt) & 0b00111111;
             } while (opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 0b00110010 || opcode == 0b00110110 || opcode == 0b00110100 || opcode == 0b00110000);
 
             inst |= (opcode << 20);
-            inst |= ((rand() % 15) << 18);
-            inst |= ((rand() % 15) << 12);
-            inst |= ((rand() & 0xF) << 8);
-            inst |= ((rand() % 8) << 4);
-            inst |= (rand() & 0xF);
+            inst |= ((rand(mt) % 15) << 18);
+            inst |= ((rand(mt) % 15) << 12);
+            inst |= ((rand(mt) & 0xF) << 8);
+            inst |= ((rand(mt) % 8) << 4);
+            inst |= (rand(mt) & 0xF);
 
             Memory::Write32(addr_ptr, inst);
             addr_ptr += 4;
@@ -194,9 +197,16 @@ int main(int argc, char **argv) {
 
             __debugbreak();
             jit.DebugRun(0, NUM_INST+1);
+            printf("Self-test failed.\n");
+            system("pause");
+            exit(-2);
         }
     }
-#else
+    jit.ClearCache();
+    interp.ClearCache();
+    Memory::UnmapRegion(0, 4096 * 2);
+    printf("Self-test passsed, proceeding.\n");
+
     Loader::ResultStatus load_result = Loader::LoadFile(boot_filename);
     if (Loader::ResultStatus::Success != load_result) {
         LOG_CRITICAL(Frontend, "Failed to load ROM (Error %i)!", load_result);
@@ -206,7 +216,6 @@ int main(int argc, char **argv) {
     while (emu_window->IsOpen()) {
         Core::RunLoop();
     }
-#endif
 
     System::Shutdown();
 

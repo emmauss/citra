@@ -315,6 +315,21 @@ static int WhichArmRegInNativeReg(Gen::X64Reg native) {
     ASSERT_MSG(0, "Internal error");
 }
 
+Gen::X64Reg Gen::JitCompiler::EnsureTemp(Gen::X64Reg reg) {
+    ASSERT(!cl_active);
+
+    int arm_reg = WhichArmRegInNativeReg(reg);
+    ASSERT(current_register_allocation.is_in_use[arm_reg]);
+
+    if (current_register_allocation.is_spilled[arm_reg]) {
+        return reg;
+    }
+
+    Gen::X64Reg ret = AcquireTemporaryRegister();
+    MOV(32, R(ret), R(reg));
+    return ret;
+}
+
 void Gen::JitCompiler::AcquireCLRegister(int arm_reg_to_copy) {
     ASSERT(!cl_active);
     ASSERT(cl_active_tmp == INVALID_REG);
@@ -485,7 +500,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         }
 
         if (rm != 15) {
-            return AcquireCopyOfArmRegister(rm); // This needs to be optimized away at some point.
+            return AcquireArmRegister(rm);
         } else {
             Gen::X64Reg ret = AcquireTemporaryRegister();
             MOV(32, R(ret), Imm32(GetReg15(inst_size)));
@@ -843,7 +858,10 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
-    if (invert_operand) NOT(32, R(operand));
+    if (invert_operand) {
+        operand = EnsureTemp(operand);
+        NOT(32, R(operand));
+    }
 
     if (operand != Rd) {
         if (inst_cream->Rn == 15) {
