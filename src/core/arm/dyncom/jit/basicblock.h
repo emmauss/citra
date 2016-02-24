@@ -96,6 +96,9 @@ private:
 
     Gen::X64Reg CompileShifterOperand(shtop_fp_t shtop_func, unsigned shifter_operand, bool CSO, unsigned inst_size);
 
+    /// Warning: This destroys addr_reg
+    void CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X64Reg addr_reg);
+
 private:
     u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
     int cycles;
@@ -131,6 +134,8 @@ private:
 
     bool CompileInstruction_teq(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);
+
+    bool CompileInstruction_ldr(arm_inst* inst, unsigned inst_size);
 };
 
 }

@@ -1,5 +1,6 @@
 #include "core/arm/dyncom/arm_dyncom_translate.h"
 #include "core/arm/dyncom/jit/basicblock.h"
+#include "core/memory.h"
 
 extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 
@@ -105,6 +106,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
+    case 180: return CompileInstruction_ldr(inst, inst_size);
     default:
         CompileCond(ConditionCode::AL);
         return CompileInstruction_Interpret(inst_size);
@@ -841,6 +843,36 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     return Gen::INVALID_REG;
 }
 
+void Gen::JitCompiler::CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X64Reg addr_reg) {
+    // This code is very fragile. It relies on the structure of PageTable.
+    // This code assumes offsetof the pointers array in the PageTable struct is 0.
+
+    addr_reg = EnsureTemp(addr_reg);
+
+    Gen::X64Reg page_table_reg;
+    if (dest == addr_reg) page_table_reg = AcquireTemporaryRegister();
+    else page_table_reg = dest;
+
+    Gen::X64Reg within_page = AcquireTemporaryRegister();
+
+    MOV(64, R(page_table_reg), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, page_table)));
+
+    MOV(32, R(within_page), R(addr_reg));
+    AND(32, R(within_page), Imm32(Memory::PAGE_MASK));
+    SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
+
+    MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, sizeof(u8*), 0));
+    if (bits == 64) {
+        MOV(64, R(dest), MComplex(addr_reg, within_page, 1, 0));
+    } else {
+        MOVZX(64, bits, dest, MComplex(addr_reg, within_page, 1, 0));
+    }
+
+    if (dest == addr_reg) ReleaseTemporaryRegister(page_table_reg);
+    ReleaseTemporaryRegister(within_page);
+    ReleaseTemporaryRegister(addr_reg);
+}
+
 #define OPARG_SET_Z(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)), (oparg))
 #define OPARG_SET_C(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), (oparg))
 #define OPARG_SET_V(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)), (oparg))
@@ -1216,6 +1248,31 @@ bool Gen::JitCompiler::CompileInstruction_tst(arm_inst* inst, unsigned inst_size
     FLAG_SET_N();
     BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
     FLAG_SET_C();
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+    u32 Rn_num = BITS(inst_cream->inst, 16, 19);
+    if (Rd_num == 15 || Rn_num == 15) return CompileInstruction_Interpret(inst_size);
+
+    if (inst_cream->get_addr != LnSWoUB(ImmediatePreIndexed)) return CompileInstruction_Interpret(inst_size);
+
+    Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+
+    u32 immed = BITS(inst_cream->inst, 0, 11);
+
+    if (BIT(inst_cream->inst, 23)) // u_bit
+        ADD(32, R(Rn), Imm32(immed));
+    else
+        SUB(32, R(Rn), Imm32(immed));
+
+    CompileMemoryRead(Rd, 32, Rn);
 
     ReleaseAllRegisters();
     this->pc += inst_size;

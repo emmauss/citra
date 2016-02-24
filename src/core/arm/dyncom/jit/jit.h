@@ -31,6 +31,9 @@ struct alignas(64) JitState {
     u8 N, Z, C, V;
     // Try to keep everything above here in one cache line.
 
+
+    void* page_table;
+
     u8 T;
 
     u8 shifter_carry_out;

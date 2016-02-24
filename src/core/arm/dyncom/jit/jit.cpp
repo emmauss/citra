@@ -109,6 +109,11 @@ public:
 static Gen::RunJit run_jit;
 static Gen::JitCompiler compiler;
 
+namespace Memory {
+    struct PageTable;
+    extern PageTable* current_page_table;
+}
+
 namespace Jit {
 
 void JitState::Reset() {
@@ -209,6 +214,8 @@ void ARM_Jit::ExecuteInstructions(int num_instructions) {
     state->reschedule = 0;
 
     do {
+        state->page_table = reinterpret_cast<void*>(Memory::current_page_table);
+
         interp_state->NFlag = (interp_state->Cpsr >> 31);
         interp_state->ZFlag = (interp_state->Cpsr >> 30) & 1;
         interp_state->CFlag = (interp_state->Cpsr >> 29) & 1;

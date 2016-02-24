@@ -62,7 +62,7 @@ struct PageTable {
 /// Singular page table used for the singleton process
 static PageTable main_page_table;
 /// Currently active page table
-static PageTable* current_page_table = &main_page_table;
+PageTable* current_page_table = &main_page_table;
 
 static void MapPages(u32 base, u32 size, u8* memory, PageType type) {
     LOG_DEBUG(HW_Memory, "Mapping %p onto %08X-%08X", memory, base * PAGE_SIZE, (base + size) * PAGE_SIZE);
