@@ -112,6 +112,11 @@ private:
     bool CompileInstruction_sub(arm_inst* inst, unsigned inst_size);
 
     template<typename T>
+    bool CompileInstruction_ReverseSubtraction(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool carry);
+    bool CompileInstruction_rsb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_rsc(arm_inst* inst, unsigned inst_size);
+
+    template<typename T>
     bool CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool invert_operand);
     bool CompileInstruction_and(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_eor(arm_inst* inst, unsigned inst_size);
@@ -122,6 +127,7 @@ private:
     bool CompileInstruction_cmn(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_mov(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_mvn(arm_inst* inst, unsigned inst_size);
 };
 
 }
