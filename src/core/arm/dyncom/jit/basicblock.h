@@ -95,9 +95,15 @@ private:
     int TFlag;
     bool CompileSingleInstruction();
     bool CompileInstruction_Interpret();
+
+
     bool CompileInstruction_adc(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_add(arm_inst* inst, unsigned inst_size);
+
+    bool CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2));
     bool CompileInstruction_and(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_eor(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_orr(arm_inst* inst, unsigned inst_size);
 };
 
 }

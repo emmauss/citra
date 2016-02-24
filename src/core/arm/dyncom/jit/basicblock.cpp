@@ -88,8 +88,10 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
     switch (inst->idx) {
     case 144: return CompileInstruction_and(inst, inst_size);
+    case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
     case 152: return CompileInstruction_adc(inst, inst_size);
+    case 154: return CompileInstruction_orr(inst, inst_size);
     default: return CompileInstruction_Interpret();
     }
 
@@ -841,7 +843,7 @@ bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size
     return true;
 }
 
-bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
+bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2)) {
     and_inst* const inst_cream = (and_inst*)inst->component;
 
     if (inst_cream->Rd == 15) {
@@ -862,13 +864,13 @@ bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size
         } else if (Rd != Rn) {
             MOV(64, R(Rd), R(Rn));
         }
-        AND(32, R(Rd), R(operand));
+        (this->*fn)(32, R(Rd), R(operand));
     }
     else {
         if (inst_cream->Rn == 15) {
-            AND(32, R(Rd), Imm32(GetReg15(inst_size)));
+            (this->*fn)(32, R(Rd), Imm32(GetReg15(inst_size)));
         } else {
-            AND(32, R(Rd), R(Rn));
+            (this->*fn)(32, R(Rd), R(Rn));
         }
     }
 
@@ -892,6 +894,18 @@ bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::AND);
+}
+
+bool Gen::JitCompiler::CompileInstruction_eor(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::XOR);
+}
+
+bool Gen::JitCompiler::CompileInstruction_orr(arm_inst* inst, unsigned inst_size) {
+    return CompileInstruction_Logical(inst, inst_size, &Gen::XEmitter::OR);
 }
 
 bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
