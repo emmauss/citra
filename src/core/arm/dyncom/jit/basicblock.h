@@ -128,6 +128,9 @@ private:
 
     bool CompileInstruction_mov(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_mvn(arm_inst* inst, unsigned inst_size);
+
+    bool CompileInstruction_teq(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);
 };
 
 }

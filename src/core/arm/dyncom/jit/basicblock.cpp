@@ -4,7 +4,7 @@
 extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 
 namespace Jit {
-Jit::JitState* __cdecl InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
+Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
     ARMul_State* cpu = jit_state->interp_state;
     cpu->instruction_cache.clear();
 
@@ -92,6 +92,8 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     CompileCond((ConditionCode)inst->cond);
     switch (inst->idx) {
     case 130: return CompileInstruction_cmp(inst, inst_size);
+    case 131: return CompileInstruction_tst(inst, inst_size);
+    case 132: return CompileInstruction_teq(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 145: return CompileInstruction_bic(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
@@ -1073,7 +1075,7 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false , inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
     if (inst_cream->Rn != 15) {
         CMP(32, R(Rn), R(operand));
@@ -1165,6 +1167,56 @@ bool Gen::JitCompiler::CompileInstruction_mvn(arm_inst* inst, unsigned inst_size
         FLAG_SET_C();
         // V is unaffected
     }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
+    teq_inst* const inst_cream = (teq_inst*)inst->component;
+
+    Gen::X64Reg Rn;
+    if (inst_cream->Rn != 15) Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
+    else {
+        Rn = AcquireTemporaryRegister();
+        MOV(32, R(Rn), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+
+    XOR(32, R(Rn), R(operand));
+
+    status_flag_update = true;
+    FLAG_SET_Z();
+    FLAG_SET_N();
+    BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
+    FLAG_SET_C();
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_tst(arm_inst* inst, unsigned inst_size) {
+    tst_inst* const inst_cream = (tst_inst*)inst->component;
+
+    Gen::X64Reg Rn;
+    if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+    else {
+        Rn = AcquireTemporaryRegister();
+        MOV(32, R(Rn), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+
+    TEST(32, R(Rn), R(operand));
+
+    status_flag_update = true;
+    FLAG_SET_Z();
+    FLAG_SET_N();
+    BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
+    FLAG_SET_C();
 
     ReleaseAllRegisters();
     this->pc += inst_size;
