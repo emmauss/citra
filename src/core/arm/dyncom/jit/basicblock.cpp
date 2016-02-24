@@ -56,30 +56,25 @@ Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 
 int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     NOP(); INT3(); NOP(); // These are here to mark basic blocks so that they're easy to spot in a memory dump.
 
-    current_cond = ConditionCode::AL;
-    current_register_allocation.Reset();
-    current_cond_fixup.ptr = nullptr;
-    cycles = 0;
-    status_flag_update = false;
-
     this->pc = addr;
     this->TFlag = TFlag;
 
     bb_start = (void*)GetWritableCodePtr();
     if (debug) INT3();
 
-    bool cont = true;
-    do {
-        cont = CompileSingleInstruction();
-        cycles++;
-    } while (cont);
+    current_cond = ConditionCode::AL;
+    current_register_allocation.Reset();
+    current_cond_fixup.ptr = nullptr;
+    cycles = 0;
+    status_flag_update = false;
 
     ResetAllocation();
-    CompileCond(ConditionCode::AL);
 
-    //MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(this->pc));
-    if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
-    JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+    bool cont = true;
+    do {
+        cycles++;
+        cont = CompileSingleInstruction();
+    } while (cont);
 
     return 0;
 }
@@ -107,18 +102,25 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
-    default:
-        CompileCond(ConditionCode::AL);
-        return CompileInstruction_Interpret(inst_size);
+    case 196: return CompileInstruction_bl(inst, inst_size);
+    default: return CompileInstruction_Interpret(inst_size);
     }
 
     ASSERT_MSG(0, "Unreachable code");
 }
 
 bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
+    CompileCond(ConditionCode::AL);
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
     this->pc += inst_size;
+
+    ResetAllocation();
+    CompileCond(ConditionCode::AL);
+    ResetAllocation();
+    if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+    cycles = 0;
+    JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
     return false;
 }
 
@@ -130,6 +132,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
         ResetAllocation();
         ASSERT(current_cond_fixup.ptr);
         SetJumpTarget(current_cond_fixup);
+        current_cond_fixup.ptr = nullptr;
     }
 
     if (new_cond != ConditionCode::AL && new_cond != ConditionCode::NV) {
@@ -496,8 +499,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
         MOV(32, R(ret), Imm32(shifter_operand));
 
         return ret;
-    }
-    if (shtop_func == DPO(Register)) {
+    } else if (shtop_func == DPO(Register)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
 
         if (SCO) {
@@ -512,8 +514,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             MOV(32, R(ret), Imm32(GetReg15(inst_size)));
             return ret;
         }
-    }
-    if (shtop_func == DPO(LogicalShiftLeftByImmediate)) {
+    } else if (shtop_func == DPO(LogicalShiftLeftByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
         Gen::X64Reg Rm;
@@ -537,8 +538,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             }
             return Rm;
         }
-    }
-    if (shtop_func == DPO(LogicalShiftLeftByRegister)) {
+    } else if (shtop_func == DPO(LogicalShiftLeftByRegister)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
         unsigned int rs = BITS(sht_oper, 8, 11);
         Gen::X64Reg Rm;
@@ -603,8 +603,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 
         ReleaseCLRegister();
         return Rm;
-    }
-    if (shtop_func == DPO(LogicalShiftRightByImmediate)) {
+    } else if (shtop_func == DPO(LogicalShiftRightByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
         Gen::X64Reg Rm;
@@ -629,8 +628,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             }
             return Rm;
         }
-    }
-    if (shtop_func == DPO(LogicalShiftRightByRegister)) {
+    } else if (shtop_func == DPO(LogicalShiftRightByRegister)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
         unsigned int rs = BITS(sht_oper, 8, 11);
         Gen::X64Reg Rm;
@@ -694,8 +692,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 
         ReleaseCLRegister();
         return Rm;
-    }
-    if (shtop_func == DPO(ArithmeticShiftRightByImmediate)) {
+    } else if (shtop_func == DPO(ArithmeticShiftRightByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
         Gen::X64Reg Rm;
@@ -720,8 +717,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             }
             return Rm;
         }
-    }
-    if (shtop_func == DPO(ArithmeticShiftRightByRegister)) {
+    } else if (shtop_func == DPO(ArithmeticShiftRightByRegister)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
         unsigned int rs = BITS(sht_oper, 8, 11);
         Gen::X64Reg Rm;
@@ -778,8 +774,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 
         ReleaseCLRegister();
         return Rm;
-    }
-    if (shtop_func == DPO(RotateRightByImmediate)) {
+    } else if (shtop_func == DPO(RotateRightByImmediate)) {
         int shift_imm = BITS(sht_oper, 7, 11);
         unsigned int rm = BITS(sht_oper, 0, 3);
         Gen::X64Reg Rm;
@@ -798,8 +793,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             if (SCO) SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)));
             return Rm;
         }
-    }
-    if (shtop_func == DPO(RotateRightByRegister)) {
+    } else if (shtop_func == DPO(RotateRightByRegister)) {
         unsigned int rm = BITS(sht_oper, 0, 3);
         unsigned int rs = BITS(sht_oper, 8, 11);
         Gen::X64Reg Rm;
@@ -1277,4 +1271,59 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
+}
+
+void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
+    if (basic_blocks.find(new_pc) == basic_blocks.end())
+        return;
+
+    ResetAllocation();
+    Gen::X64Reg tmp = AcquireTemporaryRegister();
+    MOV(32, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)));
+    TEST(32, R(tmp), R(tmp));
+    ReleaseAllRegisters();
+    ResetAllocation();
+    J_CC(CC_G, basic_blocks[new_pc], true);
+}
+
+bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size) {
+    bbl_inst* const inst_cream = (bbl_inst*)inst->component;
+
+    ASSERT(!TFlag);
+    u32 new_pc = pc + 8 + inst_cream->signed_immed_24;
+    u32 link_pc = pc + 4;
+
+    if (inst_cream->L) {
+        Gen::X64Reg LR = AcquireArmRegister(14);
+        MOV(32, R(LR), Imm32(link_pc));
+    }
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    if (inst->cond == ConditionCode::AL) {
+        CompileCond(ConditionCode::AL);
+        ResetAllocation();
+        MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(new_pc));
+        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        cycles = 0;
+        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+        return false;
+    } else {
+        ResetAllocation();
+        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        CompileMaybeJumpToBB(new_pc);
+        MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(new_pc));
+        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+
+        CompileCond(ConditionCode::AL);
+        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        CompileMaybeJumpToBB(this->pc);
+        MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(this->pc));
+        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+        cycles = 0;
+        return false;
+    }
+
 }

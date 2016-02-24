@@ -83,7 +83,6 @@ public:
     void DebugRun(u32 pc, int num_inst);
 
 private:
-    std::unordered_map<u32, u8*> basic_blocks;
     std::unique_ptr<JitState> state;
     std::unique_ptr<ARMul_State> interp_state;
     //u32 pc;
