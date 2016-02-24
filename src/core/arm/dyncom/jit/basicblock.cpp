@@ -74,7 +74,7 @@ int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     CompileCond(ConditionCode::AL);
 
     //MOV(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, final_PC)), Imm32(this->pc));
-    SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+    if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
     JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
 
     return 0;
@@ -87,6 +87,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     arm_inst *inst = InterpreterTranslateSingle(TFlag, dummy, pc, &inst_size);
 
     switch (inst->idx) {
+    case 130: return CompileInstruction_cmp(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
@@ -112,7 +113,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
         return;
 
     if (current_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
-        SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
         cycles = 0;
 
         ResetAllocation();
@@ -121,7 +122,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
     }
 
     if (new_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
-        SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
         cycles = 0;
 
         CCFlags cc;
@@ -962,4 +963,30 @@ bool Gen::JitCompiler::CompileInstruction_sub(arm_inst* inst, unsigned inst_size
 
 bool Gen::JitCompiler::CompileInstruction_sbc(arm_inst* inst, unsigned inst_size) {
     return CompileInstruction_Arithmetic<sbc_inst>(inst, inst_size, &Gen::XEmitter::SBB, 3, false);
+}
+
+bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size) {
+    cmp_inst* const inst_cream = (cmp_inst*)inst->component;
+
+    BEFORE_COMPILE_INSTRUCTION;
+
+    Gen::X64Reg Rn = INVALID_REG;
+    if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
+
+    if (inst_cream->Rn != 15) {
+        CMP(32, R(Rn), R(operand));
+    } else {
+        CMP(32, Imm32(GetReg15(inst_size)), R(operand));
+    }
+
+    FLAG_SET_Z();
+    FLAG_SET_C_COMPLEMENT();
+    FLAG_SET_N();
+    FLAG_SET_V();
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
 }

@@ -108,6 +108,8 @@ private:
     bool CompileInstruction_and(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_eor(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_orr(arm_inst* inst, unsigned inst_size);
+
+    bool CompileInstruction_cmp(arm_inst* inst, unsigned inst_size);
 };
 
 }
