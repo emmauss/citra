@@ -88,7 +88,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     arm_inst *inst = InterpreterTranslateSingle(TFlag, dummy, pc, &inst_size);
 
     switch (inst->idx) {
-    //case 130: return CompileInstruction_cmp(inst, inst_size);
+    case 130: return CompileInstruction_cmp(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
@@ -994,7 +994,7 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     if (inst_cream->Rn != 15) {
         CMP(32, R(Rn), R(operand));
