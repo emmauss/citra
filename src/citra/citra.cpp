@@ -31,6 +31,11 @@
 
 #include "video_core/video_core.h"
 
+#include "core/arm/disassembler/arm_disasm.h"
+#include "core/arm/dyncom/arm_dyncom.h"
+#include "core/arm/dyncom/jit/jit.h"
+#include "core/memory.h"
+#include "core/memory_setup.h"
 
 static void PrintHelp()
 {
@@ -83,6 +88,74 @@ int main(int argc, char **argv) {
 
     System::Init(emu_window);
 
+    /////////////////// TESTS ///////////////////
+
+    Jit::ARM_Jit jit(PrivilegeMode::USER32MODE);
+    ARM_DynCom interp(PrivilegeMode::USER32MODE);
+
+    int addr_ptr = 0;
+
+    srand(0);
+
+    Memory::MapMemoryRegion(0, 4096, new u8[4096]);
+
+    for (int j = 0; j < 1000; j++) {
+
+        addr_ptr = 0;
+
+        for (int i = 0; i < 15; i++) {
+            u32 val = rand();
+            interp.SetReg(i, val);
+            jit.SetReg(i, val);
+        }
+
+        for (int i = 0; i < 1; i++) {
+            u32 inst = 0b1110 << 28;
+
+            int opcode;
+            do {
+                opcode = rand() & 0b00011111;
+            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || opcode & 0b11111100 == 0b00010100);
+
+            inst |= (opcode << 20);
+            inst |= ((rand() % 15) << 18);
+            inst |= ((rand() % 15) << 12);
+            inst |= ((rand() & 0xF) << 8);
+            inst |= ((rand() % 8) << 4);
+            inst |= (rand() & 0xF);
+
+            Memory::Write32(addr_ptr, inst);
+            addr_ptr += 4;
+        }
+
+        Memory::Write32(addr_ptr, 0b11100010000011111111000000000000);
+
+        interp.SetPC(0);
+        interp.Run(1);
+        jit.Run(1);
+
+        bool pass = interp.GetCPSR() == jit.GetCPSR();
+
+        for (int i = 0; i <= 15; i++) {
+            if (interp.GetReg(i) != jit.GetReg(i)) pass = false;
+        }
+
+        if (!pass) {
+            std::string disasm = ARM_Disasm::Disassemble(0, Memory::Read32(0));
+            printf("\n");
+            printf("%s\n", disasm.c_str());
+            for (int i = 0; i <= 15; i++) {
+                printf("%4i: %08x %08x %s\n", i, interp.GetReg(i), jit.GetReg(i), interp.GetReg(i) != jit.GetReg(i) ? "*" : "");
+            }
+            printf("CPSR: %08x %08x %s\n", interp.GetCPSR(), jit.GetCPSR(), interp.GetCPSR() != jit.GetCPSR() ? "*" : "");
+
+            system("pause");
+        }
+
+        printf("%i\r", j);
+    }
+
+    /*
     Loader::ResultStatus load_result = Loader::LoadFile(boot_filename);
     if (Loader::ResultStatus::Success != load_result) {
         LOG_CRITICAL(Frontend, "Failed to load ROM (Error %i)!", load_result);
@@ -92,6 +165,7 @@ int main(int argc, char **argv) {
     while (emu_window->IsOpen()) {
         Core::RunLoop();
     }
+    */
 
     System::Shutdown();
 
