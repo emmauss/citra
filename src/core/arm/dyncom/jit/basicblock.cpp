@@ -794,31 +794,37 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size) {
     adc_inst* const inst_cream = (adc_inst*)inst->component;
 
-    if (inst_cream->Rd == 15 || inst_cream->Rn == 15) {
+    if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
     }
 
     BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg Rn;
+    Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
-    if (inst_cream->Rn == 15) {
-        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
-    }
-    else if (Rd != Rn) {
-        MOV(64, R(Rd), R(Rn));
-    }
     BT(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), Imm8(0));
-    ADC(32, R(Rd), R(operand));
+    if (operand != Rd) {
+        if (inst_cream->Rn == 15) {
+            MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else if (Rd != Rn) {
+            MOV(64, R(Rd), R(Rn));
+        }
+        ADC(32, R(Rd), R(operand));
+    } else {
+        if (inst_cream->Rn == 15) {
+            ADC(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else {
+            ADC(32, R(Rd), R(Rn));
+        }
+    }
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
-    }
-    else if (inst_cream->S) {
+    } else if (inst_cream->S) {
         FLAG_SET_Z();
         FLAG_SET_C();
         FLAG_SET_V();
@@ -838,24 +844,33 @@ bool Gen::JitCompiler::CompileInstruction_adc(arm_inst* inst, unsigned inst_size
 bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
     and_inst* const inst_cream = (and_inst*)inst->component;
 
-    if (inst_cream->Rd == 15 || inst_cream->Rn == 15) {
+    if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
     }
 
     BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg Rn;
+    Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
-    if (inst_cream->Rn == 15) {
-        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
-    } else if (Rd != Rn) {
-        MOV(64, R(Rd), R(Rn));
+    if (operand != Rd) {
+        if (inst_cream->Rn == 15) {
+            MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else if (Rd != Rn) {
+            MOV(64, R(Rd), R(Rn));
+        }
+        AND(32, R(Rd), R(operand));
     }
-    AND(32, R(Rd), R(operand));
+    else {
+        if (inst_cream->Rn == 15) {
+            AND(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else {
+            AND(32, R(Rd), R(Rn));
+        }
+    }
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
@@ -882,24 +897,32 @@ bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size
 bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
     add_inst* const inst_cream = (add_inst*)inst->component;
 
-    if (inst_cream->Rd == 15 || inst_cream->Rn == 15) {
+    if (inst_cream->Rd == 15) {
         return CompileInstruction_Interpret();
     }
 
     BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
-    Gen::X64Reg Rn;
+    Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
-    if (inst_cream->Rn == 15) {
-        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
-    } else if (Rd != Rn) {
-        MOV(64, R(Rd), R(Rn));
+    if (operand != Rd) {
+        if (inst_cream->Rn == 15) {
+            MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else if (Rd != Rn) {
+            MOV(64, R(Rd), R(Rn));
+        }
+        ADD(32, R(Rd), R(operand));
+    } else {
+        if (inst_cream->Rn == 15) {
+            ADD(32, R(Rd), Imm32(GetReg15(inst_size)));
+        } else {
+            ADD(32, R(Rd), R(Rn));
+        }
     }
-    ADD(32, R(Rd), R(operand));
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
