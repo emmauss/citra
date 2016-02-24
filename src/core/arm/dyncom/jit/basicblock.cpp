@@ -89,6 +89,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     unsigned inst_size = 4;
     arm_inst *inst = InterpreterTranslateSingle(TFlag, dummy, pc, &inst_size);
 
+    CompileCond((ConditionCode)inst->cond);
     switch (inst->idx) {
     case 130: return CompileInstruction_cmp(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
@@ -99,14 +100,15 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
-    default: return CompileInstruction_Interpret(inst_size);
+    default:
+        CompileCond(ConditionCode::AL);
+        return CompileInstruction_Interpret(inst_size);
     }
 
     ASSERT_MSG(0, "Unreachable code");
 }
 
 bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
-    CompileCond(ConditionCode::AL);
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
     this->pc += inst_size;
@@ -805,8 +807,6 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     return Gen::INVALID_REG;
 }
 
-#define BEFORE_COMPILE_INSTRUCTION CompileCond((ConditionCode)inst->cond);
-
 #define OPARG_SET_Z(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)), (oparg))
 #define OPARG_SET_C(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), (oparg))
 #define OPARG_SET_V(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)), (oparg))
@@ -820,12 +820,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2)) {
     T* const inst_cream = (T*)inst->component;
-
-    if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret(inst_size);
-    }
-
-    BEFORE_COMPILE_INSTRUCTION;
+    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn = INVALID_REG;
@@ -860,11 +855,6 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
         // V is unaffected
     }
 
-    if (inst_cream->Rd == 15) {
-        ASSERT_MSG(0, "Unimplemented");
-        return false;
-    }
-
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
@@ -885,12 +875,7 @@ bool Gen::JitCompiler::CompileInstruction_orr(arm_inst* inst, unsigned inst_size
 template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), int carry, bool commutative) {
     T* const inst_cream = (T*)inst->component;
-
-    if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret(inst_size);
-    }
-
-    BEFORE_COMPILE_INSTRUCTION;
+    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn = INVALID_REG;
@@ -959,11 +944,6 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
         }
     }
 
-    if (inst_cream->Rd == 15) {
-        ASSERT_MSG(0, "Unimplemented");
-        return false;
-    }
-
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
@@ -987,8 +967,6 @@ bool Gen::JitCompiler::CompileInstruction_sbc(arm_inst* inst, unsigned inst_size
 
 bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size) {
     cmp_inst* const inst_cream = (cmp_inst*)inst->component;
-
-    BEFORE_COMPILE_INSTRUCTION;
 
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
@@ -1014,12 +992,7 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
 
 bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size) {
     mov_inst* const inst_cream = (mov_inst*)inst->component;
-
-    if (inst_cream->Rd == 15) {
-        return CompileInstruction_Interpret(inst_size);
-    }
-
-    BEFORE_COMPILE_INSTRUCTION;
+    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
@@ -1032,8 +1005,7 @@ bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size
         status_flag_update = true;
         CMP(32, R(Rd), Imm32(0));
         FLAG_SET_Z();
-        BT(32, R(Rd), Imm8(31));
-        SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)));
+        FLAG_SET_N();
         BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
         FLAG_SET_C();
         // V is unaffected
