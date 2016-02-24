@@ -75,6 +75,7 @@ private:
     X64Reg AcquireArmRegister(int reg);
     X64Reg AcquireTemporaryRegister();
     X64Reg AcquireCopyOfArmRegister(int reg);
+    X64Reg EnsureTemp(X64Reg);
     void ReleaseTemporaryRegister(Gen::X64Reg reg);
     void ReleaseAllRegisters();
     void SpillAllRegisters();
