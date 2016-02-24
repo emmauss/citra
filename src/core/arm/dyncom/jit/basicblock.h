@@ -89,12 +89,13 @@ private:
     Gen::X64Reg CompileShifterOperand(shtop_fp_t shtop_func, unsigned shifter_operand, bool CSO, unsigned inst_size);
 
 private:
-    u32 GetReg15(unsigned inst_size) { return (this->pc & ~0x1) + inst_size * 2;  }
+    u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
     int cycles;
     int pc;
     int TFlag;
     bool CompileSingleInstruction();
     bool CompileInstruction_Interpret();
+    bool CompileInstruction_adc(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_add(arm_inst* inst, unsigned inst_size);
 };
 
