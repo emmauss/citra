@@ -7,7 +7,10 @@
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 
-#define DPO(s) CONCAT2(DataProcessingOperands, s)
+#define DPO(s)       CONCAT2(DataProcessingOperands, s)
+#define LnSWoUB(s)   CONCAT2(LnSWoUB, s)
+#define MLnS(s)      CONCAT2(MLnS, s)
+#define LdnStM(s)    CONCAT2(LdnStM, s)
 
 struct ARMul_State;
 struct arm_inst;
@@ -25,6 +28,28 @@ unsigned int DPO(ArithmeticShiftRightByImmediate)(ARMul_State* cpu, unsigned int
 unsigned int DPO(ArithmeticShiftRightByRegister)(ARMul_State* cpu, unsigned int sht_oper);
 unsigned int DPO(RotateRightByImmediate)(ARMul_State* cpu, unsigned int sht_oper);
 unsigned int DPO(RotateRightByRegister)(ARMul_State* cpu, unsigned int sht_oper);
+
+typedef void(*get_addr_fp_t)(ARMul_State *cpu, unsigned int inst, unsigned int &virt_addr);
+
+void LnSWoUB(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(ScaledRegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(ScaledRegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void MLnS(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LdnStM(DecrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LdnStM(IncrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LdnStM(IncrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LdnStM(DecrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
+void LnSWoUB(ScaledRegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr);
 
 enum {
     COND = (1 << 0),
@@ -492,4 +517,9 @@ struct pkh_inst {
     unsigned int Rn;
     unsigned int Rd;
     unsigned char imm;
+};
+
+struct ldst_inst {
+    unsigned int inst;
+    get_addr_fp_t get_addr;
 };
