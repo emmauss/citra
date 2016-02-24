@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
         interp.SetPC(addr_ptr);
         jit.SetPC(addr_ptr);
 
-        constexpr int NUM_INST = 5;
+        constexpr int NUM_INST = 1024;
 
         for (int i = 0; i < NUM_INST; i++) {
             u32 inst;

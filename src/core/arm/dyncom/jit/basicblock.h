@@ -118,6 +118,7 @@ private:
     bool CompileInstruction_bic(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_cmp(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_cmn(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_mov(arm_inst* inst, unsigned inst_size);
 };
