@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
             int opcode;
             do {
                 opcode = rand() & 0b00011111;
-            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || (opcode & 0b11111100) == 0b00010100 || opcode == 16 || opcode == 14);
+            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 16 || opcode == 14);
 
             inst |= (opcode << 20);
             inst |= ((rand() % 15) << 18);
