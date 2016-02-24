@@ -53,7 +53,7 @@ Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 
 }
 
 int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
-    NOP(); INT3(); NOP();
+    NOP(); INT3(); NOP(); // These are here to mark basic blocks so that they're easy to spot in a memory dump.
 
     current_cond = ConditionCode::AL;
     current_register_allocation.Reset();
@@ -595,7 +595,6 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
             // } else {
             SetJumpTarget(Rs_lt32);
             SHL(32, R(Rm), R(CL));
-            auto jmp_to_end_2 = J();
             // }
             SetJumpTarget(jmp_to_end);
         }
