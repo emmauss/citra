@@ -76,6 +76,9 @@ public:
     void PrepareReschedule() override;
     void ExecuteInstructions(int num_instructions) override;
 
+    void ClearCache();
+    void DebugRun(u32 pc, int num_inst);
+
 private:
     std::unordered_map<u32, u8*> basic_blocks;
     std::unique_ptr<JitState> state;
