@@ -97,6 +97,7 @@ private:
     bool CompileInstruction_Interpret();
     bool CompileInstruction_adc(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_add(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_and(arm_inst* inst, unsigned inst_size);
 };
 
 }
