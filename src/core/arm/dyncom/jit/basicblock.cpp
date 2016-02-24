@@ -114,6 +114,9 @@ bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
 }
 
 void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
+    if (current_cond == new_cond && !status_flag_update)
+        return;
+
     if (current_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
         ResetAllocation();
         ASSERT(current_cond_fixup.ptr);
@@ -804,15 +807,15 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
 
 #define BEFORE_COMPILE_INSTRUCTION CompileCond((ConditionCode)inst->cond);
 
-#define OPARG_SET_Z(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)), (oparg))
-#define OPARG_SET_C(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), (oparg))
-#define OPARG_SET_V(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)), (oparg))
-#define OPARG_SET_N(oparg) MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)), (oparg))
-#define FLAG_SET_Z() SETcc(CC_Z, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)))
-#define FLAG_SET_C() SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
-#define FLAG_SET_V() SETcc(CC_O, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)))
-#define FLAG_SET_N() SETcc(CC_S, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)))
-#define FLAG_SET_C_COMPLEMENT() SETcc(CC_NC, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
+#define OPARG_SET_Z(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)), (oparg))
+#define OPARG_SET_C(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), (oparg))
+#define OPARG_SET_V(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)), (oparg))
+#define OPARG_SET_N(oparg) ASSERT(status_flag_update); MOV(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)), (oparg))
+#define FLAG_SET_Z() ASSERT(status_flag_update); SETcc(CC_Z, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, Z)))
+#define FLAG_SET_C() ASSERT(status_flag_update); SETcc(CC_C, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
+#define FLAG_SET_V() ASSERT(status_flag_update); SETcc(CC_O, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, V)))
+#define FLAG_SET_N() ASSERT(status_flag_update); SETcc(CC_S, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, N)))
+#define FLAG_SET_C_COMPLEMENT() ASSERT(status_flag_update); SETcc(CC_NC, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)))
 
 template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2)) {
@@ -998,6 +1001,7 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
         CMP(32, Imm32(GetReg15(inst_size)), R(operand));
     }
 
+    status_flag_update = true;
     FLAG_SET_Z();
     FLAG_SET_C_COMPLEMENT();
     FLAG_SET_N();
