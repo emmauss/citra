@@ -29,6 +29,10 @@ namespace APT {
 // correctly mapping it in Citra, however we still do not understand how the mapping is determined.
 static const VAddr SHARED_FONT_VADDR = 0x18000000;
 
+static const u32 TID_HI_APPLET = 0x00040030;
+
+static const u32 TID_LOW_SWKBD = 0x0000C802;
+
 /// Handle to shared memory region designated to for shared system font
 static Kernel::SharedPtr<Kernel::SharedMemory> shared_font_mem;
 
@@ -128,7 +132,7 @@ void GetAppletManInfo(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 unk = cmd_buff[1];
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    cmd_buff[2] = 0;
+    cmd_buff[2] = static_cast<u32>(AppletAttr::SYS);
     cmd_buff[3] = 0;
     cmd_buff[4] = static_cast<u32>(AppletId::HomeMenu); // Home menu AppID
     cmd_buff[5] = static_cast<u32>(AppletId::Application); // TODO(purpasmart96): Do this correctly
@@ -143,12 +147,22 @@ void GetAppletInfo(Service::Interface* self) {
     AppletId app_id = static_cast<AppletId>(cmd_buff[1]);
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    cmd_buff[2] = 0;
-    cmd_buff[3] = 0x00040030;
-    cmd_buff[4] = 0;
+
+    switch(app_id) {
+        case AppletId::SoftwareKeyboard2:
+            cmd_buff[2] = TID_LOW_SWKBD;
+            break;
+        default:
+            cmd_buff[2] = 0;
+            LOG_WARNING(Service_APT, "No title ID low for AppletID=0x%08X", app_id);
+            break;
+    }
+
+    cmd_buff[3] = TID_HI_APPLET;
+    cmd_buff[4] = 0; // NAND
     cmd_buff[5] = true;
     cmd_buff[6] = true;
-    cmd_buff[7] = 0;
+    cmd_buff[7] = static_cast<u32>(AppletAttr::SYS);
 
     LOG_WARNING(Service_APT, "(STUBBED) called AppletID=0x%08X", app_id);
 }

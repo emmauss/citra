@@ -66,6 +66,14 @@ enum class AppletId : u32 {
     SoftwareKeyboard2  = 0x401,
 };
 
+enum class AppletAttr : u32 {
+    APP      = 0x00,
+    APPLIB   = 0x01,
+    SYS      = 0x02,
+    SYSLIB   = 0x03,
+    RESIDENT = 0x04,
+};
+
 /// Send a parameter to the currently-running application, which will read it via ReceiveParameter
 void SendParameter(const MessageParameter& parameter);
 
