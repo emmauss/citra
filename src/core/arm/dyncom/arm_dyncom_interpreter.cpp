@@ -236,12 +236,6 @@ unsigned int DPO(RotateRightByRegister)(ARMul_State* cpu, unsigned int sht_oper)
     return shifter_operand;
 }
 
-typedef void (*get_addr_fp_t)(ARMul_State *cpu, unsigned int inst, unsigned int &virt_addr);
-
-struct ldst_inst {
-    unsigned int inst;
-    get_addr_fp_t get_addr;
-};
 #define DEBUG_MSG LOG_DEBUG(Core_ARM11, "inst is %x", inst); CITRA_IGNORE_EXIT(0)
 
 #define LnSWoUB(s)   glue(LnSWoUB, s)
@@ -254,7 +248,7 @@ struct ldst_inst {
 #define P_BIT        BIT(inst, 24)
 #define OFFSET_12    BITS(inst, 0, 11)
 
-static void LnSWoUB(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int addr;
 
@@ -266,7 +260,7 @@ static void LnSWoUB(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsign
     virt_addr = addr;
 }
 
-static void LnSWoUB(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst, 0, 3);
     unsigned int rn = CHECK_READ_REG15_WA(cpu, Rn);
@@ -281,7 +275,7 @@ static void LnSWoUB(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigne
     virt_addr = addr;
 }
 
-static void LnSWoUB(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int addr = CHECK_READ_REG15_WA(cpu, Rn);
 
@@ -293,7 +287,7 @@ static void LnSWoUB(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, u
     virt_addr = addr;
 }
 
-static void LnSWoUB(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int addr;
 
@@ -308,7 +302,7 @@ static void LnSWoUB(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, un
         cpu->Reg[Rn] = addr;
 }
 
-static void MLnS(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int addr;
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst,  0,  3);
@@ -326,7 +320,7 @@ static void MLnS(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsign
         cpu->Reg[Rn] = addr;
 }
 
-static void LnSWoUB(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst, 0, 3);
     unsigned int rn = CHECK_READ_REG15_WA(cpu, Rn);
@@ -345,7 +339,7 @@ static void LnSWoUB(RegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, uns
     }
 }
 
-static void LnSWoUB(ScaledRegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ScaledRegisterPreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int shift = BITS(inst, 5, 6);
     unsigned int shift_imm = BITS(inst, 7, 11);
     unsigned int Rn = BITS(inst, 16, 19);
@@ -396,7 +390,7 @@ static void LnSWoUB(ScaledRegisterPreIndexed)(ARMul_State* cpu, unsigned int ins
         cpu->Reg[Rn] = addr;
 }
 
-static void LnSWoUB(ScaledRegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ScaledRegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int shift = BITS(inst, 5, 6);
     unsigned int shift_imm = BITS(inst, 7, 11);
     unsigned int Rn = BITS(inst, 16, 19);
@@ -445,7 +439,7 @@ static void LnSWoUB(ScaledRegisterPostIndexed)(ARMul_State* cpu, unsigned int in
     }
 }
 
-static void LnSWoUB(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst,  0,  3);
     unsigned int rm = CHECK_READ_REG15_WA(cpu, Rm);
@@ -461,7 +455,7 @@ static void LnSWoUB(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, un
     }
 }
 
-static void MLnS(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int immedL = BITS(inst, 0, 3);
     unsigned int immedH = BITS(inst, 8, 11);
     unsigned int Rn     = BITS(inst, 16, 19);
@@ -477,7 +471,7 @@ static void MLnS(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsigned 
     virt_addr = addr;
 }
 
-static void MLnS(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int addr;
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst,  0,  3);
@@ -492,7 +486,7 @@ static void MLnS(RegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned i
     virt_addr = addr;
 }
 
-static void MLnS(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn     = BITS(inst, 16, 19);
     unsigned int immedH = BITS(inst,  8, 11);
     unsigned int immedL = BITS(inst,  0,  3);
@@ -511,7 +505,7 @@ static void MLnS(ImmediatePreIndexed)(ARMul_State* cpu, unsigned int inst, unsig
         cpu->Reg[Rn] = addr;
 }
 
-static void MLnS(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn     = BITS(inst, 16, 19);
     unsigned int immedH = BITS(inst,  8, 11);
     unsigned int immedL = BITS(inst,  0,  3);
@@ -530,7 +524,7 @@ static void MLnS(ImmediatePostIndexed)(ARMul_State* cpu, unsigned int inst, unsi
     }
 }
 
-static void MLnS(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void MLnS(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int Rm = BITS(inst,  0,  3);
     unsigned int rm = CHECK_READ_REG15_WA(cpu, Rm);
@@ -545,7 +539,7 @@ static void MLnS(RegisterPostIndexed)(ARMul_State* cpu, unsigned int inst, unsig
     }
 }
 
-static void LdnStM(DecrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LdnStM(DecrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int i = BITS(inst, 0, 15);
     int count = 0;
@@ -561,7 +555,7 @@ static void LdnStM(DecrementBefore)(ARMul_State* cpu, unsigned int inst, unsigne
         cpu->Reg[Rn] -= count * 4;
 }
 
-static void LdnStM(IncrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LdnStM(IncrementBefore)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int i = BITS(inst, 0, 15);
     int count = 0;
@@ -577,7 +571,7 @@ static void LdnStM(IncrementBefore)(ARMul_State* cpu, unsigned int inst, unsigne
         cpu->Reg[Rn] += count * 4;
 }
 
-static void LdnStM(IncrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LdnStM(IncrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int i = BITS(inst, 0, 15);
     int count = 0;
@@ -593,7 +587,7 @@ static void LdnStM(IncrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned
         cpu->Reg[Rn] += count * 4;
 }
 
-static void LdnStM(DecrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LdnStM(DecrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int i = BITS(inst, 0, 15);
     int count = 0;
@@ -611,7 +605,7 @@ static void LdnStM(DecrementAfter)(ARMul_State* cpu, unsigned int inst, unsigned
     }
 }
 
-static void LnSWoUB(ScaledRegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
+void LnSWoUB(ScaledRegisterOffset)(ARMul_State* cpu, unsigned int inst, unsigned int& virt_addr) {
     unsigned int shift = BITS(inst, 5, 6);
     unsigned int shift_imm = BITS(inst, 7, 11);
     unsigned int Rn = BITS(inst, 16, 19);
