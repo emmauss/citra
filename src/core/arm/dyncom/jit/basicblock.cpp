@@ -59,11 +59,13 @@ int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     current_register_allocation.Reset();
     current_cond_fixup.ptr = nullptr;
     cycles = 0;
+    status_flag_update = false;
 
     this->pc = addr;
     this->TFlag = TFlag;
 
     bb_start = (void*)GetWritableCodePtr();
+    if (debug) INT3();
 
     bool cont = true;
     do {
@@ -112,22 +114,13 @@ bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
 }
 
 void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
-    if (new_cond == current_cond)
-        return;
-
     if (current_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
-        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
-        cycles = 0;
-
         ResetAllocation();
         ASSERT(current_cond_fixup.ptr);
         SetJumpTarget(current_cond_fixup);
     }
 
-    if (new_cond != ConditionCode::AL && current_cond != ConditionCode::NV) {
-        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
-        cycles = 0;
-
+    if (new_cond != ConditionCode::AL && new_cond != ConditionCode::NV) {
         CCFlags cc;
 
         switch (new_cond) {
@@ -177,7 +170,7 @@ void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
             CMP(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, C)), R(tmp));
             cc = CC_A;
             ReleaseTemporaryRegister(tmp);
-break;
+            break;
         }
         case ConditionCode::GE: { // n == v
             X64Reg tmp = AcquireTemporaryRegister();
@@ -225,6 +218,7 @@ break;
     }
 
     current_cond = new_cond;
+    status_flag_update = false;
 }
 
 Gen::X64Reg Gen::JitCompiler::AcquireArmRegister(int arm_reg) {
@@ -855,6 +849,7 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
     } else if (inst_cream->S) {
+        status_flag_update = true;
         FLAG_SET_Z();
         FLAG_SET_N();
         BT(8, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, shifter_carry_out)), Imm8(0));
@@ -944,6 +939,7 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
     } else if (inst_cream->S) {
+        status_flag_update = true;
         FLAG_SET_Z();
         FLAG_SET_V();
         FLAG_SET_N();
@@ -1029,6 +1025,7 @@ bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
     } else if (inst_cream->S) {
+        status_flag_update = true;
         CMP(32, R(Rd), Imm32(0));
         FLAG_SET_Z();
         BT(32, R(Rd), Imm8(31));

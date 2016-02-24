@@ -59,10 +59,16 @@ namespace Gen {
 struct JitCompiler final : private XCodeBlock {
 public:
     JitCompiler() {
-        AllocCodeSpace(64 * 1024 * 2000);
+        AllocCodeSpace(64 * 1024 * 2000 * 100);
     }
 
     int Compile(void*& bb_start, u32 addr, bool TFlag);
+
+    void ClearCache() {
+        ResetCodePtr();
+    }
+
+    bool debug;
 
 private:
     Jit::RegisterAllocation current_register_allocation;
@@ -82,6 +88,7 @@ private:
 
     void CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*, u64, u64, u64), u64, u64, u64);
 
+    bool status_flag_update = false;
     FixupBranch current_cond_fixup = {};
     ConditionCode current_cond = ConditionCode::AL;
     void CompileCond(ConditionCode new_cond);

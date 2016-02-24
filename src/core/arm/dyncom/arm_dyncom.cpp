@@ -127,3 +127,8 @@ void ARM_DynCom::LoadContext(const Core::ThreadContext& ctx) {
 void ARM_DynCom::PrepareReschedule() {
     state->NumInstrsToExecute = 0;
 }
+
+void ARM_DynCom::ClearCache() {
+    state->instruction_cache.clear();
+    InterpreterClearCache();
+}

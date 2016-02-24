@@ -296,5 +296,19 @@ void ARM_Jit::PrepareReschedule() {
     interp_state->NumInstrsToExecute = 0;
 }
 
+void ARM_Jit::ClearCache() {
+    this->basic_blocks.clear();
+    this->interp_state->instruction_cache.clear();
+    compiler.ClearCache();
+}
+
+void ARM_Jit::DebugRun(u32 pc, int num_inst) {
+    SetPC(pc);
+    compiler.debug = true;
+    ClearCache();
+    ExecuteInstructions(num_inst);
+    compiler.debug = false;
+    ClearCache();
+}
 
 }

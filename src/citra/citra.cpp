@@ -36,6 +36,7 @@
 #include "core/arm/dyncom/jit/jit.h"
 #include "core/memory.h"
 #include "core/memory_setup.h"
+#include <intrin.h>
 
 static void PrintHelp()
 {
@@ -89,7 +90,7 @@ int main(int argc, char **argv) {
     System::Init(emu_window);
 
     /////////////////// TESTS ///////////////////
-
+#if 1
     Jit::ARM_Jit jit(PrivilegeMode::USER32MODE);
     ARM_DynCom interp(PrivilegeMode::USER32MODE);
 
@@ -99,26 +100,43 @@ int main(int argc, char **argv) {
 
     Memory::MapMemoryRegion(0, 409600, new u8[409600]);
 
-    for (int j = 0; j < 10000; j++) {
+    for (int j = 0; j < 10000000; j++) {
+        jit.ClearCache();
+        interp.ClearCache();
+
+        u32 initial_regs[15];
 
         for (int i = 0; i < 15; i++) {
             u32 val = rand();
             interp.SetReg(i, val);
             jit.SetReg(i, val);
+            initial_regs[i] = val;
         }
+        interp.SetCPSR(0x000001d0);
+        jit.SetCPSR(0x000001d0);
 
+        addr_ptr = 0;
         int inst_ptr = addr_ptr;
 
         interp.SetPC(addr_ptr);
         jit.SetPC(addr_ptr);
 
-        for (int i = 0; i < 2; i++) {
-            u32 inst = 0b1110 << 28;
+        constexpr int NUM_INST = 4096;
+
+        for (int i = 0; i < NUM_INST; i++) {
+            u32 inst;
+
+            if (rand() % 10 < 2) {
+                inst = (rand() % 0xE) << 28;
+            } else {
+                inst = 0b1110 << 28;
+            }
 
             int opcode;
+            //if (rand() % 2 == 0) opcode = 0b00011010; else opcode = 0b00011011; // mov and movs only.
             do {
-                opcode = rand() & 0b00011111;
-            } while (opcode == 0 || opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010011 || opcode == 0b00010001 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 16 || opcode == 14);
+                opcode = rand() & 0b00111111;
+            } while (opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 0b00110010 || opcode == 0b00110110 || opcode == 0b00110100 || opcode == 0b00110000);
 
             inst |= (opcode << 20);
             inst |= ((rand() % 15) << 18);
@@ -133,8 +151,8 @@ int main(int argc, char **argv) {
 
         Memory::Write32(addr_ptr, 0b11100011001000000000111100000000);
 
-        interp.ExecuteInstructions(3);
-        jit.ExecuteInstructions(3);
+        interp.ExecuteInstructions(NUM_INST+1);
+        jit.ExecuteInstructions(NUM_INST+1);
 
         bool pass = interp.GetCPSR() == jit.GetCPSR();
 
@@ -142,25 +160,43 @@ int main(int argc, char **argv) {
             if (interp.GetReg(i) != jit.GetReg(i)) pass = false;
         }
 
-        printf("%i\r", j);
+        if (j % 1000 == 0) printf("%i\r", j);
 
         if (!pass) {
             std::string disasm;
             printf("\n");
-            disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr));
-            printf("%s\n", disasm.c_str());
-            disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr+4));
-            printf("%s\n", disasm.c_str());
+            for (int i = 0; i < NUM_INST; i++) {
+                disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr + i*4));
+                printf("%s\n", disasm.c_str());
+            }
             for (int i = 0; i <= 15; i++) {
                 printf("%4i: %08x %08x %s\n", i, interp.GetReg(i), jit.GetReg(i), interp.GetReg(i) != jit.GetReg(i) ? "*" : "");
             }
             printf("CPSR: %08x %08x %s\n", interp.GetCPSR(), jit.GetCPSR(), interp.GetCPSR() != jit.GetCPSR() ? "*" : "");
+            printf("\a\a\a\a\a\a");
 
-            system("pause");
+            printf("\nInterpreter walkthrough:\n");
+            interp.ClearCache();
+            interp.SetPC(0);
+            interp.SetCPSR(0x000001d0);
+            for (int i = 0; i < 15; i++) {
+                interp.SetReg(i, initial_regs[i]);
+                printf("%4i: %08x\n", i, interp.GetReg(i));
+            }
+            for (int inst = 0; inst < NUM_INST; inst++) {
+                printf("%s\n", ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst*4)).c_str());
+                interp.Step();
+                for (int i = 0; i <= 15; i++) {
+                    printf("%4i: %08x\n", i, interp.GetReg(i));
+                }
+                printf("CPSR: %08x\n", interp.GetCPSR());
+            }
+
+            __debugbreak();
+            jit.DebugRun(0, NUM_INST+1);
         }
     }
-
-    /*
+#else
     Loader::ResultStatus load_result = Loader::LoadFile(boot_filename);
     if (Loader::ResultStatus::Success != load_result) {
         LOG_CRITICAL(Frontend, "Failed to load ROM (Error %i)!", load_result);
@@ -170,7 +206,7 @@ int main(int argc, char **argv) {
     while (emu_window->IsOpen()) {
         Core::RunLoop();
     }
-    */
+#endif
 
     System::Shutdown();
 
