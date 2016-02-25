@@ -24,33 +24,20 @@ struct BasicBlock;
 constexpr std::size_t NUM_REG_GPR = 15;
 
 struct alignas(64) JitState {
+    JitState() : cpu_state(PrivilegeMode::USER32MODE) {}
     void Reset();
 
-    // Emulated CPU state
-    u32 spill[NUM_REG_GPR];
-    u8 N, Z, C, V;
-    // Try to keep everything above here in one cache line.
-
-
-    void* page_table;
-
-    u8 T;
-
-    u8 shifter_carry_out;
-
-    //std::array<u32, 64> vfp_banks;
+    ARMul_State cpu_state;
 
     u8 reschedule;
 
     void* bb;
     u64 save_host_RSP;
+    void* page_table;
     s32 cycles_remaining;
-    u32 final_PC;
     u64 return_RIP;
-
-    ARMul_State* interp_state;
 };
-static_assert(std::is_pod<JitState>::value, "JitState needs to be POD");
+static_assert(std::is_standard_layout<JitState>::value, "JitState needs to be POD");
 
 class ARM_Jit final : virtual public ARM_Interface {
 public:
@@ -84,8 +71,6 @@ public:
 
 private:
     std::unique_ptr<JitState> state;
-    std::unique_ptr<ARMul_State> interp_state;
-    //u32 pc;
 };
 
 }

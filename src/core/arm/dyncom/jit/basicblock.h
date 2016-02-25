@@ -67,6 +67,7 @@ public:
     void ClearCache() {
         ResetCodePtr();
         basic_blocks.clear();
+        update_jmps.clear();
     }
 
     std::unordered_map<u32, u8*> basic_blocks;
