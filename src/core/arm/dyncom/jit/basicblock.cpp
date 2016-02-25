@@ -1288,12 +1288,15 @@ bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size)
     this->pc += inst_size;
 
     if (inst->cond == ConditionCode::AL) {
-        CompileCond(ConditionCode::AL);
         ResetAllocation();
-        MOV(32, MJitStateCpuReg(15), Imm32(new_pc));
+        CompileCond(ConditionCode::AL);
         if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
-        cycles = 0;
+        CompileMaybeJumpToBB(new_pc);
+        MOV(32, MJitStateCpuReg(15), Imm32(new_pc));
         JMPptr(MJitStateOther(return_RIP));
+
+        cycles = 0;
+
         return false;
     } else {
         ResetAllocation();
@@ -1307,7 +1310,9 @@ bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size)
         CompileMaybeJumpToBB(this->pc);
         MOV(32, MJitStateCpuReg(15), Imm32(this->pc));
         JMPptr(MJitStateOther(return_RIP));
+
         cycles = 0;
+
         return false;
     }
 
