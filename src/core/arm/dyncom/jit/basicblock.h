@@ -102,10 +102,13 @@ private:
     Gen::X64Reg CompileShifterOperand(shtop_fp_t shtop_func, unsigned shifter_operand, bool CSO, unsigned inst_size);
 
     /// Warning: This destroys addr_reg
-    void CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X64Reg addr_reg);
+    void CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg src_addr_reg);
+    void CompileMemoryWrite(unsigned bits, Gen::X64Reg dest_addr_reg, Gen::X64Reg src);
 
     /// Update cycles_remaining before calling this function.
     void CompileMaybeJumpToBB(u32 new_pc);
+    /// Update Reg[15] before calling this function.
+    bool CompileReturnToDispatch();
 
 private:
     u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
