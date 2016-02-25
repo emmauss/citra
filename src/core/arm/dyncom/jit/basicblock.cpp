@@ -3,6 +3,7 @@
 #include "core/memory.h"
 
 extern unsigned InterpreterMainLoop(ARMul_State* cpu);
+extern void InterpreterClearCache();
 
 #define MJitStateCpu(name) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, name))
 #define MJitStateCpuReg(reg_num) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, Reg) + (reg_num) * sizeof(u32))
@@ -11,7 +12,6 @@ extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 namespace Jit {
 Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
     ARMul_State* cpu = &jit_state->cpu_state;
-    cpu->instruction_cache.clear();
 
     cpu->Reg[15] = pc;
 
@@ -22,8 +22,8 @@ Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 
         (cpu->VFlag << 28) |
         (cpu->TFlag << 5);
 
-    cpu->NumInstrsToExecute = 1;
-    InterpreterMainLoop(cpu);
+    cpu->NumInstrsToExecute = jit_state->cycles_remaining > 0 ? jit_state->cycles_remaining : 1;
+    jit_state->cycles_remaining -= InterpreterMainLoop(cpu);
 
     return jit_state;
 }
@@ -94,15 +94,13 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
 bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
     CompileCond(ConditionCode::AL);
+    if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+    cycles = 0;
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
     this->pc += inst_size;
 
     ResetAllocation();
-    CompileCond(ConditionCode::AL);
-    ResetAllocation();
-    if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
-    cycles = 0;
     JMPptr(MJitStateOther(return_RIP));
     return false;
 }
