@@ -31,6 +31,13 @@
 
 #include "video_core/video_core.h"
 
+#include "core/arm/disassembler/arm_disasm.h"
+#include "core/arm/dyncom/arm_dyncom.h"
+#include "core/arm/dyncom/jit/jit.h"
+#include "core/memory.h"
+#include "core/memory_setup.h"
+#include <intrin.h>
+#include <random>
 
 static void PrintHelp()
 {
@@ -82,6 +89,123 @@ int main(int argc, char **argv) {
     VideoCore::g_shader_jit_enabled = Settings::values.use_shader_jit;
 
     System::Init(emu_window);
+
+    /////////////////// TESTS ///////////////////
+    Jit::ARM_Jit jit(PrivilegeMode::USER32MODE);
+    ARM_DynCom interp(PrivilegeMode::USER32MODE);
+
+    int addr_ptr = 0;
+
+    srand(time(nullptr));
+
+    printf("JIT self-test in progress:\n");
+    Memory::MapMemoryRegion(0, 4096 * 2, new u8[4096 * 2]);
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_int<u32> rand;
+    for (int j = 0; j < 2000; j++) {
+        jit.ClearCache();
+        interp.ClearCache();
+
+        u32 initial_regs[15];
+
+        for (int i = 0; i < 15; i++) {
+            u32 val = rand(mt);
+            interp.SetReg(i, val);
+            jit.SetReg(i, val);
+            initial_regs[i] = val;
+        }
+        interp.SetCPSR(0x000001d0);
+        jit.SetCPSR(0x000001d0);
+
+        addr_ptr = 0;
+        int inst_ptr = addr_ptr;
+
+        interp.SetPC(addr_ptr);
+        jit.SetPC(addr_ptr);
+
+        constexpr int NUM_INST = 1024;
+
+        for (int i = 0; i < NUM_INST; i++) {
+            u32 inst;
+
+            if (rand(mt) % 10 < 2) {
+                inst = (rand(mt) % 0xE) << 28;
+            } else {
+                inst = 0b1110 << 28;
+            }
+
+            int opcode;
+            //if (rand() % 2 == 0) opcode = 0b00011010; else opcode = 0b00011011; // mov and movs only.
+            do {
+                opcode = rand(mt) & 0b00111111;
+            } while (opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 0b00110010 || opcode == 0b00110110 || opcode == 0b00110100 || opcode == 0b00110000);
+
+            inst |= (opcode << 20);
+            inst |= ((rand(mt) % 15) << 18);
+            inst |= ((rand(mt) % 15) << 12);
+            inst |= ((rand(mt) & 0xF) << 8);
+            inst |= ((rand(mt) % 8) << 4);
+            inst |= (rand(mt) & 0xF);
+
+            Memory::Write32(addr_ptr, inst);
+            addr_ptr += 4;
+        }
+
+        Memory::Write32(addr_ptr, 0b11100011001000000000111100000000);
+
+        interp.ExecuteInstructions(NUM_INST+1);
+        jit.ExecuteInstructions(NUM_INST+1);
+
+        bool pass = interp.GetCPSR() == jit.GetCPSR();
+
+        for (int i = 0; i <= 15; i++) {
+            if (interp.GetReg(i) != jit.GetReg(i)) pass = false;
+        }
+
+        if (j % 1 == 0) printf("%i\r", j);
+
+        if (!pass) {
+            std::string disasm;
+            printf("\n");
+            for (int i = 0; i < NUM_INST; i++) {
+                disasm = ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst_ptr + i*4));
+                printf("%s\n", disasm.c_str());
+            }
+            for (int i = 0; i <= 15; i++) {
+                printf("%4i: %08x %08x %s\n", i, interp.GetReg(i), jit.GetReg(i), interp.GetReg(i) != jit.GetReg(i) ? "*" : "");
+            }
+            printf("CPSR: %08x %08x %s\n", interp.GetCPSR(), jit.GetCPSR(), interp.GetCPSR() != jit.GetCPSR() ? "*" : "");
+            printf("\a\a\a\a\a\a");
+
+            printf("\nInterpreter walkthrough:\n");
+            interp.ClearCache();
+            interp.SetPC(0);
+            interp.SetCPSR(0x000001d0);
+            for (int i = 0; i < 15; i++) {
+                interp.SetReg(i, initial_regs[i]);
+                printf("%4i: %08x\n", i, interp.GetReg(i));
+            }
+            for (int inst = 0; inst < NUM_INST; inst++) {
+                printf("%s\n", ARM_Disasm::Disassemble(inst_ptr, Memory::Read32(inst*4)).c_str());
+                interp.Step();
+                for (int i = 0; i <= 15; i++) {
+                    printf("%4i: %08x\n", i, interp.GetReg(i));
+                }
+                printf("CPSR: %08x\n", interp.GetCPSR());
+            }
+
+            __debugbreak();
+            jit.DebugRun(0, NUM_INST+1);
+            printf("Self-test failed.\n");
+            system("pause");
+            exit(-2);
+        }
+    }
+    jit.ClearCache();
+    interp.ClearCache();
+    Memory::UnmapRegion(0, 4096 * 2);
+    printf("Self-test passsed, proceeding.\n");
 
     Loader::ResultStatus load_result = Loader::LoadFile(boot_filename);
     if (Loader::ResultStatus::Success != load_result) {
