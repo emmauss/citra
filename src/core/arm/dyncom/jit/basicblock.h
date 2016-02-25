@@ -70,6 +70,7 @@ public:
     }
 
     std::unordered_map<u32, u8*> basic_blocks;
+    std::unordered_map<u32, std::vector<u8*>> update_jmps;
 
     bool debug;
 
