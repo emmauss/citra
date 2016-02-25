@@ -149,7 +149,6 @@ enum {
 
 struct ARMul_State final
 {
-public:
     explicit ARMul_State(PrivilegeMode initial_mode);
 
     void ChangePrivilegeMode(u32 new_mode);
@@ -244,7 +243,6 @@ public:
     // process for our purposes), not per ARMul_State (which tracks CPU core state).
     std::unordered_map<u32, int> instruction_cache;
 
-private:
     void ResetMPCoreCP15Registers();
 
     // Defines a reservation granule of 2 words, which protects the first 2 words starting at the tag.
