@@ -101,9 +101,9 @@ bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
     ResetAllocation();
     CompileCond(ConditionCode::AL);
     ResetAllocation();
-    if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+    if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
     cycles = 0;
-    JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+    JMPptr(MJitStateOther(return_RIP));
     return false;
 }
 
@@ -432,7 +432,7 @@ void Gen::JitCompiler::RestoreRSP() {
         MOV(32, MJitStateCpuReg(13), R(RSP));
         current_register_allocation.is_spilled[13] = true;
     }
-    MOV(64, R(RSP), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, save_host_RSP)));
+    MOV(64, R(RSP), MJitStateOther(save_host_RSP));
 }
 
 void Gen::JitCompiler::CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*,u64,u64,u64), u64 a, u64 b, u64 c) {
@@ -1259,7 +1259,7 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
     ResetAllocation();
     Gen::X64Reg tmp = AcquireTemporaryRegister();
-    MOV(32, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)));
+    MOV(32, R(tmp), MJitStateOther(cycles_remaining));
     TEST(32, R(tmp), R(tmp));
     ReleaseAllRegisters();
     ResetAllocation();
@@ -1291,22 +1291,22 @@ bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size)
         CompileCond(ConditionCode::AL);
         ResetAllocation();
         MOV(32, MJitStateCpuReg(15), Imm32(new_pc));
-        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
         cycles = 0;
-        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+        JMPptr(MJitStateOther(return_RIP));
         return false;
     } else {
         ResetAllocation();
-        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
         CompileMaybeJumpToBB(new_pc);
         MOV(32, MJitStateCpuReg(15), Imm32(new_pc));
-        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+        JMPptr(MJitStateOther(return_RIP));
 
         CompileCond(ConditionCode::AL);
-        if (cycles) SUB(32, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)), Imm32(cycles));
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
         CompileMaybeJumpToBB(this->pc);
         MOV(32, MJitStateCpuReg(15), Imm32(this->pc));
-        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, return_RIP)));
+        JMPptr(MJitStateOther(return_RIP));
         cycles = 0;
         return false;
     }
