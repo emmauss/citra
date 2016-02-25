@@ -36,13 +36,13 @@ public:
 
         ABI_PushRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8);
         MOV(64, R(Jit::JitStateReg), R(ABI_PARAM1));
-        MOV(64, MDisp(Jit::JitStateReg, offsetof(Jit::JitState, save_host_RSP)), R(RSP));
+        MOV(64, MJitStateOther(save_host_RSP), R(RSP));
 
         for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
             MOV(32, R(Jit::IntToArmGPR[i]), MJitStateCpuReg(i));
         }
 
-        JMPptr(MDisp(Jit::JitStateReg, offsetof(Jit::JitState, bb)));
+        JMPptr(MJitStateOther(bb));
         return_from_run_jit = this->GetCodePtr();
 
         for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
