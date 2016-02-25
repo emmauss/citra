@@ -3,6 +3,7 @@
 #include "core/memory.h"
 
 extern unsigned InterpreterMainLoop(ARMul_State* cpu);
+extern void InterpreterClearCache();
 
 #define MJitStateCpu(name) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, name))
 #define MJitStateCpuReg(reg_num) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, Reg) + (reg_num) * sizeof(u32))
@@ -11,7 +12,6 @@ extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 namespace Jit {
 Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
     ARMul_State* cpu = &jit_state->cpu_state;
-    cpu->instruction_cache.clear();
 
     cpu->Reg[15] = pc;
 
@@ -22,8 +22,8 @@ Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 
         (cpu->VFlag << 28) |
         (cpu->TFlag << 5);
 
-    cpu->NumInstrsToExecute = 1;
-    InterpreterMainLoop(cpu);
+    cpu->NumInstrsToExecute = jit_state->cycles_remaining > 0 ? jit_state->cycles_remaining : 1;
+    jit_state->cycles_remaining -= InterpreterMainLoop(cpu);
 
     return jit_state;
 }
@@ -94,15 +94,13 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
 bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
     CompileCond(ConditionCode::AL);
+    if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+    cycles = 0;
     CallHostFunction(Jit::InterpretSingleInstruction, this->pc, this->TFlag, 0);
     ReleaseAllRegisters();
     this->pc += inst_size;
 
     ResetAllocation();
-    CompileCond(ConditionCode::AL);
-    ResetAllocation();
-    if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
-    cycles = 0;
     JMPptr(MJitStateOther(return_RIP));
     return false;
 }
@@ -820,7 +818,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     return Gen::INVALID_REG;
 }
 
-void Gen::JitCompiler::CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X64Reg addr_reg) {
+void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg addr_reg) {
     // This code is very fragile. It relies on the structure of PageTable.
     // This code assumes offsetof the pointers array in the PageTable struct is 0.
 
@@ -850,6 +848,30 @@ void Gen::JitCompiler::CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X
     ReleaseTemporaryRegister(addr_reg);
 }
 
+void Gen::JitCompiler::CompileMemoryWrite(unsigned bits, Gen::X64Reg addr_reg, Gen::X64Reg src) {
+    // This code is very fragile. It relies on the structure of PageTable.
+    // This code assumes offsetof the pointers array in the PageTable struct is 0.
+
+    addr_reg = EnsureTemp(addr_reg);
+
+    Gen::X64Reg page_table_reg;
+    page_table_reg = AcquireTemporaryRegister();
+
+    Gen::X64Reg within_page = AcquireTemporaryRegister();
+
+    MOV(64, R(page_table_reg), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, page_table)));
+
+    MOV(32, R(within_page), R(addr_reg));
+    AND(32, R(within_page), Imm32(Memory::PAGE_MASK));
+    SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
+
+    MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, sizeof(u8*), 0));
+    MOV(bits, MComplex(addr_reg, within_page, 1, 0), R(src));
+
+    ReleaseTemporaryRegister(within_page);
+    ReleaseTemporaryRegister(addr_reg);
+}
+
 #define OPARG_SET_Z(oparg) ASSERT(status_flag_update); MOV(8, MJitStateCpu(ZFlag), (oparg))
 #define OPARG_SET_C(oparg) ASSERT(status_flag_update); MOV(8, MJitStateCpu(CFlag), (oparg))
 #define OPARG_SET_V(oparg) ASSERT(status_flag_update); MOV(8, MJitStateCpu(VFlag), (oparg))
@@ -863,11 +885,12 @@ void Gen::JitCompiler::CompileMemoryRead(Gen::X64Reg dest, unsigned bits, Gen::X
 template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool invert_operand) {
     T* const inst_cream = (T*)inst->component;
-    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
+    else Rd = AcquireTemporaryRegister();
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
     if (invert_operand) {
@@ -902,9 +925,16 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
         // V is unaffected
     }
 
-    ReleaseAllRegisters();
-    this->pc += inst_size;
-    return true;
+    if (inst_cream->Rd != 15) {
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return true;
+    } else {
+        MOV(32, MJitStateCpuReg(15), R(Rd));
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return CompileReturnToDispatch();
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_and(arm_inst* inst, unsigned inst_size) {
@@ -926,11 +956,12 @@ bool Gen::JitCompiler::CompileInstruction_bic(arm_inst* inst, unsigned inst_size
 template<typename T>
 bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), int carry, bool commutative) {
     T* const inst_cream = (T*)inst->component;
-    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
+    else Rd = AcquireTemporaryRegister();
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
@@ -995,9 +1026,16 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
         }
     }
 
-    ReleaseAllRegisters();
-    this->pc += inst_size;
-    return true;
+    if (inst_cream->Rd != 15) {
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return true;
+    } else {
+        MOV(32, MJitStateCpuReg(15), R(Rd));
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return CompileReturnToDispatch();
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_add(arm_inst* inst, unsigned inst_size) {
@@ -1019,11 +1057,12 @@ bool Gen::JitCompiler::CompileInstruction_sbc(arm_inst* inst, unsigned inst_size
 template <typename T>
 bool Gen::JitCompiler::CompileInstruction_ReverseSubtraction(arm_inst* inst, unsigned inst_size, void (Gen::XEmitter::*fn)(int bits, const OpArg& a1, const OpArg& a2), bool carry) {
     T* const inst_cream = (T*)inst->component;
-    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
+    else Rd = AcquireTemporaryRegister();
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
@@ -1064,9 +1103,16 @@ bool Gen::JitCompiler::CompileInstruction_ReverseSubtraction(arm_inst* inst, uns
         FLAG_SET_C_COMPLEMENT();
     }
 
-    ReleaseAllRegisters();
-    this->pc += inst_size;
-    return true;
+    if (inst_cream->Rd != 15) {
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return true;
+    } else {
+        MOV(32, MJitStateCpuReg(15), R(Rd));
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return CompileReturnToDispatch();
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_rsb(arm_inst* inst, unsigned inst_size) {
@@ -1129,12 +1175,13 @@ bool Gen::JitCompiler::CompileInstruction_cmn(arm_inst* inst, unsigned inst_size
 
 bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size) {
     mov_inst* const inst_cream = (mov_inst*)inst->component;
-    if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
 
-    if (Rd != operand) MOV(32, R(Rd), R(operand));
+    if (inst_cream->Rd != 15 && Rd != operand) MOV(32, R(Rd), R(operand));
+    else if (inst_cream->Rd == 15) MOV(32, MJitStateCpuReg(15), R(operand));
 
     if (inst_cream->S && (inst_cream->Rd == 15)) {
         ASSERT_MSG(0, "Unimplemented");
@@ -1150,35 +1197,51 @@ bool Gen::JitCompiler::CompileInstruction_mov(arm_inst* inst, unsigned inst_size
 
     ReleaseAllRegisters();
     this->pc += inst_size;
-    return true;
+    if (inst_cream->Rd == 15) {
+        return CompileReturnToDispatch();
+    } else {
+        return true;
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_mvn(arm_inst* inst, unsigned inst_size) {
     mvn_inst* const inst_cream = (mvn_inst*)inst->component;
     if (inst_cream->Rd == 15) return CompileInstruction_Interpret(inst_size);
 
-    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
 
-    if (Rd != operand) MOV(32, R(Rd), R(operand));
-    NOT(32, R(Rd));
+    if (inst_cream->Rd != 15) {
+        if (Rd != operand) MOV(32, R(Rd), R(operand));
+        NOT(32, R(Rd));
 
-    if (inst_cream->S && (inst_cream->Rd == 15)) {
-        ASSERT_MSG(0, "Unimplemented");
-    }
-    else if (inst_cream->S) {
-        status_flag_update = true;
-        CMP(32, R(Rd), Imm32(0));
-        FLAG_SET_Z();
-        FLAG_SET_N();
-        BT(8, MJitStateCpu(shifter_carry_out), Imm8(0));
-        FLAG_SET_C();
-        // V is unaffected
-    }
+        if (inst_cream->S) {
+            status_flag_update = true;
+            CMP(32, R(Rd), Imm32(0));
+            FLAG_SET_Z();
+            FLAG_SET_N();
+            BT(8, MJitStateCpu(shifter_carry_out), Imm8(0));
+            FLAG_SET_C();
+            // V is unaffected
+        }
 
-    ReleaseAllRegisters();
-    this->pc += inst_size;
-    return true;
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return true;
+    } else {
+        operand = EnsureTemp(operand);
+        NOT(32, R(operand));
+        MOV(32, MJitStateCpuReg(15), R(operand));
+
+        if (inst_cream->S) {
+            ASSERT_MSG(0, "Unimplemented");
+        }
+
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return CompileReturnToDispatch();
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
@@ -1249,7 +1312,7 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
     else
         SUB(32, R(Rn), Imm32(immed));
 
-    CompileMemoryRead(Rd, 32, Rn);
+    CompileMemoryRead(32, Rd, Rn);
 
     ReleaseAllRegisters();
     this->pc += inst_size;
@@ -1268,6 +1331,34 @@ void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
         NOP(6); // Leave enough space for a jg instruction.
     } else {
         J_CC(CC_G, basic_blocks[new_pc], true);
+    }
+}
+
+bool Gen::JitCompiler::CompileReturnToDispatch() {
+    if (current_cond == ConditionCode::AL) {
+        ResetAllocation();
+        CompileCond(ConditionCode::AL);
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+        JMPptr(MJitStateOther(return_RIP));
+
+        cycles = 0;
+
+        return false;
+    }
+    else {
+        ResetAllocation();
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+        JMPptr(MJitStateOther(return_RIP));
+
+        CompileCond(ConditionCode::AL);
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+        CompileMaybeJumpToBB(this->pc);
+        MOV(32, MJitStateCpuReg(15), Imm32(this->pc));
+        JMPptr(MJitStateOther(return_RIP));
+
+        cycles = 0;
+
+        return false;
     }
 }
 
