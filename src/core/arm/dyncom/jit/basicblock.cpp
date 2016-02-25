@@ -62,6 +62,13 @@ int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     bb_start = (void*)GetWritableCodePtr();
     if (debug) INT3();
 
+    for (u8* ptr : update_jmps[addr]) {
+        SetCodePtr(ptr);
+        J_CC(CC_G, (u8*)bb_start, true);
+    }
+    update_jmps.erase(addr);
+    SetCodePtr((u8*)bb_start);
+
     current_cond = ConditionCode::AL;
     current_register_allocation.Reset();
     current_cond_fixup.ptr = nullptr;
@@ -1274,16 +1281,18 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
 }
 
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
-    if (basic_blocks.find(new_pc) == basic_blocks.end())
-        return;
-
     ResetAllocation();
     Gen::X64Reg tmp = AcquireTemporaryRegister();
     MOV(32, R(tmp), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cycles_remaining)));
     TEST(32, R(tmp), R(tmp));
     ReleaseAllRegisters();
     ResetAllocation();
-    J_CC(CC_G, basic_blocks[new_pc], true);
+    if (basic_blocks.find(new_pc) == basic_blocks.end()) {
+        update_jmps[new_pc].push_back(GetWritableCodePtr());
+        NOP(6); // Leave enough space for a jg instruction.
+    } else {
+        J_CC(CC_G, basic_blocks[new_pc], true);
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size) {
