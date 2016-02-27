@@ -99,7 +99,9 @@ int main(int argc, char **argv) {
     srand(time(nullptr));
 
     printf("JIT self-test in progress:\n");
-    Memory::MapMemoryRegion(0, 4096 * 2, new u8[4096 * 2]);
+    u8* test_mem = new u8[4096 * 2];
+    Memory::MapMemoryRegion(0, 4096 * 2, test_mem);
+    std::memset(test_mem, 0, 4096 * 2);
     std::random_device rd;
     std::mt19937 mt(rd());
     std::uniform_int<u32> rand;

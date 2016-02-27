@@ -90,6 +90,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 133: return CompileInstruction_cmn(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 145: return CompileInstruction_bic(inst, inst_size);
+    case 146: return CompileInstruction_ldm(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
     case 148: return CompileInstruction_add(inst, inst_size);
     case 149: return CompileInstruction_rsb(inst, inst_size);
@@ -99,9 +100,11 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
+    case 158: return CompileInstruction_ldm(inst, inst_size);
+    case 161: return CompileInstruction_ldm(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
-    case 183: ASSERT_MSG(0, "Undefined instruction in this context."); return false; // CDP
-    case 185: ASSERT_MSG(0, "Undefined instruction in this context."); return false; // LDC
+    case 183: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // CDP
+    case 185: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // LDC
     case 196: return CompileInstruction_bl(inst, inst_size);
     default: return CompileInstruction_Interpret(inst_size);
     }
@@ -864,12 +867,11 @@ void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X
     AND(32, R(within_page), Imm32(Memory::PAGE_MASK));
     SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
 
-    Gen::X64Reg page_ref = AcquireTemporaryRegister();
-    MOV(64, R(page_ref), MComplex(page_table_reg, addr_reg, 8, 0));
+    MOV(64, R(page_table_reg), MComplex(page_table_reg, addr_reg, 8, 0));
     if (bits == 64) {
-        MOV(64, R(dest), MComplex(page_ref, within_page, 1, 0));
+        MOV(64, R(dest), MComplex(page_table_reg, within_page, 1, 0));
     } else {
-        MOVZX(64, bits, dest, MComplex(page_ref, within_page, 1, 0));
+        MOVZX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
     }
 
     ReleaseTemporaryRegister(page_table_reg);
@@ -1330,13 +1332,14 @@ bool Gen::JitCompiler::CompileInstruction_ldm(arm_inst* inst, unsigned inst_size
     ldst_inst* const inst_cream = (ldst_inst*)inst->component;
 
     Gen::X64Reg address = CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size);
-    Gen::X64Reg addr_temp = AcquireTemporaryRegister();
+    Gen::X64Reg addr_temp = INVALID_REG;
     Gen::X64Reg value = AcquireTemporaryRegister();
 
     ASSERT(!BIT(inst_cream->inst, 22)); // We don't support priviledged modes
 
     for (int i = 0; i < 16; i++) {
         if (BIT(inst_cream->inst, i)) {
+            addr_temp = AcquireTemporaryRegister();
             MOV(32, R(addr_temp), R(address));
             CompileMemoryRead(32, value, addr_temp);
 
@@ -1742,6 +1745,109 @@ Gen::X64Reg Gen::JitCompiler::CompileCalculateAddress(get_addr_fp_t addr_func, u
         }
 
         return ret;
+    } else if (addr_func == LdnStM(DecrementBefore)) {
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        int count = 0;
+
+        unsigned int i = BITS(inst, 0, 15);
+        while (i) {
+            if (i & 1) count++;
+            i = i >> 1;
+        }
+
+        if (BIT(inst, 21) && Rn_num != 15) {
+            Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+            SUB(32, R(Rn), Imm32(4 * count));
+            return AcquireCopyOfArmRegister(Rn_num);
+        } if (BIT(inst, 21) && Rn_num == 15) {
+            ASSERT_MSG(0, "Is this ever actually used anywhere?");
+            Gen::X64Reg ret = AcquireTemporaryRegister();
+            MOV(32, R(ret), Imm32(GetReg15_WordAligned(inst_size) - 4 * count));
+            MOV(32, MJitStateCpuReg(15), Imm32(GetReg15_WordAligned(inst_size) - 4 * count));
+            return ret;
+        } else {
+            Gen::X64Reg Rn = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+            SUB(32, R(Rn), Imm32(4 * count));
+            return Rn;
+        }
+    } else if (addr_func == LdnStM(IncrementBefore)) {
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        int count = 0;
+
+        unsigned int i = BITS(inst, 0, 15);
+        while (i) {
+            if (i & 1) count++;
+            i = i >> 1;
+        }
+
+        if (BIT(inst, 21) && Rn_num != 15) {
+            Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+            Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+            ADD(32, R(ret), Imm32(4));
+            ADD(32, R(Rn), Imm32(4 * count));
+            return ret;
+        } if (BIT(inst, 21) && Rn_num == 15) {
+            ASSERT_MSG(0, "Is this ever actually used anywhere?");
+            Gen::X64Reg ret = AcquireTemporaryRegister();
+            MOV(32, R(ret), Imm32(GetReg15_WordAligned(inst_size) + 4));
+            MOV(32, MJitStateCpuReg(15), Imm32(GetReg15_WordAligned(inst_size) + 4 * count));
+            return ret;
+        } else {
+            Gen::X64Reg Rn = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+            ADD(32, R(Rn), Imm32(4));
+            return Rn;
+        }
+    } else if (addr_func == LdnStM(IncrementAfter)) {
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        int count = 0;
+
+        unsigned int i = BITS(inst, 0, 15);
+        while (i) {
+            if (i & 1) count++;
+            i = i >> 1;
+        }
+
+        if (BIT(inst, 21) && Rn_num != 15) {
+            Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+            Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+            ADD(32, R(Rn), Imm32(4 * count));
+            return ret;
+        } if (BIT(inst, 21) && Rn_num == 15) {
+            ASSERT_MSG(0, "Is this ever actually used anywhere?");
+            Gen::X64Reg ret = AcquireTemporaryRegister();
+            MOV(32, R(ret), Imm32(GetReg15_WordAligned(inst_size)));
+            MOV(32, MJitStateCpuReg(15), Imm32(GetReg15_WordAligned(inst_size) + 4 * count));
+            return ret;
+        } else {
+            return AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+        }
+    } else if (addr_func == LdnStM(DecrementAfter)) {
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        int count = 0;
+
+        unsigned int i = BITS(inst, 0, 15);
+        while (i) {
+            if (i & 1) count++;
+            i = i >> 1;
+        }
+
+        if (BIT(inst, 21) && Rn_num != 15) {
+            Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+            SUB(32, R(Rn), Imm32(4 * count));
+            Gen::X64Reg temp = AcquireCopyOfArmRegister(Rn_num);
+            ADD(32, R(temp), Imm32(4));
+            return temp;
+        } if (BIT(inst, 21) && Rn_num == 15) {
+            ASSERT_MSG(0, "Is this ever actually used anywhere?");
+            Gen::X64Reg ret = AcquireTemporaryRegister();
+            MOV(32, R(ret), Imm32(GetReg15_WordAligned(inst_size) - 4 * count + 4));
+            MOV(32, MJitStateCpuReg(15), Imm32(GetReg15_WordAligned(inst_size) - 4 * count));
+            return ret;
+        } else {
+            Gen::X64Reg ret = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+            SUB(32, R(ret), Imm32(4 * count - 4));
+            return ret;
+        }
     }
 
     ASSERT_MSG(0, "Unreachable");
