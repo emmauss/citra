@@ -91,6 +91,12 @@ int main(int argc, char **argv) {
     System::Init(emu_window);
 
     /////////////////// TESTS ///////////////////
+    printf("JIT self-test in progress:\n");
+
+    extern void TestCompileCalculateAddress();
+
+    //TestCompileCalculateAddress();
+
     Jit::ARM_Jit jit(PrivilegeMode::USER32MODE);
     ARM_DynCom interp(PrivilegeMode::USER32MODE);
 
@@ -98,14 +104,13 @@ int main(int argc, char **argv) {
 
     srand(time(nullptr));
 
-    printf("JIT self-test in progress:\n");
     u8* test_mem = new u8[4096 * 2];
     Memory::MapMemoryRegion(0, 4096 * 2, test_mem);
     std::memset(test_mem, 0, 4096 * 2);
     std::random_device rd;
     std::mt19937 mt(rd());
     std::uniform_int<u32> rand(0, 0xFFFFFFFF);
-    for (int j = 0; j < 5000; j++) {
+    for (int j = 0; j < 200; j++) {
         jit.ClearCache();
         interp.ClearCache();
 

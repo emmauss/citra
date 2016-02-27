@@ -262,3 +262,113 @@ void ARM_Jit::DebugRun(u32 pc, int num_inst) {
 }
 
 }
+
+
+#include <random>
+#include <array>
+#include "core/arm/dyncom/arm_dyncom.h"
+void TestCompileCalculateAddress() {
+    Jit::JitState jit;
+    Gen::JitCompiler compiler;
+
+    std::array<get_addr_fp_t, 19> addr_fp{ {
+            LnSWoUB(ImmediateOffset),
+            LnSWoUB(RegisterOffset),
+        LnSWoUB(ImmediatePostIndexed),
+        LnSWoUB(ImmediatePreIndexed),
+        MLnS(RegisterPreIndexed),
+        LnSWoUB(RegisterPreIndexed),
+        LnSWoUB(ScaledRegisterPreIndexed),
+        LnSWoUB(ScaledRegisterPostIndexed),
+        LnSWoUB(RegisterPostIndexed),
+        MLnS(ImmediateOffset),
+        MLnS(RegisterOffset),
+        MLnS(ImmediatePreIndexed),
+        MLnS(ImmediatePostIndexed),
+        MLnS(RegisterPostIndexed),
+        LdnStM(DecrementBefore),
+        LdnStM(IncrementBefore),
+        LdnStM(IncrementAfter),
+        LdnStM(DecrementAfter),
+        LnSWoUB(ScaledRegisterOffset) } };
+    std::array<char*, 19> name_addr_fp{ {
+            "LnSWoUB(ImmediateOffset)",
+            "LnSWoUB(RegisterOffset)",
+        "LnSWoUB(ImmediatePostIndexed)",
+        "LnSWoUB(ImmediatePreIndexed)",
+        "MLnS(RegisterPreIndexed)",
+        "LnSWoUB(RegisterPreIndexed)",
+        "LnSWoUB(ScaledRegisterPreIndexed)",
+        "LnSWoUB(ScaledRegisterPostIndexed)",
+        "LnSWoUB(RegisterPostIndexed)",
+        "MLnS(ImmediateOffset)",
+        "MLnS(RegisterOffset)",
+        "MLnS(ImmediatePreIndexed)",
+        "MLnS(ImmediatePostIndexed)",
+        "MLnS(RegisterPostIndexed)",
+        "LdnStM(DecrementBefore)",
+        "LdnStM(IncrementBefore)",
+        "LdnStM(IncrementAfter)",
+        "LdnStM(DecrementAfter)",
+        "LnSWoUB(ScaledRegisterOffset)" } };
+
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_int<u32> rand(0, 0xFFFFFFFF);
+
+    for (int i = 0; i < 100000; i++) {
+        ARMul_State interp(PrivilegeMode::USER32MODE);
+
+        interp.Reset();
+        jit.Reset();
+        for (int i = 0; i < 15; i++) {
+            u32 val = rand(mt);
+            interp.Reg[i] = val;
+            jit.cpu_state.Reg[i] = val;
+        }
+
+        u32 inst, opcode = 0;
+        inst = ConditionCode::AL << 28;
+        inst |= ((rand(mt) & 0xff) << 20);
+        inst |= ((rand(mt) % 15) << 16);
+        inst |= ((rand(mt) % 15) << 12);
+        inst |= ((rand(mt) % 15) << 8);
+        int mid = rand(mt) % 15;
+        inst |= mid << 4;
+        inst |= (rand(mt) % 15);
+
+        unsigned ret;
+
+        addr_fp[i % addr_fp.size()](&interp, inst, ret);
+
+        const u8* bb = compiler.GetCodePtr();
+        compiler.current_cond = ConditionCode::AL;
+        Gen::X64Reg reg = compiler.CompileCalculateAddress(addr_fp[i % addr_fp.size()], inst, 4);
+        compiler.MOV(32, MJitStateCpuReg(0), R(reg));
+        compiler.current_register_allocation.is_spilled[0] = true;
+        compiler.ReleaseAllRegisters();
+        compiler.ResetAllocation();
+        compiler.CompileReturnToDispatch();
+        u32 dummy;
+        run_jit.CallCode(&jit, (void*)bb, 0, dummy);
+
+        bool pass = ret == jit.cpu_state.Reg[0];
+        for (int i = 1; i < 15; i++) {
+            if (interp.Reg[i] != jit.cpu_state.Reg[i]) pass = false;
+        }
+
+        if (!pass) {
+            printf("%s 0x%08x\n", name_addr_fp[i % name_addr_fp.size()], inst);
+
+            printf("ret: 0x%08x 0x%08x\n", ret, jit.cpu_state.Reg[0]);
+            for (int i = 1; i < 15; i++) {
+                printf("%i: 0x%08x 0x%08x\n", i, interp.Reg[i], jit.cpu_state.Reg[i]);
+            }
+
+            __debugbreak();
+            printf("Self-test failed.\n");
+            system("pause");
+            exit(-2);
+        }
+    }
+}

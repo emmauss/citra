@@ -54,6 +54,8 @@ struct RegisterAllocation {
 };
 }
 
+extern void TestCompileCalculateAddress();
+
 namespace Gen {
 
 struct JitCompiler final : private XCodeBlock {
@@ -174,6 +176,8 @@ private:
 
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
+
+    friend void ::TestCompileCalculateAddress();
 };
 
 }

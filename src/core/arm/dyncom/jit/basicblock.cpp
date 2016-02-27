@@ -85,7 +85,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 37: return CompileInstruction_Skip(inst_size); // PLD is a hint, we don't implement it.
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
-    case 99: return CompileInstruction_rev(inst, inst_size);
+    //case 99: return CompileInstruction_rev(inst, inst_size);
     case 102: return CompileInstruction_q32(inst, inst_size); // QADD
     case 105: return CompileInstruction_ldrex(inst, inst_size);
     case 106: return CompileInstruction_q32(inst, inst_size); // QDADD
@@ -114,14 +114,16 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 155: return CompileInstruction_mvn(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 158: return CompileInstruction_ldm(inst, inst_size);
-    //case 159: return CompileInstruction_ldrsh(inst, inst_size);
+    case 159: return CompileInstruction_ldrsh(inst, inst_size);
     case 161: return CompileInstruction_ldm(inst, inst_size);
-    //case 162: return CompileInstruction_ldrsb(inst, inst_size);
-    //case 166: return CompileInstruction_ldrd(inst, inst_size);
+    case 162: return CompileInstruction_ldrsb(inst, inst_size);
+    case 164: return CompileInstruction_ldrh(inst, inst_size);
+    case 166: return CompileInstruction_ldrd(inst, inst_size);
     //case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
     //case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
-    //case 178: return CompileInstruction_ldrb(inst, inst_size);
+    case 178: return CompileInstruction_ldrb(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
+    case 181: return CompileInstruction_ldr(inst, inst_size);
     case 183: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // CDP
     case 185: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // LDC
     case 186: return CompileInstruction_ldrexd(inst, inst_size);
@@ -901,7 +903,7 @@ void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X
         if (!sign_extend) {
             MOVZX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
         } else {
-            MOVSX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
+            MOVSX(32, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
         }
     }
 
@@ -1087,6 +1089,8 @@ bool Gen::JitCompiler::CompileInstruction_q32(arm_inst* inst, unsigned inst_size
     const Gen::X64Reg Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
     const Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
 
+    ASSERT(0);
+
     switch (op1) {
     case 0x00: { //QADD
         MOV(32, R(Rd), R(Rm));
@@ -1105,6 +1109,9 @@ bool Gen::JitCompiler::CompileInstruction_q32(arm_inst* inst, unsigned inst_size
         ADD(32, R(Rm), Imm32(0x7FFFFFFF));
         SUB(32, R(Rd), R(Rn));
         CMOVcc(32, Rd, R(Rm), CC_O);
+        SETcc(CC_O, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
         break;
     }
     case 0x02: { //QDADD
@@ -1488,10 +1495,16 @@ bool Gen::JitCompiler::CompileInstruction_mvn(arm_inst* inst, unsigned inst_size
 bool Gen::JitCompiler::CompileInstruction_rev(arm_inst* inst, unsigned inst_size) {
     rev_inst* const inst_cream = (rev_inst*)inst->component;
 
+    ASSERT(inst_cream->op1 == 0x03 && inst_cream->op2 == 0x01);
+
     Gen:X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
 
-    MOV(32, R(Rd), GetArmRegisterValue(inst_cream->Rm));
-    BSWAP(32, R(Rd));
+    if (inst_cream->Rd != inst_cream->Rm) MOV(32, R(Rd), GetArmRegisterValue(inst_cream->Rm));
+    BSWAP(32, Rd);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return CompileReturnToDispatch();
 }
 
 bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
@@ -1750,7 +1763,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrsh(arm_inst* inst, unsigned inst_si
 
     Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
     Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-    CompileMemoryRead(8, Rd, addr, true);
+    CompileMemoryRead(16, Rd, addr, true);
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
@@ -1896,7 +1909,7 @@ Gen::X64Reg Gen::JitCompiler::CompileCalculateAddress(get_addr_fp_t addr_func, u
         }
         case 2: { //ASR
             index = AcquireCopyOfArmRegister(Rm_num);
-            if (shift_imm == 0) shift_imm = 31; // ASR #32, yes it's 31 but it produces the same results.
+            if (shift_imm == 0) shift_imm = 31; // ASR #32
             SAR(32, R(index), Imm8(shift_imm));
             break;
         }
@@ -2028,14 +2041,13 @@ Gen::X64Reg Gen::JitCompiler::CompileCalculateAddress(get_addr_fp_t addr_func, u
         return ret;
     } else if (addr_func == LnSWoUB(ScaledRegisterOffset)) {
         // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
-        ASSERT(Rn_num != 15);
         ASSERT(Rm_num != 15);
         ASSERT(current_cond == BITS(inst, 28, 31));
 
         unsigned int shift = BITS(inst, 5, 6);
         unsigned int shift_imm = BITS(inst, 7, 11);
 
-        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
         Gen::X64Reg index = calc_scale(shift, shift_imm);
 
         if (u_bit) {
