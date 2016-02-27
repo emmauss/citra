@@ -1,10 +1,4 @@
-# shallow clone
-clone_depth: 5
-
-environment:
-  BUILD_PASSWORD:
-    secure: EXGNlWKJsCtbeImEJ5EP9qrxZ+EqUFfNy+CP61nDOMA=
-
+version: 0.0.{build}
 os: Visual Studio 2015
 
 platform:
@@ -36,17 +30,9 @@ after_build:
             7z a $BUILD_NAME .\build\bin\release\*
             # Do a second archive with only the binaries
             7z a $BUILD_NAME_NOQT .\build\bin\release\*.exe
-
-            # Download winscp
-            Invoke-WebRequest "http://iweb.dl.sourceforge.net/project/winscp/WinSCP/5.7.3/winscp573.zip" -OutFile "winscp573.zip"
-            7z e -y winscp573.zip
-
-            # Upload to server
-            .\WinSCP.com /command `
-                "option batch abort" `
-                "option confirm off" `
-                "open sftp://citra-builds:${env:BUILD_PASSWORD}@builds.citra-emu.org -hostkey=*" `
-                "put $BUILD_NAME /citra/nightly/windows-amd64/" `
-                "put $BUILD_NAME_NOQT /citra/nightly/windows-noqt-amd64/" `
-                "exit"
-          }
+deploy:
+- provider: GitHub
+  auth_token:
+    secure: U0ksP/ootcmbZcebIK89O8CPgjsKAnDiFVKWA1qyqTyAAlvD/gJ7zIPiVCrppKkD
+  draft: true
+  prerelease: true
