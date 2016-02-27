@@ -109,13 +109,13 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 155: return CompileInstruction_mvn(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 158: return CompileInstruction_ldm(inst, inst_size);
-    case 159: return CompileInstruction_ldrsh(inst, inst_size);
+    //case 159: return CompileInstruction_ldrsh(inst, inst_size);
     case 161: return CompileInstruction_ldm(inst, inst_size);
-    case 162: return CompileInstruction_ldrsb(inst, inst_size);
-    case 166: return CompileInstruction_ldrd(inst, inst_size);
-    case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
-    case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
-    case 178: return CompileInstruction_ldrb(inst, inst_size);
+    //case 162: return CompileInstruction_ldrsb(inst, inst_size);
+    //case 166: return CompileInstruction_ldrd(inst, inst_size);
+    //case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
+    //case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
+    //case 178: return CompileInstruction_ldrb(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
     case 183: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // CDP
     case 185: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // LDC
