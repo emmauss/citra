@@ -152,6 +152,13 @@ private:
 
     bool CompileInstruction_ldm(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_ldr(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrd(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrh(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrex(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrexb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrexd(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrexh(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);

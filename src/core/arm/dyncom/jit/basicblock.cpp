@@ -84,6 +84,8 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     switch (inst->idx) {
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
+    case 105: return CompileInstruction_ldrex(inst, inst_size);
+    case 109: return CompileInstruction_ldrexb(inst, inst_size);
     case 130: return CompileInstruction_cmp(inst, inst_size);
     case 131: return CompileInstruction_tst(inst, inst_size);
     case 132: return CompileInstruction_teq(inst, inst_size);
@@ -99,12 +101,19 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 152: return CompileInstruction_adc(inst, inst_size);
     case 153: return CompileInstruction_sub(inst, inst_size);
     case 154: return CompileInstruction_orr(inst, inst_size);
+    case 155: return CompileInstruction_mvn(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 158: return CompileInstruction_ldm(inst, inst_size);
     case 161: return CompileInstruction_ldm(inst, inst_size);
+    case 166: return CompileInstruction_ldrd(inst, inst_size);
+    case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
+    case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
+    case 178: return CompileInstruction_ldrb(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
     case 183: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // CDP
     case 185: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // LDC
+    case 186: return CompileInstruction_ldrexd(inst, inst_size);
+    case 188: return CompileInstruction_ldrexh(inst, inst_size);
     case 196: return CompileInstruction_bl(inst, inst_size);
     default: return CompileInstruction_Interpret(inst_size);
     }
@@ -896,8 +905,10 @@ void Gen::JitCompiler::CompileMemoryWrite(unsigned bits, Gen::X64Reg addr_reg, G
     AND(32, R(within_page), Imm32(Memory::PAGE_MASK));
     SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
 
-    MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, sizeof(u8*), 0));
+    MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, 8, 0));
     MOV(bits, MComplex(addr_reg, within_page, 1, 0), R(src));
+
+    printf("%i, %i, %i\n", page_table_reg, within_page, addr_reg);
 
     ReleaseTemporaryRegister(within_page);
     ReleaseTemporaryRegister(addr_reg);
@@ -1385,6 +1396,129 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
         this->pc += inst_size;
         return CompileReturnToDispatch();
     }
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrb(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // ASSERT(CP15_reg1_Ubit == 0)
+    ASSERT(Rd_num != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+    CompileMemoryRead(8, Rd, addr);
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrd(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // Should maybe check CP15_reg1_Ubit too
+    ASSERT(Rd_num < 14); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd1 = AcquireArmRegister(Rd_num);
+    Gen::X64Reg Rd2 = AcquireArmRegister(Rd_num+1);
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+    CompileMemoryRead(64, Rd1, addr);
+    MOV(64, R(Rd2), R(Rd1));
+    SHR(64, R(Rd2), Imm8(32));
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrexd(arm_inst* inst, unsigned inst_size) {
+    generic_arm_inst* const inst_cream = (generic_arm_inst*)inst->component;
+
+    // TODO: Exclusive mode
+    ASSERT(inst_cream->Rd < 14); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd1 = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rd2 = AcquireArmRegister(inst_cream->Rd+1);
+    Gen::X64Reg addr = AcquireCopyOfArmRegister(inst_cream->Rn);
+    MOV(32, MJitStateCpu(exclusive_tag), R(addr));
+    AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
+    MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
+    CompileMemoryRead(64, Rd1, addr);
+    MOV(64, R(Rd2), R(Rd1));
+    SHR(64, R(Rd2), Imm8(32));
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrexb(arm_inst* inst, unsigned inst_size) {
+    generic_arm_inst* const inst_cream = (generic_arm_inst*)inst->component;
+
+    // TODO: Exclusive mode
+    ASSERT(inst_cream->Rd != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg addr = AcquireCopyOfArmRegister(inst_cream->Rn);
+    MOV(32, MJitStateCpu(exclusive_tag), R(addr));
+    AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
+    MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
+    CompileMemoryRead(8, Rd, addr);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrex(arm_inst* inst, unsigned inst_size) {
+    generic_arm_inst* const inst_cream = (generic_arm_inst*)inst->component;
+
+    // TODO: Exclusive mode
+    // Should maybe check CP15_reg1_Ubit too
+    ASSERT(inst_cream->Rd < 14); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg addr = AcquireCopyOfArmRegister(inst_cream->Rn);
+    MOV(32, MJitStateCpu(exclusive_tag), R(addr));
+    AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
+    MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
+    CompileMemoryRead(32, Rd, addr);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrexh(arm_inst* inst, unsigned inst_size) {
+    generic_arm_inst* const inst_cream = (generic_arm_inst*)inst->component;
+
+    // TODO: Exclusive mode
+    ASSERT(inst_cream->Rd != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg addr = AcquireCopyOfArmRegister(inst_cream->Rn);
+    MOV(32, MJitStateCpu(exclusive_tag), R(addr));
+    AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
+    MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
+    CompileMemoryRead(16, Rd, addr);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrh(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // ASSERT(CP15_reg1_Ubit == 0)
+    ASSERT(Rd_num != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+    CompileMemoryRead(16, Rd, addr);
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
 }
 
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
