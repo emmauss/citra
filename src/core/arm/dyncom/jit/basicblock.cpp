@@ -85,7 +85,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 37: return CompileInstruction_Skip(inst_size); // PLD is a hint, we don't implement it.
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
-    //case 99: return CompileInstruction_rev(inst, inst_size);
+    case 99: return CompileInstruction_rev(inst, inst_size);
     case 102: return CompileInstruction_q32(inst, inst_size); // QADD
     case 105: return CompileInstruction_ldrex(inst, inst_size);
     case 106: return CompileInstruction_q32(inst, inst_size); // QDADD
@@ -1515,7 +1515,7 @@ bool Gen::JitCompiler::CompileInstruction_rev(arm_inst* inst, unsigned inst_size
 
     ReleaseAllRegisters();
     this->pc += inst_size;
-    return CompileReturnToDispatch();
+    return true;
 }
 
 bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
