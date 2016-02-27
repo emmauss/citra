@@ -12,6 +12,8 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 
+#include "core/memory.h"
+
 namespace Gen {
 
 #define MJitStateCpu(name) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, name))
@@ -35,8 +37,10 @@ public:
         run_jit = this->GetCodePtr();
 
         ABI_PushRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8);
+        ASSERT(RAX != ABI_PARAM1 && RAX != Jit::JitStateReg);
+        MOV(64, R(RAX), R(RSP));
         MOV(64, R(Jit::JitStateReg), R(ABI_PARAM1));
-        MOV(64, MJitStateOther(save_host_RSP), R(RSP));
+        MOV(64, MJitStateOther(save_host_RSP), R(RAX));
 
         for (int i = 0; i < Jit::NUM_REG_GPR; i++) {
             MOV(32, R(Jit::IntToArmGPR[i]), MJitStateCpuReg(i));
@@ -94,7 +98,6 @@ static Gen::RunJit run_jit;
 static Gen::JitCompiler compiler;
 
 namespace Memory {
-    struct PageTable;
     extern PageTable* current_page_table;
 }
 
@@ -173,7 +176,7 @@ void ARM_Jit::ExecuteInstructions(int num_instructions) {
     state->reschedule = 0;
 
     do {
-        state->page_table = reinterpret_cast<void*>(Memory::current_page_table);
+        state->page_table = reinterpret_cast<void*>(Memory::current_page_table->pointers.data());
 
         state->cpu_state.TFlag = (state->cpu_state.Cpsr >> 5) & 1;
 

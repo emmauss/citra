@@ -37,7 +37,7 @@ struct alignas(64) JitState {
     s32 cycles_remaining;
     u64 return_RIP;
 };
-static_assert(std::is_standard_layout<JitState>::value, "JitState needs to be POD");
+//static_assert(std::is_standard_layout<JitState>::value, "JitState needs to be POD");
 
 class ARM_Jit final : virtual public ARM_Interface {
 public:

@@ -2,6 +2,8 @@
 #include "core/arm/dyncom/jit/basicblock.h"
 #include "core/memory.h"
 
+#include "core/arm/disassembler/arm_disasm.h"
+
 extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 
 #define MJitStateCpu(name) MDisp(Jit::JitStateReg, offsetof(Jit::JitState, cpu_state) + offsetof(ARMul_State, name))
@@ -57,7 +59,17 @@ int Gen::JitCompiler::Compile(void*& bb_start, u32 addr, bool TFlag) {
     do {
         cycles++;
         cont = CompileSingleInstruction();
-    } while (cont);
+    } while (cont && (this->pc & 0xFFF));
+
+    if (cont) {
+        CompileCond(ConditionCode::AL);
+        if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
+        CompileMaybeJumpToBB(this->pc);
+        MOV(32, MJitStateCpuReg(15), Imm32(this->pc));
+        JMPptr(MJitStateOther(return_RIP));
+
+        cycles = 0;
+    }
 
     return 0;
 }
@@ -70,9 +82,12 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
     CompileCond((ConditionCode)inst->cond);
     switch (inst->idx) {
+    case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
+    case 98: return CompileInstruction_bx(inst, inst_size);
     case 130: return CompileInstruction_cmp(inst, inst_size);
     case 131: return CompileInstruction_tst(inst, inst_size);
     case 132: return CompileInstruction_teq(inst, inst_size);
+    case 133: return CompileInstruction_cmn(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 145: return CompileInstruction_bic(inst, inst_size);
     case 147: return CompileInstruction_eor(inst, inst_size);
@@ -85,6 +100,8 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 154: return CompileInstruction_orr(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
+    case 183: ASSERT_MSG(0, "Undefined instruction in this context."); return false; // CDP
+    case 185: ASSERT_MSG(0, "Undefined instruction in this context."); return false; // LDC
     case 196: return CompileInstruction_bl(inst, inst_size);
     default: return CompileInstruction_Interpret(inst_size);
     }
@@ -237,6 +254,25 @@ Gen::X64Reg Gen::JitCompiler::AcquireArmRegister(int arm_reg) {
     current_register_allocation.is_spilled[arm_reg] = false;
 
     return Jit::IntToArmGPR[arm_reg];
+}
+
+Gen::X64Reg Gen::JitCompiler::AcquireCopyOfArmRegister_with15WA(int arm_reg, unsigned inst_size) {
+    if (arm_reg == 15) {
+        Gen::X64Reg ret = AcquireTemporaryRegister();
+        MOV(32, R(ret), Imm32(GetReg15_WordAligned(inst_size)));
+        return ret;
+    }
+
+    return AcquireCopyOfArmRegister(arm_reg);
+}
+
+Gen::OpArg Gen::JitCompiler::GetArmRegisterValue(int arm_reg) {
+    ASSERT(arm_reg >= 0 && arm_reg <= 14);
+    if (current_register_allocation.is_spilled[arm_reg]) {
+        return MJitStateCpuReg(arm_reg);
+    } else {
+        return R(Jit::IntToArmGPR[arm_reg]);
+    }
 }
 
 Gen::X64Reg Gen::JitCompiler::AcquireTemporaryRegister() {
@@ -425,23 +461,16 @@ void Gen::JitCompiler::ResetAllocation() {
 }
 
 void Gen::JitCompiler::RestoreRSP() {
-    ASSERT(Jit::IntToArmGPR[13] == RSP);
-    ASSERT(!current_register_allocation.is_in_use[13]);
-    current_register_allocation.is_in_use[13] = true;
-    if (!current_register_allocation.is_spilled[13]) {
-        MOV(32, MJitStateCpuReg(13), R(RSP));
-        current_register_allocation.is_spilled[13] = true;
-    }
     MOV(64, R(RSP), MJitStateOther(save_host_RSP));
 }
 
 void Gen::JitCompiler::CallHostFunction(Jit::JitState*(*fn)(Jit::JitState*,u64,u64,u64), u64 a, u64 b, u64 c) {
     SpillAllRegisters();
-    RestoreRSP();
     MOV(64, R(ABI_PARAM1), R(Jit::JitStateReg));
     MOV(64, R(ABI_PARAM2), Imm64(a));
     MOV(64, R(ABI_PARAM3), Imm64(b));
     MOV(64, R(ABI_PARAM4), Imm64(c));
+    RestoreRSP();
     u64 distance = u64(fn) - (u64(GetCodePtr()) + 5);
     if (distance >= 0x0000000080000000ULL
         && distance < 0xFFFFFFFF80000000ULL) {
@@ -826,10 +855,7 @@ void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X
 
     addr_reg = EnsureTemp(addr_reg);
 
-    Gen::X64Reg page_table_reg;
-    if (dest == addr_reg) page_table_reg = AcquireTemporaryRegister();
-    else page_table_reg = dest;
-
+    Gen::X64Reg page_table_reg = AcquireTemporaryRegister();
     Gen::X64Reg within_page = AcquireTemporaryRegister();
 
     MOV(64, R(page_table_reg), MDisp(Jit::JitStateReg, offsetof(Jit::JitState, page_table)));
@@ -838,14 +864,15 @@ void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X
     AND(32, R(within_page), Imm32(Memory::PAGE_MASK));
     SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
 
-    MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, sizeof(u8*), 0));
+    Gen::X64Reg page_ref = AcquireTemporaryRegister();
+    MOV(64, R(page_ref), MComplex(page_table_reg, addr_reg, 8, 0));
     if (bits == 64) {
-        MOV(64, R(dest), MComplex(addr_reg, within_page, 1, 0));
+        MOV(64, R(dest), MComplex(page_ref, within_page, 1, 0));
     } else {
-        MOVZX(64, bits, dest, MComplex(addr_reg, within_page, 1, 0));
+        MOVZX(64, bits, dest, MComplex(page_ref, within_page, 1, 0));
     }
 
-    if (dest == addr_reg) ReleaseTemporaryRegister(page_table_reg);
+    ReleaseTemporaryRegister(page_table_reg);
     ReleaseTemporaryRegister(within_page);
     ReleaseTemporaryRegister(addr_reg);
 }
@@ -933,6 +960,8 @@ bool Gen::JitCompiler::CompileInstruction_Logical(arm_inst* inst, unsigned inst_
         return true;
     } else {
         MOV(32, MJitStateCpuReg(15), R(Rd));
+        BT(8, R(Rd), Imm8(0));
+        SETcc(CC_C, MJitStateCpu(TFlag));
         ReleaseAllRegisters();
         this->pc += inst_size;
         return CompileReturnToDispatch();
@@ -963,9 +992,10 @@ bool Gen::JitCompiler::CompileInstruction_Arithmetic(arm_inst* inst, unsigned in
     if (inst_cream->Rn != 15) Rn = AcquireArmRegister(inst_cream->Rn);
     Gen::X64Reg Rd = INVALID_REG;
     if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
-    else Rd = AcquireTemporaryRegister();
 
     Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+
+    if (inst_cream->Rd == 15) Rd = AcquireTemporaryRegister();
 
     switch (carry) {
     case 0:
@@ -1296,29 +1326,62 @@ bool Gen::JitCompiler::CompileInstruction_tst(arm_inst* inst, unsigned inst_size
     return true;
 }
 
-bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size) {
+bool Gen::JitCompiler::CompileInstruction_ldm(arm_inst* inst, unsigned inst_size) {
     ldst_inst* const inst_cream = (ldst_inst*)inst->component;
-    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
-    u32 Rn_num = BITS(inst_cream->inst, 16, 19);
-    if (Rd_num == 15 || Rn_num == 15) return CompileInstruction_Interpret(inst_size);
 
-    if (inst_cream->get_addr != LnSWoUB(ImmediatePreIndexed)) return CompileInstruction_Interpret(inst_size);
+    Gen::X64Reg address = CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size);
+    Gen::X64Reg addr_temp = AcquireTemporaryRegister();
+    Gen::X64Reg value = AcquireTemporaryRegister();
 
-    Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
-    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+    ASSERT(!BIT(inst_cream->inst, 22)); // We don't support priviledged modes
 
-    u32 immed = BITS(inst_cream->inst, 0, 11);
+    for (int i = 0; i < 16; i++) {
+        if (BIT(inst_cream->inst, i)) {
+            MOV(32, R(addr_temp), R(address));
+            CompileMemoryRead(32, value, addr_temp);
 
-    if (BIT(inst_cream->inst, 23)) // u_bit
-        ADD(32, R(Rn), Imm32(immed));
-    else
-        SUB(32, R(Rn), Imm32(immed));
-
-    CompileMemoryRead(32, Rd, Rn);
+            // For armv5t, should enter thumb when bits[0] is non-zero.
+            if (i == 15) {
+                BT(32, R(value), Imm8(0));
+                SETcc(CC_C, MJitStateCpu(TFlag));
+                MOV(32, MJitStateCpuReg(15), R(value));
+            } else {
+                MOV(32, GetArmRegisterValue(i), R(value));
+                ADD(32, R(address), Imm32(4));
+            }
+        }
+    }
 
     ReleaseAllRegisters();
     this->pc += inst_size;
-    return true;
+    if (BIT(inst_cream->inst, 15))
+        return CompileReturnToDispatch();
+    else
+        return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // ASSERT(CP15_reg1_Ubit == 0)
+
+    if (Rd_num != 15) {
+        Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+        Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+        CompileMemoryRead(32, Rd, addr);
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return true;
+    } else {
+        Gen::X64Reg Rd = AcquireTemporaryRegister();
+        Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+        CompileMemoryRead(32, Rd, addr);
+        MOV(32, MJitStateCpuReg(15), R(Rd));
+        ReleaseAllRegisters();
+        this->pc += inst_size;
+        return CompileReturnToDispatch();
+    }
 }
 
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
@@ -1408,5 +1471,279 @@ bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size)
 
         return false;
     }
+}
 
+bool Gen::JitCompiler::CompileInstruction_bx(arm_inst* inst, unsigned inst_size) {
+    bx_inst* const inst_cream = (bx_inst*)inst->component;
+
+    if (inst_cream->Rm == 15) {
+        MOV(32, MJitStateCpuReg(15), Imm32(GetReg15(inst_size)));
+        MOV(8, MJitStateCpu(TFlag), Imm8(0));
+    } else {
+        Gen::X64Reg Rm = AcquireArmRegister(inst_cream->Rm);
+        MOV(32, MJitStateCpuReg(15), R(Rm));
+        BT(8, R(Rm), Imm8(0));
+        SETcc(CC_C, MJitStateCpu(TFlag));
+    }
+
+    this->pc += inst_size;
+
+    ReleaseAllRegisters();
+
+    return CompileReturnToDispatch();
+}
+
+Gen::X64Reg Gen::JitCompiler::CompileCalculateAddress(get_addr_fp_t addr_func, u32 inst, unsigned inst_size) {
+    u32 u_bit = BIT(inst, 23);
+    u32 Rn_num = BITS(inst, 16, 19);
+
+    u32 Rm_num = BITS(inst, 0, 3);
+
+    u32 immed12 = BITS(inst, 0, 11);
+
+    u32 offset_8 = (BITS(inst, 8, 11) << 4) | BITS(inst, 0, 3);
+
+    auto calc_scale = [this, Rm_num](u32 shift, u32 shift_imm) -> Gen::X64Reg {
+        Gen::X64Reg index = INVALID_REG;
+        switch (shift) {
+        case 0: { //LSL
+            index = AcquireCopyOfArmRegister(Rm_num);
+            SHL(32, R(index), Imm8(shift_imm));
+            break;
+        }
+        case 1: { //LSR
+            if (shift_imm == 0) { // LSR #32
+                index = AcquireTemporaryRegister();
+                MOV(32, R(index), Imm32(0));
+            } else {
+                index = AcquireCopyOfArmRegister(Rm_num);
+                SHR(32, R(index), Imm8(shift_imm));
+            }
+            break;
+        }
+        case 2: { //ASR
+            index = AcquireCopyOfArmRegister(Rm_num);
+            if (shift_imm == 0) shift_imm = 31; // ASR #32, yes it's 31 but it produces the same results.
+            SAR(32, R(index), Imm8(shift_imm));
+            break;
+        }
+        case 3: {
+            index = AcquireCopyOfArmRegister(Rm_num);
+            if (shift_imm == 0) { // RRX
+                BT(8, MJitStateCpu(CFlag), Imm8(0));
+                RCR(32, R(index), Imm8(1));
+            } else { // ROR
+                ROR(32, R(index), Imm8(shift_imm));
+            }
+            break;
+        default:
+            ASSERT_MSG(0, "Unreachable");
+        }
+        }
+
+        return index;
+    };
+
+    if (addr_func == LnSWoUB(ImmediateOffset)) {
+        Gen::X64Reg ret = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+        if (u_bit) {
+            ADD(32, R(ret), Imm32(immed12));
+        } else {
+            SUB(32, R(ret), Imm32(immed12));
+        }
+        return ret;
+    } else if (addr_func == LnSWoUB(RegisterOffset)) {
+        // Spec Note: Specifying Rm as R15 has UNPREDICTABLE results.
+        ASSERT(Rm_num != 15);
+        u32 Rm_num = BITS(inst, 0, 3);
+        Gen::X64Reg Rn_copy = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+        if (u_bit) {
+            ADD(32, R(Rn_copy), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn_copy), GetArmRegisterValue(Rm_num));
+        }
+        return Rn_copy;
+    } else if (addr_func == LnSWoUB(ImmediatePostIndexed)) {
+        // Spec Note: Specifying R15 as Rn has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(BITS(inst, 28, 31) == current_cond);
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), Imm32(immed12));
+        } else {
+            SUB(32, R(Rn), Imm32(immed12));
+        }
+        return ret;
+    } else if (addr_func == LnSWoUB(ImmediatePreIndexed)) {
+        // Spec Note: Specifying R15 as Rn has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(BITS(inst, 28, 31) == current_cond);
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), Imm32(immed12));
+        } else {
+            SUB(32, R(Rn), Imm32(immed12));
+        }
+        return EnsureTemp(Rn);
+    } else if (addr_func == LnSWoUB(RegisterPreIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn), GetArmRegisterValue(Rm_num));
+        }
+        return EnsureTemp(Rn);
+    } else if (addr_func == LnSWoUB(ScaledRegisterPreIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+
+        u32 shift = BITS(inst, 5, 6);
+        u32 shift_imm = BITS(inst, 7, 11);
+
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg index = calc_scale(shift, shift_imm);
+
+        if (u_bit) {
+            ADD(32, R(Rn), R(index));
+        } else {
+            SUB(32, R(Rn), R(index));
+        }
+
+        return EnsureTemp(Rn);
+    } else if (addr_func == LnSWoUB(ScaledRegisterPostIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+
+        unsigned int shift = BITS(inst, 5, 6);
+        unsigned int shift_imm = BITS(inst, 7, 11);
+
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+        Gen::X64Reg index = calc_scale(shift, shift_imm);
+
+        if (u_bit) {
+            ADD(32, R(Rn), R(index));
+        } else {
+            SUB(32, R(Rn), R(index));
+        }
+
+        return ret;
+    } else if (addr_func == LnSWoUB(RegisterPostIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+
+        if (u_bit) {
+            ADD(32, R(Rn), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn), GetArmRegisterValue(Rm_num));
+        }
+
+        return ret;
+    } else if (addr_func == LnSWoUB(ScaledRegisterOffset)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+
+        unsigned int shift = BITS(inst, 5, 6);
+        unsigned int shift_imm = BITS(inst, 7, 11);
+
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+        Gen::X64Reg index = calc_scale(shift, shift_imm);
+
+        if (u_bit) {
+            ADD(32, R(ret), R(index));
+        } else {
+            SUB(32, R(ret), R(index));
+        }
+
+        return ret;
+    } else if (addr_func == MLnS(ImmediateOffset)) {
+        Gen::X64Reg ret = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+        if (u_bit) {
+            ADD(32, R(ret), Imm32(offset_8));
+        } else {
+            SUB(32, R(ret), Imm32(offset_8));
+        }
+        return ret;
+    } else if (addr_func == MLnS(RegisterOffset)) {
+        // Spec Note: Specifying Rm as R15 has UNPREDICTABLE results.
+        ASSERT(Rm_num != 15);
+        u32 Rm_num = BITS(inst, 0, 3);
+        Gen::X64Reg Rn_copy = AcquireCopyOfArmRegister_with15WA(Rn_num, inst_size);
+        if (u_bit) {
+            ADD(32, R(Rn_copy), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn_copy), GetArmRegisterValue(Rm_num));
+        }
+        return Rn_copy;
+    } else if (addr_func == MLnS(ImmediatePreIndexed)) {
+        // Spec Note: Specifying R15 as Rn has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(BITS(inst, 28, 31) == current_cond);
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), Imm32(offset_8));
+        } else {
+            SUB(32, R(Rn), Imm32(offset_8));
+        }
+        return EnsureTemp(Rn);
+    } else if (addr_func == MLnS(ImmediatePostIndexed)) {
+        // Spec Note: Specifying R15 as Rn has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(BITS(inst, 28, 31) == current_cond);
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), Imm32(offset_8));
+        } else {
+            SUB(32, R(Rn), Imm32(offset_8));
+        }
+        return ret;
+    } else if (addr_func == MLnS(RegisterPreIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        if (u_bit) {
+            ADD(32, R(Rn), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn), GetArmRegisterValue(Rm_num));
+        }
+        return EnsureTemp(Rn);
+    } else if (addr_func == MLnS(RegisterPostIndexed)) {
+        // Spec Note: Specifying R15 as Rn or Rm has UNPREDICTABLE results.
+        ASSERT(Rn_num != 15);
+        ASSERT(Rm_num != 15);
+        ASSERT(current_cond == BITS(inst, 28, 31));
+
+        Gen::X64Reg Rn = AcquireArmRegister(Rn_num);
+        Gen::X64Reg ret = AcquireCopyOfArmRegister(Rn_num);
+
+        if (u_bit) {
+            ADD(32, R(Rn), GetArmRegisterValue(Rm_num));
+        } else {
+            SUB(32, R(Rn), GetArmRegisterValue(Rm_num));
+        }
+
+        return ret;
+    }
+
+    ASSERT_MSG(0, "Unreachable");
+    return INVALID_REG;
 }

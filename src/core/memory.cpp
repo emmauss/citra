@@ -17,48 +17,6 @@
 
 namespace Memory {
 
-enum class PageType {
-    /// Page is unmapped and should cause an access error.
-    Unmapped,
-    /// Page is mapped to regular memory. This is the only type you can get pointers to.
-    Memory,
-    /// Page is mapped to a I/O region. Writing and reading to this page is handled by functions.
-    Special,
-};
-
-struct SpecialRegion {
-    VAddr base;
-    u32 size;
-    MMIORegionPointer handler;
-};
-
-/**
- * A (reasonably) fast way of allowing switchable and remappable process address spaces. It loosely
- * mimics the way a real CPU page table works, but instead is optimized for minimal decoding and
- * fetching requirements when accessing. In the usual case of an access to regular memory, it only
- * requires an indexed fetch and a check for NULL.
- */
-struct PageTable {
-    static const size_t NUM_ENTRIES = 1 << (32 - PAGE_BITS);
-
-    /**
-     * Array of memory pointers backing each page. An entry can only be non-null if the
-     * corresponding entry in the `attributes` array is of type `Memory`.
-     */
-    std::array<u8*, NUM_ENTRIES> pointers;
-
-    /**
-     * Contains MMIO handlers that back memory regions whose entries in the `attribute` array is of type `Special`.
-     */
-    std::vector<SpecialRegion> special_regions;
-
-    /**
-     * Array of fine grained page attributes. If it is set to any value other than `Memory`, then
-     * the corresponding entry in `pointers` MUST be set to null.
-     */
-    std::array<PageType, NUM_ENTRIES> attributes;
-};
-
 /// Singular page table used for the singleton process
 static PageTable main_page_table;
 /// Currently active page table

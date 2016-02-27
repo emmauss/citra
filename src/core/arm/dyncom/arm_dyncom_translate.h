@@ -8,8 +8,11 @@
 #include "common/common_types.h"
 
 #define DPO(s)       CONCAT2(DataProcessingOperands, s)
+// Load and Store Word or Unsigned Byte - Addressing Mode 2
 #define LnSWoUB(s)   CONCAT2(LnSWoUB, s)
+// Miscellaneous Load and Stores - Addressing Mode 3
 #define MLnS(s)      CONCAT2(MLnS, s)
+// Load and Store Multiple - Addressing Mode 4
 #define LdnStM(s)    CONCAT2(LdnStM, s)
 
 struct ARMul_State;

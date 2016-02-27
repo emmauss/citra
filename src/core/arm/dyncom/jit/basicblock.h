@@ -80,6 +80,8 @@ private:
     X64Reg AcquireArmRegister(int reg);
     X64Reg AcquireTemporaryRegister();
     X64Reg AcquireCopyOfArmRegister(int reg);
+    X64Reg AcquireCopyOfArmRegister_with15WA(int reg, unsigned inst_size);
+    Gen::OpArg GetArmRegisterValue(int reg); ///< Do not store this value, always keep calling it just in case of change in state.
     X64Reg EnsureTemp(X64Reg);
     void ReleaseTemporaryRegister(Gen::X64Reg reg);
     void ReleaseAllRegisters();
@@ -100,6 +102,7 @@ private:
     void CompileCond(ConditionCode new_cond);
 
     Gen::X64Reg CompileShifterOperand(shtop_fp_t shtop_func, unsigned shifter_operand, bool CSO, unsigned inst_size);
+    Gen::X64Reg CompileCalculateAddress(get_addr_fp_t addr_func, u32 inst, unsigned inst_size);
 
     /// Warning: This destroys addr_reg
     void CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg src_addr_reg);
@@ -107,11 +110,12 @@ private:
 
     /// Update cycles_remaining before calling this function.
     void CompileMaybeJumpToBB(u32 new_pc);
-    /// Update Reg[15] before calling this function.
+    /// Update Reg[15] and TFlag before calling this function.
     bool CompileReturnToDispatch();
 
 private:
-    u32 GetReg15(unsigned inst_size) { return this->pc + inst_size * 2;  }
+    u32 GetReg15(unsigned inst_size) { return (this->pc&~0x1) + inst_size * 2;  }
+    u32 GetReg15_WordAligned(unsigned inst_size) { return (this->pc&~0x3) + inst_size * 2; }
     int cycles;
     u32 pc;
     int TFlag;
@@ -146,9 +150,11 @@ private:
     bool CompileInstruction_teq(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);
 
+    bool CompileInstruction_ldm(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_ldr(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
 };
 
 }
