@@ -82,6 +82,7 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
 
     CompileCond((ConditionCode)inst->cond);
     switch (inst->idx) {
+    case 37: return CompileInstruction_Skip(inst_size); // PLD is a hint, we don't implement it.
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
     case 105: return CompileInstruction_ldrex(inst, inst_size);
@@ -140,6 +141,11 @@ bool Gen::JitCompiler::CompileInstruction_Interpret(unsigned inst_size) {
     cycles = 0;
     JMPptr(MJitStateOther(return_RIP));
     return false;
+}
+
+bool Gen::JitCompiler::CompileInstruction_Skip(unsigned inst_size) {
+    this->pc += inst_size;
+    return true;
 }
 
 void Gen::JitCompiler::CompileCond(const ConditionCode new_cond) {
