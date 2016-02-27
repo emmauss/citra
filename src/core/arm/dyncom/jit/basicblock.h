@@ -158,6 +158,7 @@ private:
     bool CompileInstruction_mov(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_mvn(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_rev(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_cpy(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_teq(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);
@@ -183,6 +184,7 @@ private:
     bool CompileInstruction_Branch(ConditionCode cond, u32 new_pc);
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_blx(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_b_2_thumb(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_b_cond_thumb(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bl_1_thumb(arm_inst* inst, unsigned inst_size);

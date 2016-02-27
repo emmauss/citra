@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
     std::random_device rd;
     std::mt19937 mt(rd());
     std::uniform_int<u32> rand(0, 0xFFFFFFFF);
-    for (int j = 0; j < 200; j++) {
+    for (int j = 0; j < 0; j++) {
         jit.ClearCache();
         interp.ClearCache();
 

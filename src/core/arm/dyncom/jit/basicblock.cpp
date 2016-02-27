@@ -13,7 +13,6 @@ extern unsigned InterpreterMainLoop(ARMul_State* cpu);
 namespace Jit {
 Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 TFlag, u64) {
     ARMul_State* cpu = &jit_state->cpu_state;
-    cpu->instruction_cache.clear();
 
     cpu->Reg[15] = pc;
 
@@ -24,8 +23,9 @@ Jit::JitState* InterpretSingleInstruction(Jit::JitState* jit_state, u64 pc, u64 
         (cpu->VFlag << 28) |
         (cpu->TFlag << 5);
 
-    cpu->NumInstrsToExecute = 1;
-    InterpreterMainLoop(cpu);
+    cpu->NumInstrsToExecute = jit_state->cycles_remaining > 0 ? jit_state->cycles_remaining : 1;
+    if (cpu->NumInstrsToExecute > 100) cpu->NumInstrsToExecute = 100;
+    jit_state->cycles_remaining -= InterpreterMainLoop(cpu) - 1;
 
     return jit_state;
 }
@@ -83,9 +83,11 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     CompileCond((ConditionCode)inst->cond);
     switch (inst->idx) {
     case 37: return CompileInstruction_Skip(inst_size); // PLD is a hint, we don't implement it.
+    case 48: return CompileInstruction_cpy(inst, inst_size);
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
     case 99: return CompileInstruction_rev(inst, inst_size);
+    case 100: return CompileInstruction_blx(inst, inst_size);
     case 102: return CompileInstruction_q32(inst, inst_size); // QADD
     case 105: return CompileInstruction_ldrex(inst, inst_size);
     case 106: return CompileInstruction_q32(inst, inst_size); // QDADD
@@ -142,7 +144,9 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 199: return CompileInstruction_bl_1_thumb(inst, inst_size);
     case 200: return CompileInstruction_bl_2_thumb(inst, inst_size);
     case 201: return CompileInstruction_blx_1_thumb(inst, inst_size);
-    default: return CompileInstruction_Interpret(inst_size);
+    default:
+        //printf("%i\n", inst->idx);
+        return CompileInstruction_Interpret(inst_size);
     }
 
     ASSERT_MSG(0, "Unreachable code");
@@ -1518,6 +1522,25 @@ bool Gen::JitCompiler::CompileInstruction_rev(arm_inst* inst, unsigned inst_size
     return true;
 }
 
+bool Gen::JitCompiler::CompileInstruction_cpy(arm_inst* inst, unsigned inst_size) {
+    mov_inst* const inst_cream = (mov_inst*)inst->component;
+
+    Gen::X64Reg Rd = INVALID_REG;
+    if (inst_cream->Rd != 15) Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, inst_cream->S, inst_size);
+
+    if (inst_cream->Rd != 15 && Rd != operand) MOV(32, R(Rd), R(operand));
+    else if (inst_cream->Rd == 15) MOV(32, MJitStateCpuReg(15), R(operand));
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    if (inst_cream->Rd == 15) {
+        return CompileReturnToDispatch();
+    } else {
+        return true;
+    }
+}
+
 bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
     teq_inst* const inst_cream = (teq_inst*)inst->component;
 
@@ -2020,6 +2043,42 @@ bool Gen::JitCompiler::CompileInstruction_bx(arm_inst* inst, unsigned inst_size)
     ReleaseAllRegisters();
 
     return CompileReturnToDispatch();
+}
+
+bool Gen::JitCompiler::CompileInstruction_blx(arm_inst* inst, unsigned inst_size) {
+    MOV(8, MJitStateCpu(TFlag), Imm8(1));
+
+    blx_inst *inst_cream = (blx_inst *)inst->component;
+
+    if (BITS(inst_cream->inst, 20, 27) == 0x12 && BITS(inst_cream->inst, 4, 7) == 0x3) {
+        Gen::X64Reg Rm = AcquireArmRegister(inst_cream->val.Rm);
+        Gen::X64Reg LR = AcquireArmRegister(14);
+
+        MOV(32, R(LR), Imm32((pc + inst_size) | TFlag));
+        MOV(32, MJitStateCpuReg(15), R(Rm));
+        BT(32, R(Rm), Imm8(0));
+        SETcc(CC_C, MJitStateCpu(TFlag));
+
+        pc += inst_size;
+        ReleaseAllRegisters();
+        return CompileReturnToDispatch();
+    } else {
+        Gen::X64Reg LR = AcquireArmRegister(14);
+        MOV(32, R(LR), Imm32(pc + inst_size));
+        MOV(8, MJitStateCpu(TFlag), Imm8(1));
+
+        int signed_int = inst_cream->val.signed_immed_24;
+        signed_int = (signed_int & 0x800000) ? (0x3F000000 | signed_int) : signed_int;
+        signed_int = signed_int << 2;
+
+        u32 new_pc = pc + 8 + signed_int + (BIT(inst_cream->inst, 24) << 1);
+
+        ReleaseAllRegisters();
+        ResetAllocation();
+        this->pc += inst_size;
+
+        return CompileInstruction_Branch((ConditionCode)inst->cond, new_pc);
+    }
 }
 
 bool Gen::JitCompiler::CompileInstruction_b_2_thumb(arm_inst* inst, unsigned inst_size) {
