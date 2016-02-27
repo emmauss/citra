@@ -1726,7 +1726,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrex(arm_inst* inst, unsigned inst_si
 
     // TODO: Exclusive mode
     // Should maybe check CP15_reg1_Ubit too
-    ASSERT(inst_cream->Rd < 14); // Spec Note: UNPREDICTABLE behaviour
+    ASSERT(inst_cream->Rd != 15); // Spec Note: UNPREDICTABLE behaviour
 
     Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
     Gen::X64Reg addr = AcquireCopyOfArmRegister(inst_cream->Rn);
