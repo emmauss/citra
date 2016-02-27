@@ -117,13 +117,19 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 159: return CompileInstruction_ldrsh(inst, inst_size);
     case 161: return CompileInstruction_ldm(inst, inst_size);
     case 162: return CompileInstruction_ldrsb(inst, inst_size);
+    case 163: return CompileInstruction_strd(inst, inst_size);
     case 164: return CompileInstruction_ldrh(inst, inst_size);
+    case 165: return CompileInstruction_strh(inst, inst_size);
     case 166: return CompileInstruction_ldrd(inst, inst_size);
-    //case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
-    //case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
+    case 167: return CompileInstruction_str(inst, inst_size); // In usermode, STRT has some behaviour as LDR.
+    case 168: return CompileInstruction_strb(inst, inst_size); // In usermode, STRBT has some behaviour as STRB.
+    case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
+    case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
     case 178: return CompileInstruction_ldrb(inst, inst_size);
+    case 179: return CompileInstruction_strb(inst, inst_size);
     case 180: return CompileInstruction_ldr(inst, inst_size);
     case 181: return CompileInstruction_ldr(inst, inst_size);
+    case 182: return CompileInstruction_str(inst, inst_size);
     case 183: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // CDP
     case 185: ASSERT_MSG(0, "Undefined instruction in this context."); INT3(); return false; // LDC
     case 186: return CompileInstruction_ldrexd(inst, inst_size);
@@ -931,8 +937,6 @@ void Gen::JitCompiler::CompileMemoryWrite(unsigned bits, Gen::X64Reg addr_reg, G
 
     MOV(64, R(addr_reg), MComplex(page_table_reg, addr_reg, 8, 0));
     MOV(bits, MComplex(addr_reg, within_page, 1, 0), R(src));
-
-    printf("%i, %i, %i\n", page_table_reg, within_page, addr_reg);
 
     ReleaseTemporaryRegister(within_page);
     ReleaseTemporaryRegister(addr_reg);
@@ -1769,6 +1773,96 @@ bool Gen::JitCompiler::CompileInstruction_ldrsh(arm_inst* inst, unsigned inst_si
     return true;
 }
 
+bool Gen::JitCompiler::CompileInstruction_str(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (Rd_num != 15) Rd = AcquireArmRegister(Rd_num);
+    else {
+        Rd = AcquireTemporaryRegister();
+        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+
+    CompileMemoryWrite(32, addr, Rd);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_strb(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (Rd_num != 15) Rd = AcquireArmRegister(Rd_num);
+    else {
+        Rd = AcquireTemporaryRegister();
+        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+
+    CompileMemoryWrite(8, addr, Rd);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_strd(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+    Gen::X64Reg Rd1 = INVALID_REG;
+    if (Rd_num != 15) Rd1 = AcquireCopyOfArmRegister(Rd_num);
+
+    Gen::X64Reg Rd2 = INVALID_REG;
+    if ((Rd_num + 1) % 16 != 15) Rd2 = AcquireCopyOfArmRegister((Rd_num + 1) % 16);
+
+    if (Rd_num == 15) {
+        Rd1 = AcquireTemporaryRegister();
+        MOV(32, R(Rd1), Imm32(GetReg15(inst_size)));
+    }
+    if ((Rd_num + 1) % 16 == 15) {
+        Rd2 = AcquireTemporaryRegister();
+        MOV(32, R(Rd2), Imm32(GetReg15(inst_size)));
+    }
+
+    SHL(64, R(Rd2), Imm8(32));
+    OR(64, R(Rd1), R(Rd2));
+
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+
+    CompileMemoryWrite(64, addr, Rd1);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_strh(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+    Gen::X64Reg Rd = INVALID_REG;
+    if (Rd_num != 15) Rd = AcquireArmRegister(Rd_num);
+    else {
+        Rd = AcquireTemporaryRegister();
+        MOV(32, R(Rd), Imm32(GetReg15(inst_size)));
+    }
+
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+
+    CompileMemoryWrite(16, addr, Rd);
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
 
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
     ResetAllocation();

@@ -174,6 +174,11 @@ private:
     bool CompileInstruction_ldrsb(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_ldrsh(arm_inst* inst, unsigned inst_size);
 
+    bool CompileInstruction_str(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_strb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_strd(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_strh(arm_inst* inst, unsigned inst_size);
+
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
 
