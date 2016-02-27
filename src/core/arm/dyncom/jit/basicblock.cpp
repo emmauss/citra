@@ -137,6 +137,11 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 186: return CompileInstruction_ldrexd(inst, inst_size);
     case 188: return CompileInstruction_ldrexh(inst, inst_size);
     case 196: return CompileInstruction_bl(inst, inst_size);
+    case 197: return CompileInstruction_b_2_thumb(inst, inst_size);
+    case 198: return CompileInstruction_b_cond_thumb(inst, inst_size);
+    case 199: return CompileInstruction_bl_1_thumb(inst, inst_size);
+    case 200: return CompileInstruction_bl_2_thumb(inst, inst_size);
+    case 201: return CompileInstruction_blx_1_thumb(inst, inst_size);
     default: return CompileInstruction_Interpret(inst_size);
     }
 
@@ -1947,23 +1952,8 @@ bool Gen::JitCompiler::CompileReturnToDispatch() {
     }
 }
 
-bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size) {
-    bbl_inst* const inst_cream = (bbl_inst*)inst->component;
-
-    ASSERT(!TFlag);
-    u32 new_pc = pc + 8 + inst_cream->signed_immed_24;
-    u32 link_pc = pc + 4;
-
-    if (inst_cream->L) {
-        Gen::X64Reg LR = AcquireArmRegister(14);
-        MOV(32, R(LR), Imm32(link_pc));
-    }
-
-    ReleaseAllRegisters();
-    ResetAllocation();
-    this->pc += inst_size;
-
-    if (inst->cond == ConditionCode::AL) {
+bool Gen::JitCompiler::CompileInstruction_Branch(ConditionCode cond, u32 new_pc) {
+    if (cond == ConditionCode::AL) {
         ResetAllocation();
         CompileCond(ConditionCode::AL);
         if (cycles) SUB(32, MJitStateOther(cycles_remaining), Imm32(cycles));
@@ -1993,6 +1983,25 @@ bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size)
     }
 }
 
+bool Gen::JitCompiler::CompileInstruction_bl(arm_inst* inst, unsigned inst_size) {
+    bbl_inst* const inst_cream = (bbl_inst*)inst->component;
+
+    ASSERT(!TFlag);
+    u32 new_pc = pc + 8 + inst_cream->signed_immed_24;
+    u32 link_pc = pc + 4;
+
+    if (inst_cream->L) {
+        Gen::X64Reg LR = AcquireArmRegister(14);
+        MOV(32, R(LR), Imm32(link_pc));
+    }
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    return CompileInstruction_Branch((ConditionCode)inst->cond, new_pc);
+}
+
 bool Gen::JitCompiler::CompileInstruction_bx(arm_inst* inst, unsigned inst_size) {
     bx_inst* const inst_cream = (bx_inst*)inst->component;
 
@@ -2009,6 +2018,85 @@ bool Gen::JitCompiler::CompileInstruction_bx(arm_inst* inst, unsigned inst_size)
     this->pc += inst_size;
 
     ReleaseAllRegisters();
+
+    return CompileReturnToDispatch();
+}
+
+bool Gen::JitCompiler::CompileInstruction_b_2_thumb(arm_inst* inst, unsigned inst_size) {
+    b_2_thumb* inst_cream = (b_2_thumb*)inst->component;
+
+    ASSERT(TFlag);
+    u32 new_pc = pc + 4 + inst_cream->imm;
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    return CompileInstruction_Branch((ConditionCode)inst->cond, new_pc);
+}
+
+bool Gen::JitCompiler::CompileInstruction_b_cond_thumb(arm_inst* inst, unsigned inst_size) {
+    b_cond_thumb* inst_cream = (b_cond_thumb*)inst->component;
+
+    ASSERT(TFlag);
+    u32 new_pc = pc + 4 + inst_cream->imm;
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    return CompileInstruction_Branch((ConditionCode)inst->cond, new_pc);
+}
+
+bool Gen::JitCompiler::CompileInstruction_bl_1_thumb(arm_inst* inst, unsigned inst_size) {
+    bl_1_thumb* const inst_cream = (bl_1_thumb*)inst->component;
+
+    ASSERT(TFlag);
+    u32 link_pc = pc + 4 + inst_cream->imm;
+
+    Gen::X64Reg LR = AcquireArmRegister(14);
+    MOV(32, R(LR), Imm32(link_pc));
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_bl_2_thumb(arm_inst* inst, unsigned inst_size) {
+    bl_2_thumb* const inst_cream = (bl_2_thumb*)inst->component;
+
+    ASSERT(TFlag);
+    u32 link_pc = (pc + 2) | 1;
+
+    Gen::X64Reg LR = AcquireArmRegister(14);
+    MOV(32, MJitStateCpuReg(15), R(LR));
+    ADD(32, MJitStateCpuReg(15), Imm32(inst_cream->imm));
+    MOV(32, R(LR), Imm32(link_pc));
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
+
+    return CompileReturnToDispatch();
+}
+
+bool Gen::JitCompiler::CompileInstruction_blx_1_thumb(arm_inst* inst, unsigned inst_size) {
+    blx_1_thumb* inst_cream = (blx_1_thumb*)inst->component;
+
+    ASSERT(TFlag);
+    u32 link_pc = (pc + 2) | 1;
+
+    Gen::X64Reg LR = AcquireArmRegister(14);
+    MOV(32, MJitStateCpuReg(15), R(LR));
+    ADD(32, MJitStateCpuReg(15), Imm32(inst_cream->imm));
+    MOV(32, R(LR), Imm32(link_pc));
+    MOV(32, MJitStateCpu(TFlag), Imm8(0));
+
+    ReleaseAllRegisters();
+    ResetAllocation();
+    this->pc += inst_size;
 
     return CompileReturnToDispatch();
 }

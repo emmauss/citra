@@ -180,8 +180,14 @@ private:
     bool CompileInstruction_strd(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_strh(arm_inst* inst, unsigned inst_size);
 
+    bool CompileInstruction_Branch(ConditionCode cond, u32 new_pc);
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_b_2_thumb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_b_cond_thumb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_bl_1_thumb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_bl_2_thumb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_blx_1_thumb(arm_inst* inst, unsigned inst_size);
 
     friend void ::TestCompileCalculateAddress();
 };
