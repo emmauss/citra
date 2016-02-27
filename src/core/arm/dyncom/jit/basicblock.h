@@ -145,6 +145,8 @@ private:
     bool CompileInstruction_mla(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_mul(arm_inst* inst, unsigned inst_size);
 
+    bool CompileInstruction_q32(arm_inst* inst, unsigned inst_size);
+
     bool CompileInstruction_pkhbt(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_pkhtb(arm_inst* inst, unsigned inst_size);
 
@@ -153,6 +155,7 @@ private:
 
     bool CompileInstruction_mov(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_mvn(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_rev(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_teq(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_tst(arm_inst* inst, unsigned inst_size);

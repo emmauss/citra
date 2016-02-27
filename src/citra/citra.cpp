@@ -104,8 +104,8 @@ int main(int argc, char **argv) {
     std::memset(test_mem, 0, 4096 * 2);
     std::random_device rd;
     std::mt19937 mt(rd());
-    std::uniform_int<u32> rand;
-    for (int j = 0; j < 1000; j++) {
+    std::uniform_int<u32> rand(0, 0xFFFFFFFF);
+    for (int j = 0; j < 5000; j++) {
         jit.ClearCache();
         interp.ClearCache();
 
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
         interp.SetPC(addr_ptr);
         jit.SetPC(addr_ptr);
 
-        constexpr int NUM_INST = 3;
+        constexpr int NUM_INST = 1024;
 
         for (int i = 0; i < NUM_INST; i++) {
             u32 inst;
@@ -137,24 +137,24 @@ int main(int argc, char **argv) {
                 inst = 0b1110 << 28;
             }
 
-            int opcode;
+            u32 opcode;
             //if (rand() % 2 == 0) opcode = 0b00011010; else opcode = 0b00011011; // mov and movs only.
             do {
-                opcode = rand(mt) & 0b00111111;
-            } while (opcode == 0b00010010 || opcode == 0b00010000 || opcode == 0b00010100 || opcode == 0b00010110 || opcode == 0b00110010 || opcode == 0b00110110 || opcode == 0b00110100 || opcode == 0b00110000);
+                opcode = (rand(mt) & 0b00111111);
+            } while (opcode == 0b00110010 || opcode == 0b00110110 || opcode == 0b00110100 || opcode == 0b00110000 || (opcode & ~0x6) == 0x10);
 
             if (rand(mt) % 20 == 0) opcode = 0x68;
-            opcode = rand(mt) % 4;
 
             inst |= (opcode << 20);
-            if (rand(mt) % 20 != 0) inst |= ((rand(mt) % 15) << 16);
-            if (rand(mt) % 20 != 0) inst |= ((rand(mt) % 15) << 12);
-            if (rand(mt) % 20 != 0) inst |= ((rand(mt) % 15) << 8);
+            if (rand(mt) % 100 != 0) inst |= ((rand(mt) % 15) << 16);
+            if (rand(mt) % 100 != 0) inst |= ((rand(mt) % 15) << 12);
+            if (rand(mt) % 100 != 0) inst |= ((rand(mt) % 15) << 8);
             int mid = rand(mt) % (opcode < 4 ? 9 : 8);
             if (0b01101000 == opcode) mid = (rand(mt) % 2 == 0) ? 0x5 : 0x1;
+            else if ((opcode & ~0x6) == 0x10) mid = 0x5;
             else if (mid == 8) mid = 9;
             inst |= mid << 4;
-            if (rand(mt) % 20 != 0) inst |= (rand(mt) % 15);
+            if (rand(mt) % 100 != 0) inst |= (rand(mt) % 15);
 
             Memory::Write32(addr_ptr, inst);
             //printf("%s\n", ARM_Disasm::Disassemble(addr_ptr, Memory::Read32(addr_ptr)).c_str());

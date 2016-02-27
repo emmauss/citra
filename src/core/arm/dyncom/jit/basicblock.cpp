@@ -85,7 +85,12 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 37: return CompileInstruction_Skip(inst_size); // PLD is a hint, we don't implement it.
     case 95: return CompileInstruction_bx(inst, inst_size); // When BXJ fails, it behaves like BX.
     case 98: return CompileInstruction_bx(inst, inst_size);
+    case 99: return CompileInstruction_rev(inst, inst_size);
+    case 102: return CompileInstruction_q32(inst, inst_size); // QADD
     case 105: return CompileInstruction_ldrex(inst, inst_size);
+    case 106: return CompileInstruction_q32(inst, inst_size); // QDADD
+    case 107: return CompileInstruction_q32(inst, inst_size); // QDSUB
+    case 108: return CompileInstruction_q32(inst, inst_size); // QSUB
     case 109: return CompileInstruction_ldrexb(inst, inst_size);
     case 123: return CompileInstruction_pkhtb(inst, inst_size);
     case 124: return CompileInstruction_pkhbt(inst, inst_size);
@@ -1075,6 +1080,81 @@ bool Gen::JitCompiler::CompileInstruction_mul(arm_inst* inst, unsigned inst_size
     return true;
 }
 
+bool Gen::JitCompiler::CompileInstruction_q32(arm_inst* inst, unsigned inst_size) {
+    generic_arm_inst* const inst_cream = (generic_arm_inst*)inst->component;
+    const u8 op1 = inst_cream->op1;
+    const Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    const Gen::X64Reg Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
+    const Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
+
+    switch (op1) {
+    case 0x00: { //QADD
+        MOV(32, R(Rd), R(Rm));
+        SHR(32, R(Rm), Imm8(31));
+        ADD(32, R(Rm), Imm32(0x7FFFFFFF));
+        ADD(32, R(Rd), R(Rn));
+        CMOVcc(32, Rd, R(Rm), CC_O);
+        SETcc(CC_O, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
+        break;
+    }
+    case 0x01: { //QSUB
+        MOV(32, R(Rd), R(Rm));
+        SHR(32, R(Rm), Imm8(31));
+        ADD(32, R(Rm), Imm32(0x7FFFFFFF));
+        SUB(32, R(Rd), R(Rn));
+        CMOVcc(32, Rd, R(Rm), CC_O);
+        break;
+    }
+    case 0x02: { //QDADD
+        MOV(32, R(Rd), R(Rn));
+        SHR(32, R(Rn), Imm8(31));
+        ADD(32, R(Rn), Imm32(0x7FFFFFFF));
+        SHL(32, R(Rd), Imm8(2));
+        CMOVcc(32, Rd, R(Rn), CC_C);
+        SETcc(CC_C, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
+        MOV(32, R(Rn), R(Rd));
+        SHR(32, R(Rn), Imm8(31));
+        ADD(32, R(Rn), Imm32(0x7FFFFFFF));
+        ADD(32, R(Rd), R(Rm));
+        CMOVcc(32, Rd, R(Rn), CC_O);
+        SETcc(CC_O, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
+        break;
+    }
+    case 0x03: { //QDSUB
+        MOV(32, R(Rd), R(Rn));
+        SHR(32, R(Rn), Imm8(31));
+        ADD(32, R(Rn), Imm32(0x7FFFFFFF));
+        SHL(32, R(Rd), Imm8(2));
+        CMOVcc(32, Rd, R(Rn), CC_C);
+        SETcc(CC_C, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
+        MOV(32, R(Rn), R(Rd));
+        SHR(32, R(Rn), Imm8(31));
+        ADD(32, R(Rn), Imm32(0x7FFFFFFF));
+        SUB(32, R(Rd), R(Rm));
+        CMOVcc(32, Rd, R(Rn), CC_O);
+        SETcc(CC_O, R(Rn));
+        SHL(32, R(Rn), Imm8(27)); // Q flag
+        OR(32, MJitStateCpu(Cpsr), R(Rn));
+        break;
+    }
+    default:
+        ASSERT_MSG(0, "Unreachable");
+        break;
+    }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
 bool Gen::JitCompiler::CompileInstruction_pkhbt(arm_inst* inst, unsigned inst_size) {
     pkh_inst* const inst_cream = (pkh_inst*)inst->component;
 
@@ -1312,14 +1392,14 @@ bool Gen::JitCompiler::CompileInstruction_cmp(arm_inst* inst, unsigned inst_size
 bool Gen::JitCompiler::CompileInstruction_cmn(arm_inst* inst, unsigned inst_size) {
     cmn_inst* const inst_cream = (cmn_inst*)inst->component;
 
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
+
     Gen::X64Reg Rn = INVALID_REG;
     if (inst_cream->Rn != 15) Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
     else {
         Rn = AcquireTemporaryRegister();
         MOV(32, R(Rn), Imm32(GetReg15(inst_size)));
     }
-
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, false, inst_size);
 
     ADD(32, R(Rn), R(operand));
 
@@ -1405,8 +1485,19 @@ bool Gen::JitCompiler::CompileInstruction_mvn(arm_inst* inst, unsigned inst_size
     }
 }
 
+bool Gen::JitCompiler::CompileInstruction_rev(arm_inst* inst, unsigned inst_size) {
+    rev_inst* const inst_cream = (rev_inst*)inst->component;
+
+    Gen:X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+
+    MOV(32, R(Rd), GetArmRegisterValue(inst_cream->Rm));
+    BSWAP(32, R(Rd));
+}
+
 bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size) {
     teq_inst* const inst_cream = (teq_inst*)inst->component;
+
+    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     Gen::X64Reg Rn;
     if (inst_cream->Rn != 15) Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
@@ -1414,8 +1505,6 @@ bool Gen::JitCompiler::CompileInstruction_teq(arm_inst* inst, unsigned inst_size
         Rn = AcquireTemporaryRegister();
         MOV(32, R(Rn), Imm32(GetReg15(inst_size)));
     }
-
-    Gen::X64Reg operand = CompileShifterOperand(inst_cream->shtop_func, inst_cream->shifter_operand, true, inst_size);
 
     XOR(32, R(Rn), R(operand));
 
