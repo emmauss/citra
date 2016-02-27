@@ -104,7 +104,9 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 155: return CompileInstruction_mvn(inst, inst_size);
     case 156: return CompileInstruction_mov(inst, inst_size);
     case 158: return CompileInstruction_ldm(inst, inst_size);
+    case 159: return CompileInstruction_ldrsh(inst, inst_size);
     case 161: return CompileInstruction_ldm(inst, inst_size);
+    case 162: return CompileInstruction_ldrsb(inst, inst_size);
     case 166: return CompileInstruction_ldrd(inst, inst_size);
     case 169: return CompileInstruction_ldrb(inst, inst_size); // In usermode, LDRBT has some behaviour as LDRB.
     case 170: return CompileInstruction_ldr(inst, inst_size); // In usermode, LDRT has some behaviour as LDR.
@@ -861,7 +863,7 @@ Gen::X64Reg Gen::JitCompiler::CompileShifterOperand(shtop_fp_t shtop_func, unsig
     return Gen::INVALID_REG;
 }
 
-void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg addr_reg) {
+void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg addr_reg, bool sign_extend) {
     // This code is very fragile. It relies on the structure of PageTable.
     // This code assumes offsetof the pointers array in the PageTable struct is 0.
 
@@ -877,10 +879,15 @@ void Gen::JitCompiler::CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X
     SHR(32, R(addr_reg), Imm8(Memory::PAGE_BITS));
 
     MOV(64, R(page_table_reg), MComplex(page_table_reg, addr_reg, 8, 0));
+
     if (bits == 64) {
         MOV(64, R(dest), MComplex(page_table_reg, within_page, 1, 0));
     } else {
-        MOVZX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
+        if (!sign_extend) {
+            MOVZX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
+        } else {
+            MOVSX(64, bits, dest, MComplex(page_table_reg, within_page, 1, 0));
+        }
     }
 
     ReleaseTemporaryRegister(page_table_reg);
@@ -1352,7 +1359,7 @@ bool Gen::JitCompiler::CompileInstruction_ldm(arm_inst* inst, unsigned inst_size
         if (BIT(inst_cream->inst, i)) {
             addr_temp = AcquireTemporaryRegister();
             MOV(32, R(addr_temp), R(address));
-            CompileMemoryRead(32, value, addr_temp);
+            CompileMemoryRead(32, value, addr_temp, false);
 
             // For armv5t, should enter thumb when bits[0] is non-zero.
             if (i == 15) {
@@ -1383,14 +1390,14 @@ bool Gen::JitCompiler::CompileInstruction_ldr(arm_inst* inst, unsigned inst_size
     if (Rd_num != 15) {
         Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
         Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-        CompileMemoryRead(32, Rd, addr);
+        CompileMemoryRead(32, Rd, addr, false);
         ReleaseAllRegisters();
         this->pc += inst_size;
         return true;
     } else {
         Gen::X64Reg Rd = AcquireTemporaryRegister();
         Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-        CompileMemoryRead(32, Rd, addr);
+        CompileMemoryRead(32, Rd, addr, false);
         MOV(32, MJitStateCpuReg(15), R(Rd));
         ReleaseAllRegisters();
         this->pc += inst_size;
@@ -1407,7 +1414,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrb(arm_inst* inst, unsigned inst_siz
 
     Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
     Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-    CompileMemoryRead(8, Rd, addr);
+    CompileMemoryRead(8, Rd, addr, false);
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
@@ -1423,7 +1430,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrd(arm_inst* inst, unsigned inst_siz
     Gen::X64Reg Rd1 = AcquireArmRegister(Rd_num);
     Gen::X64Reg Rd2 = AcquireArmRegister(Rd_num+1);
     Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-    CompileMemoryRead(64, Rd1, addr);
+    CompileMemoryRead(64, Rd1, addr, false);
     MOV(64, R(Rd2), R(Rd1));
     SHR(64, R(Rd2), Imm8(32));
     ReleaseAllRegisters();
@@ -1443,7 +1450,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrexd(arm_inst* inst, unsigned inst_s
     MOV(32, MJitStateCpu(exclusive_tag), R(addr));
     AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
     MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
-    CompileMemoryRead(64, Rd1, addr);
+    CompileMemoryRead(64, Rd1, addr, false);
     MOV(64, R(Rd2), R(Rd1));
     SHR(64, R(Rd2), Imm8(32));
     ReleaseAllRegisters();
@@ -1462,7 +1469,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrexb(arm_inst* inst, unsigned inst_s
     MOV(32, MJitStateCpu(exclusive_tag), R(addr));
     AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
     MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
-    CompileMemoryRead(8, Rd, addr);
+    CompileMemoryRead(8, Rd, addr, false);
 
     ReleaseAllRegisters();
     this->pc += inst_size;
@@ -1481,7 +1488,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrex(arm_inst* inst, unsigned inst_si
     MOV(32, MJitStateCpu(exclusive_tag), R(addr));
     AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
     MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
-    CompileMemoryRead(32, Rd, addr);
+    CompileMemoryRead(32, Rd, addr, false);
 
     ReleaseAllRegisters();
     this->pc += inst_size;
@@ -1499,7 +1506,7 @@ bool Gen::JitCompiler::CompileInstruction_ldrexh(arm_inst* inst, unsigned inst_s
     MOV(32, MJitStateCpu(exclusive_tag), R(addr));
     AND(32, MJitStateCpu(exclusive_tag), Imm32(ARMul_State::RESERVATION_GRANULE_MASK));
     MOV(8, MJitStateCpu(exclusive_state), Imm8(1));
-    CompileMemoryRead(16, Rd, addr);
+    CompileMemoryRead(16, Rd, addr, false);
 
     ReleaseAllRegisters();
     this->pc += inst_size;
@@ -1515,11 +1522,42 @@ bool Gen::JitCompiler::CompileInstruction_ldrh(arm_inst* inst, unsigned inst_siz
 
     Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
     Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
-    CompileMemoryRead(16, Rd, addr);
+    CompileMemoryRead(16, Rd, addr, false);
     ReleaseAllRegisters();
     this->pc += inst_size;
     return true;
 }
+
+bool Gen::JitCompiler::CompileInstruction_ldrsb(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // ASSERT(CP15_reg1_Ubit == 0)
+    ASSERT(Rd_num != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+    CompileMemoryRead(8, Rd, addr, true);
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_ldrsh(arm_inst* inst, unsigned inst_size) {
+    ldst_inst* const inst_cream = (ldst_inst*)inst->component;
+    u32 Rd_num = BITS(inst_cream->inst, 12, 15);
+
+    // ASSERT(CP15_reg1_Ubit == 0)
+    ASSERT(Rd_num != 15); // Spec Note: UNPREDICTABLE behaviour
+
+    Gen::X64Reg Rd = AcquireArmRegister(Rd_num);
+    Gen::X64Reg addr = EnsureTemp(CompileCalculateAddress(inst_cream->get_addr, inst_cream->inst, inst_size));
+    CompileMemoryRead(8, Rd, addr, true);
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
 
 void Gen::JitCompiler::CompileMaybeJumpToBB(u32 new_pc) {
     ResetAllocation();

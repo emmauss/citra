@@ -105,7 +105,7 @@ private:
     Gen::X64Reg CompileCalculateAddress(get_addr_fp_t addr_func, u32 inst, unsigned inst_size);
 
     /// Warning: This destroys addr_reg
-    void CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg src_addr_reg);
+    void CompileMemoryRead(unsigned bits, Gen::X64Reg dest, Gen::X64Reg src_addr_reg, bool sign_extend);
     void CompileMemoryWrite(unsigned bits, Gen::X64Reg dest_addr_reg, Gen::X64Reg src);
 
     /// Update cycles_remaining before calling this function.
@@ -159,6 +159,8 @@ private:
     bool CompileInstruction_ldrexb(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_ldrexd(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_ldrexh(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrsb(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_ldrsh(arm_inst* inst, unsigned inst_size);
 
     bool CompileInstruction_bl(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_bx(arm_inst* inst, unsigned inst_size);
