@@ -90,6 +90,8 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 131: return CompileInstruction_tst(inst, inst_size);
     case 132: return CompileInstruction_teq(inst, inst_size);
     case 133: return CompileInstruction_cmn(inst, inst_size);
+    case 138: return CompileInstruction_mul(inst, inst_size);
+    case 139: return CompileInstruction_mla(inst, inst_size);
     case 144: return CompileInstruction_and(inst, inst_size);
     case 145: return CompileInstruction_bic(inst, inst_size);
     case 146: return CompileInstruction_ldm(inst, inst_size);
@@ -1002,6 +1004,67 @@ bool Gen::JitCompiler::CompileInstruction_orr(arm_inst* inst, unsigned inst_size
 
 bool Gen::JitCompiler::CompileInstruction_bic(arm_inst* inst, unsigned inst_size) {
     return CompileInstruction_Logical<bic_inst>(inst, inst_size, &Gen::XEmitter::AND, true);
+}
+
+bool Gen::JitCompiler::CompileInstruction_mla(arm_inst* inst, unsigned inst_size) {
+    mla_inst* const inst_cream = (mla_inst*)inst->component;
+
+    //Spec Note: Using R15 is UNPREDICTABLE
+
+    if (inst_cream->Rm == 15 || inst_cream->Rs == 15 || inst_cream->Rd == 15 || inst_cream->Rn == 15) {
+        this->pc += inst_size;
+        return true;
+    }
+
+    Gen::X64Reg Rn = AcquireArmRegister(inst_cream->Rn);
+    Gen::X64Reg Rs = AcquireArmRegister(inst_cream->Rs);
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
+
+    IMUL(32, Rm, R(Rs));
+    ADD(32, R(Rm), R(Rn));
+    MOV(32, R(Rd), R(Rm));
+
+    if (inst_cream->S) {
+        status_flag_update = true;
+        FLAG_SET_Z();
+        FLAG_SET_N();
+        // C, V are unaffected
+    }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_mul(arm_inst* inst, unsigned inst_size) {
+    mul_inst* const inst_cream = (mul_inst*)inst->component;
+
+    //Spec Note: Using R15 is UNPREDICTABLE
+
+    if (inst_cream->Rm == 15 || inst_cream->Rs == 15 || inst_cream->Rd == 15) {
+        this->pc += inst_size;
+        return true;
+    }
+
+    Gen::X64Reg Rs = AcquireArmRegister(inst_cream->Rs);
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
+
+    IMUL(32, Rm, R(Rs));
+    MOV(32, R(Rd), R(Rm));
+
+    if (inst_cream->S) {
+        status_flag_update = true;
+        TEST(32, R(Rd), R(Rd));
+        FLAG_SET_Z();
+        FLAG_SET_N();
+        // C, V are unaffected
+    }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
 }
 
 template<typename T>

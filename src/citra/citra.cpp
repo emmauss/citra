@@ -146,9 +146,11 @@ int main(int argc, char **argv) {
             inst |= (opcode << 20);
             inst |= ((rand(mt) % 15) << 18);
             inst |= ((rand(mt) % 15) << 12);
-            inst |= ((rand(mt) & 0xF) << 8);
-            inst |= ((rand(mt) % 8) << 4);
-            inst |= (rand(mt) & 0xF);
+            inst |= ((rand(mt) % 15) << 8);
+            int mid = rand(mt) % (opcode < 4 ? 9 : 8);
+            if (mid == 8) mid = 9;
+            inst |= mid << 4;
+            inst |= (rand(mt) % 15);
 
             Memory::Write32(addr_ptr, inst);
             addr_ptr += 4;
