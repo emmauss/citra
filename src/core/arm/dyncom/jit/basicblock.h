@@ -144,6 +144,9 @@ private:
     bool CompileInstruction_mla(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_mul(arm_inst* inst, unsigned inst_size);
 
+    bool CompileInstruction_pkhbt(arm_inst* inst, unsigned inst_size);
+    bool CompileInstruction_pkhtb(arm_inst* inst, unsigned inst_size);
+
     bool CompileInstruction_cmp(arm_inst* inst, unsigned inst_size);
     bool CompileInstruction_cmn(arm_inst* inst, unsigned inst_size);
 

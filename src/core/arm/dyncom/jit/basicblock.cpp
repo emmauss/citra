@@ -86,6 +86,8 @@ bool Gen::JitCompiler::CompileSingleInstruction() {
     case 98: return CompileInstruction_bx(inst, inst_size);
     case 105: return CompileInstruction_ldrex(inst, inst_size);
     case 109: return CompileInstruction_ldrexb(inst, inst_size);
+    case 123: return CompileInstruction_pkhtb(inst, inst_size);
+    case 124: return CompileInstruction_pkhbt(inst, inst_size);
     case 130: return CompileInstruction_cmp(inst, inst_size);
     case 131: return CompileInstruction_tst(inst, inst_size);
     case 132: return CompileInstruction_teq(inst, inst_size);
@@ -1061,6 +1063,44 @@ bool Gen::JitCompiler::CompileInstruction_mul(arm_inst* inst, unsigned inst_size
         FLAG_SET_N();
         // C, V are unaffected
     }
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_pkhbt(arm_inst* inst, unsigned inst_size) {
+    pkh_inst* const inst_cream = (pkh_inst*)inst->component;
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
+    Gen::X64Reg Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
+
+    AND(32, R(Rn), Imm32(0x0000FFFF));
+    SHL(32, R(Rm), Imm8(inst_cream->imm));
+    MOV(32, R(Rd), R(Rn));
+    AND(32, R(Rm), Imm32(0xFFFF0000));
+    OR(32, R(Rd), R(Rm));
+
+    ReleaseAllRegisters();
+    this->pc += inst_size;
+    return true;
+}
+
+bool Gen::JitCompiler::CompileInstruction_pkhtb(arm_inst* inst, unsigned inst_size) {
+    pkh_inst* const inst_cream = (pkh_inst*)inst->component;
+
+    if (inst_cream->imm == 0) inst_cream->imm = 31;
+
+    Gen::X64Reg Rd = AcquireArmRegister(inst_cream->Rd);
+    Gen::X64Reg Rm = AcquireCopyOfArmRegister(inst_cream->Rm);
+    Gen::X64Reg Rn = AcquireCopyOfArmRegister(inst_cream->Rn);
+
+    AND(32, R(Rn), Imm32(0xFFFF0000));
+    SAR(32, R(Rm), Imm8(inst_cream->imm));
+    MOV(32, R(Rd), R(Rn));
+    AND(32, R(Rm), Imm32(0x0000FFFF));
+    OR(32, R(Rd), R(Rm));
 
     ReleaseAllRegisters();
     this->pc += inst_size;
