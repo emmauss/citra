@@ -6,11 +6,10 @@
 
 #include "core/core.h"
 #include "core/arm/arm_interface.h"
-#include "core/hle/hle.h"
 #include "core/hle/service/ldr_ro.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/vm_manager.h"
-#include "common/file_util.h"
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Namespace LDR_RO
@@ -31,16 +30,16 @@ struct Patch {
     u8 unk3;
     u32 x;
 
-    u8 GetTargetSegment() { return offset & 0xF; }
-    u32 GetSegmentOffset() { return offset >> 4; }
+    u8 GetTargetSegment() const { return offset & 0xF; }
+    u32 GetSegmentOffset() const { return offset >> 4; }
 };
 
 struct Unk3Patch {
     u32 segment_offset;
     u32 patches_offset;
 
-    u8 GetTargetSegment() { return segment_offset & 0xF; }
-    u32 GetSegmentOffset() { return segment_offset >> 4; }
+    u8 GetTargetSegment() const { return segment_offset & 0xF; }
+    u32 GetSegmentOffset() const { return segment_offset >> 4; }
 };
 
 struct Unk2TableEntry {
@@ -55,15 +54,15 @@ struct Unk2Patch {
     u32 table2_offset;
     u32 table2_num;
 
-    Unk2TableEntry* GetTable1Entry(u32 index);
-    Unk2TableEntry* GetTable2Entry(u32 index);
+    Unk2TableEntry* GetTable1Entry(u32 index) const;
+    Unk2TableEntry* GetTable2Entry(u32 index) const;
 };
 
-Unk2TableEntry* Unk2Patch::GetTable1Entry(u32 index) {
+Unk2TableEntry* Unk2Patch::GetTable1Entry(u32 index) const {
     return reinterpret_cast<Unk2TableEntry*>(Memory::GetPointer(table1_offset) + sizeof(Unk2TableEntry) * index);
 }
 
-Unk2TableEntry* Unk2Patch::GetTable2Entry(u32 index) {
+Unk2TableEntry* Unk2Patch::GetTable2Entry(u32 index) const {
     return reinterpret_cast<Unk2TableEntry*>(Memory::GetPointer(table2_offset) + sizeof(Unk2TableEntry) * index);
 }
 
@@ -71,8 +70,8 @@ struct ExportTableEntry {
     u32 name_offset;
     u32 segment_offset;
 
-    u8 GetTargetSegment() { return segment_offset & 0xF; }
-    u32 GetSegmentOffset() { return segment_offset >> 4; }
+    u8 GetTargetSegment() const { return segment_offset & 0xF; }
+    u32 GetSegmentOffset() const { return segment_offset >> 4; }
 };
 
 struct ImportTableEntry {
@@ -86,8 +85,8 @@ struct ExportTreeEntry {
     u16 next_level;
     u16 export_table_id;
 
-    u8 GetTargetSegment() { return segment_offset & 0x7; }
-    u32 GetSegmentOffset() { return segment_offset >> 3; }
+    u8 GetTargetSegment() const { return segment_offset & 0x7; }
+    u32 GetSegmentOffset() const { return segment_offset >> 3; }
 };
 
 struct ExportedSymbol {
