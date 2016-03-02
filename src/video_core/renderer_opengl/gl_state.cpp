@@ -155,7 +155,7 @@ void OpenGLState::Apply() const {
 
     // Textures
     for (unsigned i = 0; i < ARRAY_SIZE(texture_units); ++i) {
-        auto& texture_2d = texture_units[i].texture_2d.lock();
+        const auto& texture_2d = texture_units[i].texture_2d.lock();
         GLuint texture_2d_handle = texture_2d != nullptr ? texture_2d->handle : 0;
         if (texture_2d_handle != cur_res_handles.texture_units[i].texture_2d) {
             glActiveTexture(GL_TEXTURE0 + i);
@@ -163,7 +163,7 @@ void OpenGLState::Apply() const {
             cur_res_handles.texture_units[i].texture_2d = texture_2d_handle;
         }
 
-        auto& sampler = texture_units[i].sampler.lock();
+        const auto& sampler = texture_units[i].sampler.lock();
         GLuint sampler_handle = sampler != nullptr ? sampler->handle : 0;
         if (sampler_handle != cur_res_handles.texture_units[i].sampler) {
             glBindSampler(i, sampler_handle);
@@ -173,7 +173,7 @@ void OpenGLState::Apply() const {
 
     // Lighting LUTs
     for (unsigned i = 0; i < ARRAY_SIZE(lighting_luts); ++i) {
-        auto& texture_1d = lighting_luts[i].texture_1d.lock();
+        const auto& texture_1d = lighting_luts[i].texture_1d.lock();
         GLuint texture_1d_handle = texture_1d != nullptr ? texture_1d->handle : 0;
         if (texture_1d_handle != cur_res_handles.lighting_luts[i].texture_1d) {
             glActiveTexture(GL_TEXTURE3 + i);
@@ -183,13 +183,13 @@ void OpenGLState::Apply() const {
     }
 
     // Framebuffer
-    auto& read_framebuffer = draw.read_framebuffer.lock();
+    const auto& read_framebuffer = draw.read_framebuffer.lock();
     GLuint read_framebuffer_handle = read_framebuffer != nullptr ? read_framebuffer->handle : 0;
     if (read_framebuffer_handle != cur_res_handles.draw.read_framebuffer) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, read_framebuffer_handle);
         cur_res_handles.draw.read_framebuffer = read_framebuffer_handle;
     }
-    auto& draw_framebuffer = draw.draw_framebuffer.lock();
+    const auto& draw_framebuffer = draw.draw_framebuffer.lock();
     GLuint draw_framebuffer_handle = draw_framebuffer != nullptr ? draw_framebuffer->handle : 0;
     if (draw_framebuffer_handle != cur_res_handles.draw.draw_framebuffer) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw_framebuffer_handle);
@@ -197,7 +197,7 @@ void OpenGLState::Apply() const {
     }
 
     // Vertex array
-    auto& vertex_array = draw.vertex_array.lock();
+    const auto& vertex_array = draw.vertex_array.lock();
     GLuint vertex_array_handle = vertex_array != nullptr ? vertex_array->handle : 0;
     if (vertex_array_handle != cur_res_handles.draw.vertex_array) {
         glBindVertexArray(vertex_array_handle);
@@ -205,7 +205,7 @@ void OpenGLState::Apply() const {
     }
 
     // Vertex buffer
-    auto& vertex_buffer = draw.vertex_buffer.lock();
+    const auto& vertex_buffer = draw.vertex_buffer.lock();
     GLuint vertex_buffer_handle = vertex_buffer != nullptr ? vertex_buffer->handle : 0;
     if (vertex_buffer_handle != cur_res_handles.draw.vertex_buffer) {
         glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_handle);
@@ -213,7 +213,7 @@ void OpenGLState::Apply() const {
     }
 
     // Uniform buffer
-    auto& uniform_buffer = draw.uniform_buffer.lock();
+    const auto& uniform_buffer = draw.uniform_buffer.lock();
     GLuint uniform_buffer_handle = uniform_buffer != nullptr ? uniform_buffer->handle : 0;
     if (uniform_buffer_handle != cur_res_handles.draw.uniform_buffer) {
         glBindBuffer(GL_UNIFORM_BUFFER, uniform_buffer_handle);
@@ -221,7 +221,7 @@ void OpenGLState::Apply() const {
     }
 
     // Shader program
-    auto& shader_program = draw.shader_program.lock();
+    const auto& shader_program = draw.shader_program.lock();
     GLuint shader_program_handle = shader_program != nullptr ? shader_program->handle : 0;
     if (shader_program_handle != cur_res_handles.draw.shader_program) {
         glUseProgram(shader_program_handle);
