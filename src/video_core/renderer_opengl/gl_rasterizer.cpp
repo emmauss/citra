@@ -546,8 +546,8 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
 
     CachedSurface dst_params;
     dst_params.addr = config.GetPhysicalOutputAddress();
-    dst_params.width = config.scaling != config.NoScale ? config.output_width / 2 : config.output_width;
-    dst_params.height = config.scaling == config.ScaleXY ? config.output_height / 2 : config.output_height;
+    dst_params.width = config.scaling != config.NoScale ? config.output_width / 2 : config.output_width.Value();
+    dst_params.height = config.scaling == config.ScaleXY ? config.output_height / 2 : config.output_height.Value();
     dst_params.is_tiled = ((config.input_linear && config.dont_swizzle) || (!config.input_linear && !config.dont_swizzle)) ? false : true;
     dst_params.pixel_format = CachedSurface::PixelFormatFromGPUPixelFormat(config.output_format);
 
