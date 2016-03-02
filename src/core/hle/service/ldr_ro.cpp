@@ -94,17 +94,21 @@ struct ExportedSymbol {
     u32 cro_base;
     u32 cro_offset;
 };
-
+              // ObjectHeader
 struct CROHeader {
     u8 sha2_hash[0x80];
-    char magic[4];
-    u32 name_offset;
-    u32 next_cro;
-    u32 previous_cro;
-    u32 file_size;
-    u32 unk_size1;
-    u32 unk_address;
-    INSERT_PADDING_WORDS(0x4);
+    char magic[4];    // signature
+    u32 name_offset;  // moduleName
+    u32 next_cro;     // LinkListNode.next
+    u32 previous_cro; // LinkListNode.prev
+    u32 file_size;    // size
+    u32 unk_size1;    // bufferSize
+    u32 unk_address;  // reserved0
+    u32 reserved1;
+    u32 control;      // SectionTypeOffsetPair
+    u32 prolog;       // SectionTypeOffsetPair
+    u32 epilog;       // SectionTypeOffsetPair
+    u32 unresolved;   // SectionTypeOffsetPair
     u32 segment_offset;
     u32 code_offset;
     u32 code_size;

@@ -193,7 +193,7 @@ public:
     }
 
 protected:
-    EmuWindow() {
+    EmuWindow(): client_area_width(0), client_area_height(0) {
         // TODO: Find a better place to set this.
         config.min_client_area_size = std::make_pair(400u, 480u);
         active_config = config;
