@@ -261,9 +261,13 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
     MICROPROFILE_SCOPE(OpenGL_SurfaceUpload);
 
     // No matching surfaces found, so create a new one
+    u8* texture_src_data = Memory::GetPhysicalPointer(params.addr);
+    if (texture_src_data == nullptr) {
+        return nullptr;
+    }
+
     std::shared_ptr<CachedSurface> new_surface = std::make_shared<CachedSurface>();
 
-    u8* texture_src_data = Memory::GetPhysicalPointer(params.addr);
     new_surface->addr = params.addr;
     new_surface->size = params_size;
 
@@ -566,6 +570,11 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
 
     MICROPROFILE_SCOPE(OpenGL_SurfaceDownload);
 
+    u8* dst_buffer = Memory::GetPhysicalPointer(surface->addr);
+    if (dst_buffer == nullptr) {
+        return;
+    }
+
     OpenGLState cur_state = OpenGLState::GetCurState();
     auto old_tex = cur_state.texture_units[0].texture_2d;
 
@@ -581,8 +590,6 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
             MathUtil::Rectangle<int>(0, 0, surface->GetScaledWidth(), surface->GetScaledHeight()),
             MathUtil::Rectangle<int>(0, 0, surface->width, surface->height));
     }
-
-    u8* dst_buffer = Memory::GetPhysicalPointer(surface->addr);
 
     cur_state.texture_units[0].texture_2d = texture_to_flush;
     cur_state.Apply();
