@@ -231,7 +231,17 @@ void OpenGLState::Apply() const {
     cur_state = *this;
 }
 
-void OpenGLState::ResetTexture(OGLTexture* texture) {
+GLenum OpenGLState::CheckFBStatus(GLenum target) {
+    GLenum fb_status = glCheckFramebufferStatus(target);
+    if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
+        const char* fb_description = (target == GL_READ_FRAMEBUFFER ? "READ" : (target == GL_DRAW_FRAMEBUFFER ? "DRAW" : "UNK"));
+        LOG_CRITICAL(Render_OpenGL, "OpenGL %s framebuffer check failed, status %X", fb_description, fb_status);
+    }
+
+    return fb_status;
+}
+
+void OpenGLState::ResetTexture(const OGLTexture* texture) {
     for (auto& unit : cur_state.texture_units) {
         if (unit.texture_2d.lock().get() == texture) {
             unit.texture_2d.reset();
@@ -241,7 +251,7 @@ void OpenGLState::ResetTexture(OGLTexture* texture) {
     cur_state.Apply();
 }
 
-void OpenGLState::ResetSampler(OGLSampler* sampler) {
+void OpenGLState::ResetSampler(const OGLSampler* sampler) {
     for (auto& unit : cur_state.texture_units) {
         if (unit.sampler.lock().get() == sampler) {
             unit.sampler.reset();
@@ -251,7 +261,7 @@ void OpenGLState::ResetSampler(OGLSampler* sampler) {
     cur_state.Apply();
 }
 
-void OpenGLState::ResetProgram(OGLShader* program) {
+void OpenGLState::ResetProgram(const OGLShader* program) {
     if (cur_state.draw.shader_program.lock().get() == program) {
         cur_state.draw.shader_program.reset();
     }
@@ -259,7 +269,7 @@ void OpenGLState::ResetProgram(OGLShader* program) {
     cur_state.Apply();
 }
 
-void OpenGLState::ResetBuffer(OGLBuffer* buffer) {
+void OpenGLState::ResetBuffer(const OGLBuffer* buffer) {
     if (cur_state.draw.vertex_buffer.lock().get() == buffer) {
         cur_state.draw.vertex_buffer.reset();
     }
@@ -270,7 +280,7 @@ void OpenGLState::ResetBuffer(OGLBuffer* buffer) {
     cur_state.Apply();
 }
 
-void OpenGLState::ResetVertexArray(OGLVertexArray* vertex_array) {
+void OpenGLState::ResetVertexArray(const OGLVertexArray* vertex_array) {
     if (cur_state.draw.vertex_array.lock().get() == vertex_array) {
         cur_state.draw.vertex_array.reset();
     }
@@ -278,7 +288,7 @@ void OpenGLState::ResetVertexArray(OGLVertexArray* vertex_array) {
     cur_state.Apply();
 }
 
-void OpenGLState::ResetFramebuffer(OGLFramebuffer* framebuffer) {
+void OpenGLState::ResetFramebuffer(const OGLFramebuffer* framebuffer) {
     if (cur_state.draw.read_framebuffer.lock().get() == framebuffer) {
         cur_state.draw.read_framebuffer.reset();
     }

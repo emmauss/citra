@@ -89,25 +89,19 @@ public:
         return cur_state;
     }
 
-    static GLenum CheckFBStatus(GLenum target) {
-        GLenum fb_status = glCheckFramebufferStatus(target);
-        if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
-            const char* fb_description = (target == GL_READ_FRAMEBUFFER ? "READ" : (target == GL_DRAW_FRAMEBUFFER ? "DRAW" : "UNK"));
-            LOG_CRITICAL(Render_OpenGL, "OpenGL %s framebuffer check failed, status %X", fb_description, fb_status);
-        }
-
-        return fb_status;
-    }
-
     /// Apply this state as the current OpenGL state
     void Apply() const;
 
-    static void ResetTexture(OGLTexture* texture);
-    static void ResetSampler(OGLSampler* sampler);
-    static void ResetProgram(OGLShader* program);
-    static void ResetBuffer(OGLBuffer* buffer);
-    static void ResetVertexArray(OGLVertexArray* vertex_array);
-    static void ResetFramebuffer(OGLFramebuffer* framebuffer);
+    /// Check the status of the current OpenGL read or draw framebuffer configuration
+    static GLenum CheckFBStatus(GLenum target);
+
+    /// Resets and unbinds any references to the given resource in the current OpenGL state
+    static void ResetTexture(const OGLTexture* texture);
+    static void ResetSampler(const OGLSampler* sampler);
+    static void ResetProgram(const OGLShader* program);
+    static void ResetBuffer(const OGLBuffer* buffer);
+    static void ResetVertexArray(const OGLVertexArray* vertex_array);
+    static void ResetFramebuffer(const OGLFramebuffer* framebuffer);
 
 private:
     static OpenGLState cur_state;
