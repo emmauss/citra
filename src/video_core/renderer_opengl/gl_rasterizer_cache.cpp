@@ -397,7 +397,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurfaceRect(const CachedSurface& params
 
     auto surface_interval = boost::icl::interval<PAddr>::right_open(params.addr, params.addr + params_size);
     auto cache_upper_bound = surface_cache.upper_bound(surface_interval);
-    for (auto it = surface_cache.lower_bound(surface_interval); it != surface_cache.end(); ++it) {
+    for (auto it = surface_cache.lower_bound(surface_interval); it != cache_upper_bound; ++it) {
         for (auto it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
             CachedSurface* surface = it2->get();
 
@@ -650,7 +650,7 @@ void RasterizerCacheOpenGL::FlushRegion(PAddr addr, u32 size, const CachedSurfac
     auto cache_upper_bound = surface_cache.upper_bound(surface_interval);
     for (auto it = surface_cache.lower_bound(surface_interval); it != cache_upper_bound; ++it) {
         std::copy_if(it->second.begin(), it->second.end(), std::inserter(touching_surfaces, touching_surfaces.end()),
-            [skip_surface](auto& surface) { return (surface.get() != skip_surface); });
+            [skip_surface](std::shared_ptr<CachedSurface> surface) { return (surface.get() != skip_surface); });
     }
 
     // Flush and invalidate surfaces
