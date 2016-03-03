@@ -176,9 +176,9 @@ void RasterizerOpenGL::DrawTriangles() {
     GLsizei viewport_height = (GLsizei)Pica::float24::FromRaw(regs.viewport_size_y).ToFloat32() * 2;
 
     // TODO: Verify this correctly offsets the viewport relative to the flipped vertical origin of the destination surface in all cases
-    glViewport((GLsizei)(regs.viewport_corner.x + rect.left) * color_surface->res_scale_width,
-               (GLsizei)(regs.viewport_corner.y + rect.top + (color_surface->height - regs.framebuffer.GetHeight())) * color_surface->res_scale_height,
-               viewport_width * color_surface->res_scale_width, viewport_height * color_surface->res_scale_height);
+    glViewport((GLint)((regs.viewport_corner.x + rect.left) * color_surface->res_scale_width),
+               (GLint)((regs.viewport_corner.y + rect.top + (color_surface->height - regs.framebuffer.GetHeight())) * color_surface->res_scale_height),
+               (GLsizei)(viewport_width * color_surface->res_scale_width), (GLsizei)(viewport_height * color_surface->res_scale_height));
 
     // Sync and bind the texture surfaces
     const auto pica_textures = regs.GetTextures();
@@ -588,15 +588,15 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
     }
 
     // Scale rect coordinates, in case not 1x scale
-    src_rect.left *= src_surface->res_scale_width;
-    src_rect.right *= src_surface->res_scale_width;
-    src_rect.top *= src_surface->res_scale_height;
-    src_rect.bottom *= src_surface->res_scale_height;
+    src_rect.left = (int)(src_rect.left * src_surface->res_scale_width);
+    src_rect.right = (int)(src_rect.right * src_surface->res_scale_width);
+    src_rect.top = (int)(src_rect.top * src_surface->res_scale_height);
+    src_rect.bottom = (int)(src_rect.bottom * src_surface->res_scale_height);
 
-    dst_rect.left *= dst_surface->res_scale_width;
-    dst_rect.right *= dst_surface->res_scale_width;
-    dst_rect.top *= dst_surface->res_scale_height;
-    dst_rect.bottom *= dst_surface->res_scale_height;
+    dst_rect.left = (int)(dst_rect.left *dst_surface->res_scale_width);
+    dst_rect.right = (int)(dst_rect.right *dst_surface->res_scale_width);
+    dst_rect.top = (int)(dst_rect.top *dst_surface->res_scale_height);
+    dst_rect.bottom = (int)(dst_rect.bottom *dst_surface->res_scale_height);
 
     if (!res_cache.TryBlitSurfaces(src_surface, dst_surface, src_rect, dst_rect)) {
         return false;
@@ -702,7 +702,7 @@ bool RasterizerOpenGL::AccelerateFill(const GPU::Regs::MemoryFillConfig& config)
     return true;
 }
 
-bool RasterizerOpenGL::AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, size_t pixel_stride, ScreenInfo& screen_info) {
+bool RasterizerOpenGL::AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, u32 pixel_stride, ScreenInfo& screen_info) {
     if (framebuffer_addr == 0) {
         return false;
     }

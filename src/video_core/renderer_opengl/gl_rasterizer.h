@@ -201,7 +201,7 @@ public:
     void FlushRegion(PAddr addr, u32 size, bool invalidate) override;
     bool AccelerateDisplayTransfer(const GPU::Regs::DisplayTransferConfig& config) override;
     bool AccelerateFill(const GPU::Regs::MemoryFillConfig& config) override;
-    bool AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, size_t pixel_stride, ScreenInfo& screen_info) override;
+    bool AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, u32 pixel_stride, ScreenInfo& screen_info) override;
 
 private:
 

@@ -46,7 +46,7 @@ public:
     virtual bool AccelerateFill(const GPU::Regs::MemoryFillConfig& config) { return false; }
 
     /// Attempt to use a faster method to display the framebuffer to screen
-    virtual bool AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, size_t pixel_stride, ScreenInfo& screen_info) { return false; }
+    virtual bool AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, u32 pixel_stride, ScreenInfo& screen_info) { return false; }
 };
 
 }

@@ -14,6 +14,7 @@
 #include "core/memory.h"
 
 #include "video_core/debug_utils/debug_utils.h"
+#include "video_core/pica_state.h"
 #include "video_core/renderer_opengl/gl_rasterizer_cache.h"
 #include "video_core/renderer_opengl/pica_to_gl.h"
 #include "video_core/utils.h"
@@ -222,7 +223,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
 
     // Check for an exact match in existing surfaces
     CachedSurface* best_exact_surface = nullptr;
-    int exact_surface_goodness = -1;
+    float exact_surface_goodness = -1.f;
 
     auto surface_interval = boost::icl::interval<PAddr>::right_open(params.addr, params.addr + params_size);
     auto range = surface_cache.equal_range(surface_interval);
@@ -242,7 +243,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
                     (!match_res_scale || res_scale_match))
                 {
                     // Prioritize same-tiling and highest resolution surfaces
-                    int match_goodness = (int)tiling_match + surface->res_scale_width * surface->res_scale_height;
+                    float match_goodness = (float)tiling_match + surface->res_scale_width * surface->res_scale_height;
                     if (match_goodness > exact_surface_goodness || surface->dirty) {
                         match_goodness = exact_surface_goodness;
                         best_exact_surface = surface;
@@ -389,11 +390,11 @@ CachedSurface* RasterizerCacheOpenGL::GetSurfaceRect(const CachedSurface& params
         return nullptr;
     }
 
-    size_t params_size = params.width * params.height * CachedSurface::GetFormatBpp(params.pixel_format) / 8;
+    u32 params_size = params.width * params.height * CachedSurface::GetFormatBpp(params.pixel_format) / 8;
 
     // Attempt to find encompassing surfaces
     CachedSurface* best_subrect_surface = nullptr;
-    int subrect_surface_goodness = -1;
+    float subrect_surface_goodness = -1.f;
 
     auto surface_interval = boost::icl::interval<PAddr>::right_open(params.addr, params.addr + params_size);
     auto cache_upper_bound = surface_cache.upper_bound(surface_interval);
@@ -414,7 +415,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurfaceRect(const CachedSurface& params
                     (!match_res_scale || res_scale_match))
                 {
                     // Prioritize same-tiling and highest resolution surfaces
-                    int match_goodness = (int)tiling_match + surface->res_scale_width * surface->res_scale_height;
+                    float match_goodness = (float)tiling_match + surface->res_scale_width * surface->res_scale_height;
                     if (match_goodness > subrect_surface_goodness || surface->dirty) {
                         match_goodness = subrect_surface_goodness;
                         best_subrect_surface = surface;
