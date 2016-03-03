@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 
 #include <boost/icl/interval_map.hpp>
 
@@ -20,13 +21,9 @@
 
 struct CachedSurface;
 
-typedef boost::icl::interval_map<PAddr, std::set<std::shared_ptr<CachedSurface>>> SurfaceCache;
+using SurfaceCache = boost::icl::interval_map<PAddr, std::set<std::shared_ptr<CachedSurface>>>;
 
 struct CachedSurface {
-    CachedSurface() : stride(0), res_scale_width(1.f), res_scale_height(1.f) {
-
-    }
-
     enum class PixelFormat {
         // First 5 formats are shared between textures and color buffers
         RGBA8        =  0,
@@ -64,7 +61,7 @@ struct CachedSurface {
     };
 
     static unsigned int GetFormatBpp(CachedSurface::PixelFormat format) {
-        static const unsigned int bpp_table[] = {
+        static const std::array<unsigned int, 18> bpp_table = {
             32, // RGBA8
             24, // RGB8
             16, // RGB5A1
@@ -135,15 +132,21 @@ struct CachedSurface {
     static SurfaceType GetFormatType(PixelFormat pixel_format) {
         if ((unsigned int)pixel_format < 5) {
             return SurfaceType::Color;
-        } else if ((unsigned int)pixel_format < 14) {
-            return SurfaceType::Texture;
-        } else if (pixel_format == PixelFormat::D16 || pixel_format == PixelFormat::D24) {
-            return SurfaceType::Depth;
-        } else if (pixel_format == PixelFormat::D24S8) {
-            return SurfaceType::DepthStencil;
-        } else {
-            return SurfaceType::Invalid;
         }
+
+        if ((unsigned int)pixel_format < 14) {
+            return SurfaceType::Texture;
+        }
+
+        if (pixel_format == PixelFormat::D16 || pixel_format == PixelFormat::D24) {
+            return SurfaceType::Depth;
+        }
+
+        if (pixel_format == PixelFormat::D24S8) {
+            return SurfaceType::DepthStencil;
+        }
+
+        return SurfaceType::Invalid;
     }
 
     u32 GetScaledWidth() const {
@@ -163,9 +166,9 @@ struct CachedSurface {
     std::shared_ptr<OGLTexture> texture;
     u32 width;
     u32 height;
-    u32 stride;
-    float res_scale_width;
-    float res_scale_height;
+    u32 stride = 0;
+    float res_scale_width = 1.f;
+    float res_scale_height = 1.f;
 
     bool is_tiled;
     PixelFormat pixel_format;
@@ -202,7 +205,7 @@ public:
     void FlushSurface(CachedSurface* surface);
 
     /// Write any cached resources overlapping the region back to memory (if dirty) and optionally invalidate them in the cache
-    void FlushRegion(PAddr addr, u32 size, CachedSurface* skip_surface, bool invalidate);
+    void FlushRegion(PAddr addr, u32 size, const CachedSurface* skip_surface, bool invalidate);
 
     /// Flush all cached resources tracked by this cache manager
     void FlushAll();

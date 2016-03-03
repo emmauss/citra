@@ -25,20 +25,20 @@ struct FormatTuple {
     GLenum type;
 };
 
-static const FormatTuple fb_format_tuples[] = {
+static const std::array<FormatTuple, 5> fb_format_tuples = {{
     { GL_RGBA8,   GL_RGBA, GL_UNSIGNED_INT_8_8_8_8 },   // RGBA8
     { GL_RGB8,    GL_BGR,  GL_UNSIGNED_BYTE },          // RGB8
     { GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1 }, // RGB5A1
     { GL_RGB565,  GL_RGB,  GL_UNSIGNED_SHORT_5_6_5 },   // RGB565
     { GL_RGBA4,   GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4 }, // RGBA4
-};
+}};
 
-static const FormatTuple depth_format_tuples[] = {
+static const std::array<FormatTuple, 4> depth_format_tuples = {{
     { GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT },    // D16
     {},
     { GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT },      // D24
     { GL_DEPTH24_STENCIL8,  GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8 }, // D24S8
-};
+}};
 
 RasterizerCacheOpenGL::RasterizerCacheOpenGL() {
     transfer_framebuffers[0] = std::make_shared<OGLFramebuffer>();
@@ -49,6 +49,50 @@ RasterizerCacheOpenGL::RasterizerCacheOpenGL() {
 
 RasterizerCacheOpenGL::~RasterizerCacheOpenGL() {
     FlushAll();
+}
+
+static void MortonCopyPixels(CachedSurface::PixelFormat pixel_format, u32 width, u32 height, u32 bytes_per_pixel, u32 gl_bytes_per_pixel, u8* morton_data, u8* gl_data, bool morton_to_gl) {
+    using PixelFormat = CachedSurface::PixelFormat;
+
+    u8* data_ptrs[2];
+    u32 depth_stencil_shifts[2] = {24, 8};
+
+    if (morton_to_gl) {
+        std::swap(depth_stencil_shifts[0], depth_stencil_shifts[1]);
+    }
+
+    if (pixel_format == PixelFormat::D24S8) {
+        for (unsigned y = 0; y < height; ++y) {
+            for (unsigned x = 0; x < width; ++x) {
+                const u32 coarse_y = y & ~7;
+                u32 morton_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * width * bytes_per_pixel;
+                u32 gl_pixel_index = (x + (height - 1 - y) * width) * gl_bytes_per_pixel;
+
+                data_ptrs[morton_to_gl] = morton_data + morton_offset;
+                data_ptrs[!morton_to_gl] = &gl_data[gl_pixel_index];
+
+                // Swap depth and stencil value ordering since 3DS does not match OpenGL
+                u32 depth_stencil = *(u32*)data_ptrs[1];
+                depth_stencil = (depth_stencil << depth_stencil_shifts[0]) | (depth_stencil >> depth_stencil_shifts[1]);
+                data_ptrs[1] = (u8*)&depth_stencil;
+
+                memcpy(data_ptrs[0], data_ptrs[1], bytes_per_pixel);
+            }
+        }
+    } else {
+        for (unsigned y = 0; y < height; ++y) {
+            for (unsigned x = 0; x < width; ++x) {
+                const u32 coarse_y = y & ~7;
+                u32 morton_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * width * bytes_per_pixel;
+                u32 gl_pixel_index = (x + (height - 1 - y) * width) * gl_bytes_per_pixel;
+
+                data_ptrs[morton_to_gl] = morton_data + morton_offset;
+                data_ptrs[!morton_to_gl] = &gl_data[gl_pixel_index];
+
+                memcpy(data_ptrs[0], data_ptrs[1], bytes_per_pixel);
+            }
+        }
+    }
 }
 
 bool RasterizerCacheOpenGL::BlitTextures(std::shared_ptr<OGLTexture> src_tex, std::shared_ptr<OGLTexture> dst_tex, CachedSurface::SurfaceType type, const MathUtil::Rectangle<int>& src_rect, const MathUtil::Rectangle<int>& dst_rect) {
@@ -270,7 +314,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
                     tuple = { GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE };
                 }
 
-                std::unique_ptr<Math::Vec4<u8>[]> tex_buffer(new Math::Vec4<u8>[params.width * params.height]);
+                std::vector<Math::Vec4<u8>> tex_buffer(params.width * params.height);
 
                 Pica::DebugUtils::TextureInfo tex_info;
                 tex_info.width = params.width;
@@ -284,48 +328,29 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
                         tex_buffer[x + params.width * y] = Pica::DebugUtils::LookupTexture(texture_src_data, x, params.height - 1 - y, tex_info);
                     }
                 }
-                glTexImage2D(GL_TEXTURE_2D, 0, tuple.internal_format, params.width, params.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_buffer.get());
+
+                glTexImage2D(GL_TEXTURE_2D, 0, tuple.internal_format, params.width, params.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_buffer.data());
             } else {
                 // Depth/Stencil formats need special treatment since they aren't sampleable using LookupTexture and can't use RGBA format
-                u32 bytes_per_pixel = CachedSurface::GetFormatBpp(params.pixel_format) / 8;
-
-                // OpenGL needs 4 bpp alignment for D24
-                u32 gl_bpp = bytes_per_pixel == 3 ? 4 : bytes_per_pixel;
-
-                std::unique_ptr<u8[]> temp_fb_depth_buffer(new u8[params.width * params.height * gl_bpp]);
-
-                u8* temp_fb_depth_data = bytes_per_pixel == 3 ? (temp_fb_depth_buffer.get() + 1) : temp_fb_depth_buffer.get();
-
-                if (params.pixel_format == PixelFormat::D24S8) {
-                    for (unsigned y = 0; y < params.height; ++y) {
-                        for (unsigned x = 0; x < params.width; ++x) {
-                            const u32 coarse_y = y & ~7;
-                            u32 dst_offset = VideoCore::GetMortonOffset(x, y, 4) + coarse_y * params.width * 4;
-                            u32 gl_pixel_index = (x + (params.height - 1 - y) * params.width);
-
-                            u8* pixel = texture_src_data + dst_offset;
-                            u32 depth_stencil = *(u32*)pixel;
-                            ((u32*)temp_fb_depth_data)[gl_pixel_index] = (depth_stencil << 8) | (depth_stencil >> 24);
-                        }
-                    }
-                } else {
-                    for (unsigned y = 0; y < params.height; ++y) {
-                        for (unsigned x = 0; x < params.width; ++x) {
-                            const u32 coarse_y = y & ~7;
-                            u32 dst_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * params.width * bytes_per_pixel;
-                            u32 gl_pixel_index = (x + (params.height - 1 - y) * params.width) * gl_bpp;
-
-                            u8* pixel = texture_src_data + dst_offset;
-                            memcpy(&temp_fb_depth_data[gl_pixel_index], pixel, bytes_per_pixel);
-                        }
-                    }
-                }
-
                 unsigned int tuple_idx = (unsigned int)params.pixel_format - 14;
                 ASSERT(tuple_idx < ARRAY_SIZE(depth_format_tuples));
                 const FormatTuple& tuple = depth_format_tuples[tuple_idx];
+
+                u32 bytes_per_pixel = CachedSurface::GetFormatBpp(params.pixel_format) / 8;
+
+                // OpenGL needs 4 bpp alignment for D24 since using GL_UNSIGNED_INT as type
+                bool use_4bpp = (params.pixel_format == PixelFormat::D24);
+
+                u32 gl_bytes_per_pixel = use_4bpp ? 4 : bytes_per_pixel;
+
+                std::vector<u8> temp_fb_depth_buffer(params.width * params.height * gl_bytes_per_pixel);
+
+                u8* temp_fb_depth_buffer_ptr = use_4bpp ? temp_fb_depth_buffer.data() + 1 : temp_fb_depth_buffer.data();
+
+                MortonCopyPixels(params.pixel_format, params.width, params.height, bytes_per_pixel, gl_bytes_per_pixel, texture_src_data, temp_fb_depth_buffer_ptr, true);
+
                 glTexImage2D(GL_TEXTURE_2D, 0, tuple.internal_format, params.width, params.height, 0,
-                             tuple.format, tuple.type, temp_fb_depth_buffer.get());
+                             tuple.format, tuple.type, temp_fb_depth_buffer.data());
             }
         }
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
@@ -577,21 +602,12 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
 
             u32 bytes_per_pixel = CachedSurface::GetFormatBpp(surface->pixel_format) / 8;
 
-            std::unique_ptr<u8[]> temp_gl_buffer(new u8[surface->width * surface->height * bytes_per_pixel]);
+            std::vector<u8> temp_gl_buffer(surface->width * surface->height * bytes_per_pixel);
 
-            glGetTexImage(GL_TEXTURE_2D, 0, tuple.format, tuple.type, temp_gl_buffer.get());
+            glGetTexImage(GL_TEXTURE_2D, 0, tuple.format, tuple.type, temp_gl_buffer.data());
 
             // Directly copy pixels. Internal OpenGL color formats are consistent so no conversion is necessary.
-            for (unsigned y = 0; y < surface->height; ++y) {
-                for (unsigned x = 0; x < surface->width; ++x) {
-                    const u32 coarse_y = y & ~7;
-                    u32 dst_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * surface->width * bytes_per_pixel;
-                    u32 gl_pixel_index = x * bytes_per_pixel + (surface->height - 1 - y) * surface->width * bytes_per_pixel;
-
-                    u8* pixel = dst_buffer + dst_offset;
-                    memcpy(pixel, &temp_gl_buffer[gl_pixel_index], bytes_per_pixel);
-                }
-            }
+            MortonCopyPixels(surface->pixel_format, surface->width, surface->height, bytes_per_pixel, bytes_per_pixel, dst_buffer, temp_gl_buffer.data(), false);
         } else {
             // Depth/Stencil formats need special treatment since they aren't sampleable using LookupTexture and can't use RGBA format
             unsigned int tuple_idx = (unsigned int)surface->pixel_format - 14;
@@ -600,39 +616,18 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
 
             u32 bytes_per_pixel = CachedSurface::GetFormatBpp(surface->pixel_format) / 8;
 
-            // OpenGL needs 4 bpp alignment for D24
-            u32 gl_bpp = bytes_per_pixel == 3 ? 4 : bytes_per_pixel;
+            // OpenGL needs 4 bpp alignment for D24 since using GL_UNSIGNED_INT as type
+            bool use_4bpp = (surface->pixel_format == PixelFormat::D24);
 
-            std::unique_ptr<u8[]> temp_gl_buffer(new u8[surface->width * surface->height * gl_bpp]);
+            u32 gl_bytes_per_pixel = use_4bpp ? 4 : bytes_per_pixel;
 
-            glGetTexImage(GL_TEXTURE_2D, 0, tuple.format, tuple.type, temp_gl_buffer.get());
+            std::vector<u8> temp_gl_buffer(surface->width * surface->height * gl_bytes_per_pixel);
 
-            u8* temp_gl_depth_data = bytes_per_pixel == 3 ? (temp_gl_buffer.get() + 1) : temp_gl_buffer.get();
+            glGetTexImage(GL_TEXTURE_2D, 0, tuple.format, tuple.type, temp_gl_buffer.data());
 
-            if (surface->pixel_format == PixelFormat::D24S8) {
-                for (unsigned y = 0; y < surface->height; ++y) {
-                    for (unsigned x = 0; x < surface->width; ++x) {
-                        const u32 coarse_y = y & ~7;
-                        u32 dst_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * surface->width * bytes_per_pixel;
-                        u32 gl_pixel_index = (x + (surface->height - 1 - y) * surface->width);
+            u8* temp_gl_buffer_ptr = use_4bpp ? temp_gl_buffer.data() + 1 : temp_gl_buffer.data();
 
-                        u8* pixel = dst_buffer + dst_offset;
-                        u32 depth_stencil = ((u32*)temp_gl_depth_data)[gl_pixel_index];
-                        *(u32*)pixel = (depth_stencil >> 8) | (depth_stencil << 24);
-                    }
-                }
-            } else {
-                for (unsigned y = 0; y < surface->height; ++y) {
-                    for (unsigned x = 0; x < surface->width; ++x) {
-                        const u32 coarse_y = y & ~7;
-                        u32 dst_offset = VideoCore::GetMortonOffset(x, y, bytes_per_pixel) + coarse_y * surface->width * bytes_per_pixel;
-                        u32 gl_pixel_index = (x + (surface->height - 1 - y) * surface->width) * gl_bpp;
-
-                        u8* pixel = dst_buffer + dst_offset;
-                        memcpy(pixel, &temp_gl_depth_data[gl_pixel_index], bytes_per_pixel);
-                    }
-                }
-            }
+            MortonCopyPixels(surface->pixel_format, surface->width, surface->height, bytes_per_pixel, gl_bytes_per_pixel, dst_buffer, temp_gl_buffer_ptr, false);
         }
     }
     glPixelStorei(GL_PACK_ROW_LENGTH, 0);
@@ -643,7 +638,7 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
     cur_state.Apply();
 }
 
-void RasterizerCacheOpenGL::FlushRegion(PAddr addr, u32 size, CachedSurface* skip_surface, bool invalidate) {
+void RasterizerCacheOpenGL::FlushRegion(PAddr addr, u32 size, const CachedSurface* skip_surface, bool invalidate) {
     if (size == 0) {
         return;
     }
@@ -654,14 +649,8 @@ void RasterizerCacheOpenGL::FlushRegion(PAddr addr, u32 size, CachedSurface* ski
     auto surface_interval = boost::icl::interval<PAddr>::right_open(addr, addr + size);
     auto cache_upper_bound = surface_cache.upper_bound(surface_interval);
     for (auto it = surface_cache.lower_bound(surface_interval); it != cache_upper_bound; ++it) {
-        for (auto it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
-            CachedSurface* surface = it2->get();
-            if (surface == skip_surface) {
-                continue;
-            }
-
-            touching_surfaces.insert(*it2);
-        }
+        std::copy_if(it->second.begin(), it->second.end(), std::inserter(touching_surfaces, touching_surfaces.end()),
+            [skip_surface](auto& surface) { return (surface.get() != skip_surface); });
     }
 
     // Flush and invalidate surfaces
