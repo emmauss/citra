@@ -42,7 +42,7 @@ public:
     }
 
 private:
-    float24 pos;
+    //float24 pos;
     Math::Vec4<float24> coeffs;
     Math::Vec4<float24> bias;
 };

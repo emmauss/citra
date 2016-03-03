@@ -43,7 +43,7 @@ namespace Pica {
 struct Regs {
 
     INSERT_PADDING_WORDS(0x10);
-
+    /*0x10*/
     u32 trigger_irq;
 
     INSERT_PADDING_WORDS(0x2f);
@@ -55,15 +55,15 @@ struct Regs {
         KeepCounterClockWise = 2,
         // TODO: What does the third value imply?
     };
-
+    /*0x40*/
     union {
         BitField<0, 2, CullMode> cull_mode;
     };
-
+    /*0x41*/
     BitField<0, 24, u32> viewport_size_x;
-
+    /*0x42*/
     INSERT_PADDING_WORDS(0x1);
-
+    /*0x43*/
     BitField<0, 24, u32> viewport_size_y;
 
     INSERT_PADDING_WORDS(0x9);
@@ -96,6 +96,7 @@ struct Regs {
             TEXCOORD0_V  = 13,
             TEXCOORD1_U  = 14,
             TEXCOORD1_V  = 15,
+
 
             // TODO: Not verified
             VIEW_X       = 18,
@@ -1057,7 +1058,7 @@ struct Regs {
     // These registers are used to setup the default "fall-back" vertex shader attributes
     struct {
         // Index of the current default attribute
-        u32 index;
+        u32  index;
 
         // Writing to these registers sets the "current" default attribute.
         u32 set_value[3];

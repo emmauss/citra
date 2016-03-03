@@ -90,10 +90,13 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
                 auto& setup = regs.vs_default_attributes_setup;
 
+                setup.index &= 0xF;
+                /*
                 if (setup.index >= 16) {
                     LOG_ERROR(HW_GPU, "Invalid VS default attribute index %d", (int)setup.index);
                     break;
                 }
+                */
 
                 Math::Vec4<float24>& attribute = g_state.vs.default_attributes[setup.index];
 
