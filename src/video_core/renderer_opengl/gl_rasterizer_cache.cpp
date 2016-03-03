@@ -73,11 +73,11 @@ static void MortonCopyPixels(CachedSurface::PixelFormat pixel_format, u32 width,
                 data_ptrs[!morton_to_gl] = &gl_data[gl_pixel_index];
 
                 // Swap depth and stencil value ordering since 3DS does not match OpenGL
-                u32 depth_stencil = *(u32*)data_ptrs[1];
+                u32 depth_stencil;
+                memcpy(&depth_stencil, data_ptrs[1], sizeof(u32));
                 depth_stencil = (depth_stencil << depth_stencil_shifts[0]) | (depth_stencil >> depth_stencil_shifts[1]);
-                data_ptrs[1] = (u8*)&depth_stencil;
 
-                memcpy(data_ptrs[0], data_ptrs[1], bytes_per_pixel);
+                memcpy(data_ptrs[0], &depth_stencil, sizeof(u32));
             }
         }
     } else {
@@ -187,11 +187,11 @@ static void AllocateSurfaceTexture(std::shared_ptr<OGLTexture> texture, CachedSu
 
     FormatTuple tuple;
     if (type == SurfaceType::Color) {
-        ASSERT((unsigned int)pixel_format < ARRAY_SIZE(fb_format_tuples));
+        ASSERT((size_t)pixel_format < fb_format_tuples.size());
         tuple = fb_format_tuples[(unsigned int)pixel_format];
     } else if (type == SurfaceType::Depth || type == SurfaceType::DepthStencil) {
-        unsigned int tuple_idx = (unsigned int)pixel_format - 14;
-        ASSERT(tuple_idx < ARRAY_SIZE(depth_format_tuples));
+        size_t tuple_idx = (size_t)pixel_format - 14;
+        ASSERT(tuple_idx < depth_format_tuples.size());
         tuple = depth_format_tuples[tuple_idx];
     } else {
         tuple = { GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE };
@@ -303,7 +303,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
         glPixelStorei(GL_UNPACK_ROW_LENGTH, (GLint)new_surface->stride);
         if (!new_surface->is_tiled) {
             // TODO: Ensure this will always be a color format, not a depth or other format
-            ASSERT((unsigned int)new_surface->pixel_format < ARRAY_SIZE(fb_format_tuples));
+            ASSERT((size_t)new_surface->pixel_format < fb_format_tuples.size());
             const FormatTuple& tuple = fb_format_tuples[(unsigned int)params.pixel_format];
 
             glTexImage2D(GL_TEXTURE_2D, 0, tuple.internal_format, params.width, params.height, 0,
@@ -312,7 +312,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
             SurfaceType type = CachedSurface::GetFormatType(new_surface->pixel_format);
             if (type != SurfaceType::Depth && type != SurfaceType::DepthStencil) {
                 FormatTuple tuple;
-                if ((unsigned int)params.pixel_format < ARRAY_SIZE(fb_format_tuples)) {
+                if ((size_t)params.pixel_format < fb_format_tuples.size()) {
                     tuple = fb_format_tuples[(unsigned int)params.pixel_format];
                 } else {
                     // Texture
@@ -337,8 +337,8 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
                 glTexImage2D(GL_TEXTURE_2D, 0, tuple.internal_format, params.width, params.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_buffer.data());
             } else {
                 // Depth/Stencil formats need special treatment since they aren't sampleable using LookupTexture and can't use RGBA format
-                unsigned int tuple_idx = (unsigned int)params.pixel_format - 14;
-                ASSERT(tuple_idx < ARRAY_SIZE(depth_format_tuples));
+                size_t tuple_idx = (size_t)params.pixel_format - 14;
+                ASSERT(tuple_idx < depth_format_tuples.size());
                 const FormatTuple& tuple = depth_format_tuples[tuple_idx];
 
                 u32 bytes_per_pixel = CachedSurface::GetFormatBpp(params.pixel_format) / 8;
@@ -598,14 +598,14 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
     glPixelStorei(GL_PACK_ROW_LENGTH, (GLint)surface->stride);
     if (!surface->is_tiled) {
         // TODO: Ensure this will always be a color format, not a depth or other format
-        ASSERT((unsigned int)surface->pixel_format < ARRAY_SIZE(fb_format_tuples));
+        ASSERT((size_t)surface->pixel_format < fb_format_tuples.size());
         const FormatTuple& tuple = fb_format_tuples[(unsigned int)surface->pixel_format];
 
         glGetTexImage(GL_TEXTURE_2D, 0, tuple.format, tuple.type, dst_buffer);
     } else {
         SurfaceType type = CachedSurface::GetFormatType(surface->pixel_format);
         if (type != SurfaceType::Depth && type != SurfaceType::DepthStencil) {
-            ASSERT((unsigned int)surface->pixel_format < ARRAY_SIZE(fb_format_tuples));
+            ASSERT((size_t)surface->pixel_format < fb_format_tuples.size());
             const FormatTuple& tuple = fb_format_tuples[(unsigned int)surface->pixel_format];
 
             u32 bytes_per_pixel = CachedSurface::GetFormatBpp(surface->pixel_format) / 8;
@@ -618,8 +618,8 @@ void RasterizerCacheOpenGL::FlushSurface(CachedSurface* surface) {
             MortonCopyPixels(surface->pixel_format, surface->width, surface->height, bytes_per_pixel, bytes_per_pixel, dst_buffer, temp_gl_buffer.data(), false);
         } else {
             // Depth/Stencil formats need special treatment since they aren't sampleable using LookupTexture and can't use RGBA format
-            unsigned int tuple_idx = (unsigned int)surface->pixel_format - 14;
-            ASSERT(tuple_idx < ARRAY_SIZE(depth_format_tuples));
+            size_t tuple_idx = (size_t)surface->pixel_format - 14;
+            ASSERT(tuple_idx < depth_format_tuples.size());
             const FormatTuple& tuple = depth_format_tuples[tuple_idx];
 
             u32 bytes_per_pixel = CachedSurface::GetFormatBpp(surface->pixel_format) / 8;

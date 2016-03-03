@@ -131,12 +131,13 @@ inline void Write(u32 addr, const T data) {
                         }
                     } else if (config.fill_32bit) {
                         // fill with 32-bit values
-                        for (u32* ptr = (u32*)start; ptr < (u32*)end; ++ptr)
-                            *ptr = config.value_32bit;
+                        for (u8* ptr = start; ptr < end; ptr += sizeof(u32))
+                            memcpy(ptr, &config.value_32bit, sizeof(u32));
                     } else {
                         // fill with 16-bit values
-                        for (u16* ptr = (u16*)start; ptr < (u16*)end; ++ptr)
-                            *ptr = config.value_16bit;
+                        u16 value_16bit = config.value_16bit.Value();
+                        for (u8* ptr = start; ptr < end; ptr += sizeof(u16))
+                            memcpy(ptr, &value_16bit, sizeof(u16));
                     }
                 }
 
