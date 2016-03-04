@@ -136,9 +136,10 @@ T ReadMMIO(MMIORegionPointer mmio_handler, VAddr addr);
 template <typename T>
 T Read(const VAddr vaddr) {
     const u8* page_pointer = current_page_table->pointers[vaddr >> PAGE_BITS];
-    if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
-        VideoCore::g_renderer->rasterizer->FlushRegion(Memory::VirtualToPhysicalAddress(vaddr), sizeof(T), false);
     if (page_pointer) {
+        if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
+            FlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T), false);
+
         T value;
         std::memcpy(&value, &page_pointer[vaddr & PAGE_MASK], sizeof(T));
         return value;
@@ -165,9 +166,10 @@ void WriteMMIO(MMIORegionPointer mmio_handler, VAddr addr, const T data);
 template <typename T>
 void Write(const VAddr vaddr, const T data) {
     u8* page_pointer = current_page_table->pointers[vaddr >> PAGE_BITS];
-    if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
-        VideoCore::g_renderer->rasterizer->FlushRegion(Memory::VirtualToPhysicalAddress(vaddr), sizeof(T), true);
     if (page_pointer) {
+        if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
+            FlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T), true);
+
         std::memcpy(&page_pointer[vaddr & PAGE_MASK], &data, sizeof(T));
         return;
     }
@@ -217,6 +219,12 @@ void MarkRegionCached(PAddr start, u32 size, bool value) {
         }
         paddr += PAGE_SIZE;
     }
+}
+
+void FlushRegion(PAddr start, u32 size, bool invalidate) {
+    // This is the common dispatch point to tell all components to
+    // flush any resources they have cached that touch the given region
+    VideoCore::g_renderer->rasterizer->FlushRegion(start, size, invalidate);
 }
 
 u8 Read8(const VAddr addr) {

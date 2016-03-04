@@ -103,6 +103,7 @@ ResultVal<bool> File::SyncRequest() {
             u32 address = cmd_buff[5];
             LOG_TRACE(Service_FS, "Read %s %s: offset=0x%llx length=%d address=0x%x",
                       GetTypeName().c_str(), GetName().c_str(), offset, length, address);
+            Memory::FlushRegion(Memory::VirtualToPhysicalAddress(address), length, true);
             cmd_buff[2] = static_cast<u32>(backend->Read(offset, length, Memory::GetPointer(address)));
             break;
         }

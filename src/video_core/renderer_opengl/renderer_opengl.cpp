@@ -192,7 +192,7 @@ void RendererOpenGL::LoadFBToScreenInfo(const GPU::Regs::FramebufferConfig& fram
         screen_info.display_texture = screen_info.texture.resource;
         screen_info.display_texcoords = MathUtil::Rectangle<float>(0.f, 0.f, 1.f, 1.f);
 
-        rasterizer->FlushRegion(framebuffer_addr, framebuffer.stride * framebuffer.height, false);
+        Memory::FlushRegion(framebuffer_addr, framebuffer.stride * framebuffer.height, false);
 
         const u8* framebuffer_data = Memory::GetPhysicalPointer(framebuffer_addr);
 

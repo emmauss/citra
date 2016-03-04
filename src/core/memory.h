@@ -154,4 +154,9 @@ u8* GetPhysicalPointer(PAddr address);
  */
 void MarkRegionCached(PAddr start, u32 size, bool value);
 
+/**
+ * Flushes and optionally invalidates any externally cached resources touching the given region
+ */
+void FlushRegion(PAddr start, u32 size, bool invalidate);
+
 }

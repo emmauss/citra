@@ -12,9 +12,6 @@
 #include "core/hle/service/y2r_u.h"
 #include "core/hw/y2r.h"
 
-#include "video_core/renderer_base.h"
-#include "video_core/video_core.h"
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Namespace Y2R_U
 
@@ -263,10 +260,8 @@ static void StartConversion(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     // dst_image_size would seem to be perfect for this, but it doesn't include the gap :(
-    u32 total_output_size = conversion.input_lines *
-        (conversion.dst.transfer_unit + conversion.dst.gap);
-    VideoCore::g_renderer->rasterizer->FlushRegion(
-        Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size, true);
+    u32 total_output_size = conversion.input_lines * (conversion.dst.transfer_unit + conversion.dst.gap);
+    Memory::FlushRegion(Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size, true);
 
     HW::Y2R::PerformConversion(conversion);
 

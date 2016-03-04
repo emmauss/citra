@@ -289,8 +289,7 @@ CachedSurface* RasterizerCacheOpenGL::GetSurface(const CachedSurface& params, bo
     } else {
         // TODO: Consider attempting subrect match in existing surfaces and direct blit here instead of memory upload below if that's a common scenario in some game
 
-        // Flush any dirty surfaces in the new surface's region
-        FlushRegion(params.addr, params_size, nullptr, false);
+        Memory::FlushRegion(params.addr, params_size, false);
 
         // Load data from memory to the new surface
         OpenGLState cur_state = OpenGLState::GetCurState();

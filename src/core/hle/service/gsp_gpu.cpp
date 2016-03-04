@@ -15,8 +15,6 @@
 
 #include "video_core/gpu_debugger.h"
 #include "video_core/debug_utils/debug_utils.h"
-#include "video_core/renderer_base.h"
-#include "video_core/video_core.h"
 
 #include "gsp_gpu.h"
 
@@ -364,10 +362,10 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
     // GX request DMA - typically used for copying memory from GSP heap to VRAM
     case CommandId::REQUEST_DMA:
         // TODO: Consider attempting rasterizer-accelerated surface blit if that usage is ever possible/likely
-        VideoCore::g_renderer->rasterizer->FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.source_address),
-                                                       command.dma_request.size, false);
-        VideoCore::g_renderer->rasterizer->FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.dest_address),
-                                                       command.dma_request.size, true);
+        Memory::FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.source_address),
+                            command.dma_request.size, false);
+        Memory::FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.dest_address),
+                            command.dma_request.size, true);
 
         memcpy(Memory::GetPointer(command.dma_request.dest_address),
                Memory::GetPointer(command.dma_request.source_address),

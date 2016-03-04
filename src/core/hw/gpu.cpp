@@ -120,7 +120,7 @@ inline void Write(u32 addr, const T data) {
                 //       Fill should first flush all surfaces that touch but are not completely within the fill range
                 //       Then fill all completely covered surfaces, and return the regions that were between surfaces or within the touching ones for cpu to manually fill here
                 if (!VideoCore::g_renderer->rasterizer->AccelerateFill(config)) {
-                    VideoCore::g_renderer->rasterizer->FlushRegion(config.GetStartAddress(), config.GetEndAddress() - config.GetStartAddress(), true);
+                    Memory::FlushRegion(config.GetStartAddress(), config.GetEndAddress() - config.GetStartAddress(), true);
 
                     if (config.fill_24bit) {
                         // fill with 24-bit values
@@ -185,10 +185,10 @@ inline void Write(u32 addr, const T data) {
                     u32 output_gap = config.texture_copy.output_gap * 16;
 
                     size_t contiguous_input_size = config.texture_copy.size / t_input_width * (t_input_width + input_gap);
-                    VideoCore::g_renderer->rasterizer->FlushRegion(config.GetPhysicalInputAddress(), contiguous_input_size, false);
+                    Memory::FlushRegion(config.GetPhysicalInputAddress(), contiguous_input_size, false);
 
                     size_t contiguous_output_size = config.texture_copy.size / t_output_width * (t_output_width + output_gap);
-                    VideoCore::g_renderer->rasterizer->FlushRegion(config.GetPhysicalOutputAddress(), contiguous_output_size, true);
+                    Memory::FlushRegion(config.GetPhysicalOutputAddress(), contiguous_output_size, true);
 
                     u32 remaining_size = config.texture_copy.size;
                     u32 remaining_input = t_input_width;
@@ -239,8 +239,8 @@ inline void Write(u32 addr, const T data) {
                 u32 input_size = config.input_width * config.input_height * GPU::Regs::BytesPerPixel(config.input_format);
                 u32 output_size = output_width * output_height * GPU::Regs::BytesPerPixel(config.output_format);
 
-                VideoCore::g_renderer->rasterizer->FlushRegion(config.GetPhysicalInputAddress(), input_size, false);
-                VideoCore::g_renderer->rasterizer->FlushRegion(config.GetPhysicalOutputAddress(), output_size, true);
+                Memory::FlushRegion(config.GetPhysicalInputAddress(), input_size, false);
+                Memory::FlushRegion(config.GetPhysicalOutputAddress(), output_size, true);
 
                 for (u32 y = 0; y < output_height; ++y) {
                     for (u32 x = 0; x < output_width; ++x) {
