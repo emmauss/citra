@@ -531,23 +531,20 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
         return false;
     }
 
+    bool horizontal_scale = config.scaling != config.NoScale;
+    bool vertical_scale = config.scaling == config.ScaleXY;
+
     CachedSurface src_params;
     src_params.addr = config.GetPhysicalInputAddress();
-    // TODO: Ensure this is correct behavior of crop_input_lines
-    if (config.crop_input_lines) {
-        src_params.width = config.output_width;
-        src_params.height = config.output_height;
-    } else {
-        src_params.width = config.input_width;
-        src_params.height = config.input_height;
-    }
+    src_params.width = config.output_width;
+    src_params.height = config.output_height;
     src_params.is_tiled = !config.input_linear;
     src_params.pixel_format = CachedSurface::PixelFormatFromGPUPixelFormat(config.input_format);
 
     CachedSurface dst_params;
     dst_params.addr = config.GetPhysicalOutputAddress();
-    dst_params.width = config.scaling != config.NoScale ? config.output_width / 2 : config.output_width.Value();
-    dst_params.height = config.scaling == config.ScaleXY ? config.output_height / 2 : config.output_height.Value();
+    dst_params.width = config.output_width >> horizontal_scale;
+    dst_params.height = config.output_height >> vertical_scale;
     dst_params.is_tiled = ((config.input_linear && config.dont_swizzle) || (!config.input_linear && !config.dont_swizzle)) ? false : true;
     dst_params.pixel_format = CachedSurface::PixelFormatFromGPUPixelFormat(config.output_format);
 
@@ -572,7 +569,6 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
         return false;
     }
 
-    // TODO: Double check these offset calculations
     if (src_params.is_tiled) {
         src_rect.top = src_surface->height - src_rect.top;
         src_rect.bottom = src_surface->height - src_rect.bottom;
@@ -593,10 +589,10 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
     src_rect.top = (int)(src_rect.top * src_surface->res_scale_height);
     src_rect.bottom = (int)(src_rect.bottom * src_surface->res_scale_height);
 
-    dst_rect.left = (int)(dst_rect.left *dst_surface->res_scale_width);
-    dst_rect.right = (int)(dst_rect.right *dst_surface->res_scale_width);
-    dst_rect.top = (int)(dst_rect.top *dst_surface->res_scale_height);
-    dst_rect.bottom = (int)(dst_rect.bottom *dst_surface->res_scale_height);
+    dst_rect.left = (int)(dst_rect.left * dst_surface->res_scale_width);
+    dst_rect.right = (int)(dst_rect.right * dst_surface->res_scale_width);
+    dst_rect.top = (int)(dst_rect.top * dst_surface->res_scale_height);
+    dst_rect.bottom = (int)(dst_rect.bottom * dst_surface->res_scale_height);
 
     if (!res_cache.TryBlitSurfaces(src_surface, dst_surface, src_rect, dst_rect)) {
         return false;
