@@ -17,68 +17,79 @@ namespace HLE {
 
 static bool is_active = false;
 
-static size_t audio_pipe_position = 0;
-
-// DSP addresses address 16-bit words, hence the division by two.
-// These DSP addresses are converted by the application into ARM11 virtual addresses using
-// the dsp::DSP ConvertProcessAddressFromDspDram service call.
-
-constexpr size_t num_structs = 15;
-static const std::array<u16_le, num_structs + 1> audio_pipe_payload = {
-    num_structs,
-    0x8000 + offsetof(SharedMemory, frame_counter) / 2,
-    0x8000 + offsetof(SharedMemory, source_configurations) / 2,
-    0x8000 + offsetof(SharedMemory, source_statuses) / 2,
-    0x8000 + offsetof(SharedMemory, adpcm_coefficients) / 2,
-    0x8000 + offsetof(SharedMemory, dsp_configuration) / 2,
-    0x8000 + offsetof(SharedMemory, dsp_status) / 2,
-    0x8000 + offsetof(SharedMemory, final_samples) / 2,
-    0x8000 + offsetof(SharedMemory, intermediate_mix_samples) / 2,
-    0x8000 + offsetof(SharedMemory, compressor) / 2,
-    0x8000 + offsetof(SharedMemory, dsp_debug) / 2,
-    0x8000 + offsetof(SharedMemory, unknown10) / 2,
-    0x8000 + offsetof(SharedMemory, unknown11) / 2,
-    0x8000 + offsetof(SharedMemory, unknown12) / 2,
-    0x8000 + offsetof(SharedMemory, unknown13) / 2,
-    0x8000 + offsetof(SharedMemory, unknown14) / 2
-};
+static std::array<std::vector<u8>, static_cast<size_t>(DspPipe::DspPipe_MAX)> pipe_data;
 
 void ResetPipes() {
-    audio_pipe_position = 0;
+    for (auto& data : pipe_data) {
+        data.clear();
+    }
     is_active = false;
 }
 
 std::vector<u8> PipeRead(DspPipe pipe_number, u32 length) {
-    switch (pipe_number) {
-    case DspPipe::Audio: {
-        const static size_t max_end = sizeof(audio_pipe_payload); ///< Length of the entire response in bytes
-        const static u8* entire_response_bytes = reinterpret_cast<const u8*>(audio_pipe_payload.data());
-
-        // Start and end positions of this read request.
-        size_t start = audio_pipe_position;
-        size_t end = audio_pipe_position + length;
-        if (end > max_end) end = max_end;
-
-        audio_pipe_position = end;
-        ASSERT(audio_pipe_position <= max_end);
-
-        return std::vector<u8>(entire_response_bytes + start, entire_response_bytes + end);
-    }
-    default:
-        LOG_CRITICAL(Audio_DSP, "pipe_number = %u unimplemented", pipe_number);
-        UNIMPLEMENTED();
+    if (pipe_number >= DspPipe::DspPipe_MAX) {
+        LOG_ERROR(Audio_DSP, "pipe_number = %u invalid", pipe_number);
         return {};
     }
+
+    std::vector<u8>& data = pipe_data[static_cast<size_t>(pipe_number)];
+
+    if (length > data.size()) {
+        LOG_WARNING(Audio_DSP, "pipe_number = %u is out of data, application requested read of %u but %zu remain",
+                    pipe_number, length, data.size());
+        length = data.size();
+    }
+
+    if (length == 0)
+        return {};
+
+    std::vector<u8> ret(data.begin(), data.begin() + length);
+    data.erase(data.begin(), data.begin() + length);
+    return ret;
 }
 
 size_t GetPipeReadableSize(DspPipe pipe_number) {
-    switch (pipe_number) {
-    case DspPipe::Audio:
-        return sizeof(audio_pipe_payload) - audio_pipe_position;
-    default:
-        LOG_CRITICAL(Audio_DSP, "pipe_number = %u unimplemented", pipe_number);
-        UNIMPLEMENTED();
+    if (pipe_number >= DspPipe::DspPipe_MAX) {
+        LOG_ERROR(Audio_DSP, "pipe_number = %u invalid", pipe_number);
         return 0;
+    }
+
+    return pipe_data[static_cast<size_t>(pipe_number)].size();
+}
+
+static void WriteU16(DspPipe pipe_number, u16 value) {
+    std::vector<u8>& data = pipe_data[static_cast<size_t>(pipe_number)];
+    // Little endian
+    data.emplace_back(value & 0xFF);
+    data.emplace_back(value >> 8);
+}
+
+static void AudioPipeWriteStructAddresses() {
+    // These struct addresses are DSP dram addresses.
+    // See also: DSP_DSP::ConvertProcessAddressFromDspDram
+    static const std::array<u16, 15> struct_addresses = {
+        0x8000 + offsetof(SharedMemory, frame_counter) / 2,
+        0x8000 + offsetof(SharedMemory, source_configurations) / 2,
+        0x8000 + offsetof(SharedMemory, source_statuses) / 2,
+        0x8000 + offsetof(SharedMemory, adpcm_coefficients) / 2,
+        0x8000 + offsetof(SharedMemory, dsp_configuration) / 2,
+        0x8000 + offsetof(SharedMemory, dsp_status) / 2,
+        0x8000 + offsetof(SharedMemory, final_samples) / 2,
+        0x8000 + offsetof(SharedMemory, intermediate_mix_samples) / 2,
+        0x8000 + offsetof(SharedMemory, compressor) / 2,
+        0x8000 + offsetof(SharedMemory, dsp_debug) / 2,
+        0x8000 + offsetof(SharedMemory, unknown10) / 2,
+        0x8000 + offsetof(SharedMemory, unknown11) / 2,
+        0x8000 + offsetof(SharedMemory, unknown12) / 2,
+        0x8000 + offsetof(SharedMemory, unknown13) / 2,
+        0x8000 + offsetof(SharedMemory, unknown14) / 2
+    };
+
+    // Begin with a u16 denoting the number of structs.
+    WriteU16(DspPipe::Audio, struct_addresses.size());
+    // Then write the struct addresses.
+    for (u16 addr : struct_addresses) {
+        WriteU16(DspPipe::Audio, addr);
     }
 }
 
@@ -102,6 +113,7 @@ void PipeWrite(DspPipe pipe_number, const std::vector<u8>& buffer) {
         case StateChange::Initalize:
             LOG_INFO(Audio_DSP, "Application has requested initialization of DSP hardware");
             ResetPipes();
+            AudioPipeWriteStructAddresses();
             is_active = true;
             break;
         case StateChange::Shutdown:
