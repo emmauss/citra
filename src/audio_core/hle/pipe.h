@@ -18,7 +18,8 @@ enum class DspPipe {
     Debug = 0,
     Dma = 1,
     Audio = 2,
-    Binary = 3
+    Binary = 3,
+    DspPipe_MAX
 };
 
 /**
