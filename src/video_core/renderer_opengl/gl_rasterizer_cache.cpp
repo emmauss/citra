@@ -431,12 +431,21 @@ CachedSurface* RasterizerCacheOpenGL::GetSurfaceRect(const CachedSurface& params
     // Return the best subrect surface if found
     if (best_subrect_surface != nullptr) {
         unsigned int bytes_per_pixel = (CachedSurface::GetFormatBpp(best_subrect_surface->pixel_format) / 8);
-        u32 bytes_per_tile = 8 * 8 * bytes_per_pixel;
-        u32 tiles_per_row = best_subrect_surface->width / 8;
 
-        u32 begin_tile_index = (params.addr - best_subrect_surface->addr) / bytes_per_tile;
-        int x0 = begin_tile_index % tiles_per_row * 8;
-        int y0 = begin_tile_index / tiles_per_row * 8;
+        int x0, y0;
+
+        if (!params.is_tiled) {
+            u32 begin_pixel_index = (params.addr - best_subrect_surface->addr) / bytes_per_pixel;
+            x0 = begin_pixel_index % best_subrect_surface->width;
+            y0 = begin_pixel_index / best_subrect_surface->width;
+        } else {
+            u32 bytes_per_tile = 8 * 8 * bytes_per_pixel;
+            u32 tiles_per_row = best_subrect_surface->width / 8;
+
+            u32 begin_tile_index = (params.addr - best_subrect_surface->addr) / bytes_per_tile;
+            x0 = begin_tile_index % tiles_per_row * 8;
+            y0 = begin_tile_index / tiles_per_row * 8;
+        }
 
         out_rect = MathUtil::Rectangle<int>(x0, y0, x0 + params.width, y0 + params.height);
 
