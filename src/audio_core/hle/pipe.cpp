@@ -15,7 +15,7 @@
 namespace DSP {
 namespace HLE {
 
-static bool is_active = false;
+static DspState dsp_state = DspState::Off;
 
 static std::array<std::vector<u8>, static_cast<size_t>(DspPipe::DspPipe_MAX)> pipe_data;
 
@@ -23,7 +23,7 @@ void ResetPipes() {
     for (auto& data : pipe_data) {
         data.clear();
     }
-    is_active = false;
+    dsp_state = DspState::Off;
 }
 
 std::vector<u8> PipeRead(DspPipe pipe_number, u32 length) {
@@ -104,33 +104,41 @@ void PipeWrite(DspPipe pipe_number, const std::vector<u8>& buffer) {
         enum class StateChange {
             Initalize = 0,
             Shutdown = 1,
-            // The below two state changes have only been observed when going into / coming out of sleep.
             Wakeup = 2,
             Sleep = 3
         };
+
+        // The difference between Initialize and Wakeup is that Input state is maintained
+        // when sleeping but isn't when turning it off and on again. (TODO: Implement this.)
+        // Waking up from sleep garbles some of the structs in the memory region. (TODO:
+        // Implement this.) Applications store away the state of these structs before
+        // sleeping and reset it back after wakeup on behalf of the DSP.
 
         switch (static_cast<StateChange>(buffer[0])) {
         case StateChange::Initalize:
             LOG_INFO(Audio_DSP, "Application has requested initialization of DSP hardware");
             ResetPipes();
             AudioPipeWriteStructAddresses();
-            is_active = true;
+            dsp_state = DspState::On;
             break;
         case StateChange::Shutdown:
             LOG_INFO(Audio_DSP, "Application has requested shutdown of DSP hardware");
-            is_active = false;
+            dsp_state = DspState::Off;
             break;
         case StateChange::Wakeup:
-            LOG_CRITICAL(Audio_DSP, "(Unimplemented) Wakeup state transition");
-            UNIMPLEMENTED();
+            LOG_INFO(Audio_DSP, "Application has requested wakeup of DSP hardware");
+            ResetPipes();
+            AudioPipeWriteStructAddresses();
+            dsp_state = DspState::On;
             break;
         case StateChange::Sleep:
-            LOG_CRITICAL(Audio_DSP, "(Unimplemented) Sleep state transition");
+            LOG_INFO(Audio_DSP, "Application has requested sleep of DSP hardware");
             UNIMPLEMENTED();
+            dsp_state = DspState::Sleeping;
             break;
         default:
             LOG_ERROR(Audio_DSP, "Application has requested unknown state transition of DSP hardware %hhu", buffer[0]);
-            is_active = false;
+            dsp_state = DspState::Off;
             break;
         }
 
@@ -143,8 +151,8 @@ void PipeWrite(DspPipe pipe_number, const std::vector<u8>& buffer) {
     }
 }
 
-bool IsActivated() {
-    return is_active;
+DspState GetDspState() {
+    return dsp_state;
 }
 
 } // namespace HLE

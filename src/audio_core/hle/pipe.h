@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include "common/common_types.h"
@@ -35,7 +36,7 @@ std::vector<u8> PipeRead(DspPipe pipe_number, u32 length);
  * @param pipe_number The Pipe ID
  * @return The amount of data remaning in the pipe. This is the maximum length PipeRead will return.
  */
-std::size_t GetPipeReadableSize(DspPipe pipe_number);
+size_t GetPipeReadableSize(DspPipe pipe_number);
 
 /**
  * Write to a DSP pipe.
@@ -44,8 +45,13 @@ std::size_t GetPipeReadableSize(DspPipe pipe_number);
  */
 void PipeWrite(DspPipe pipe_number, const std::vector<u8>& buffer);
 
-/// Has the DSP hardware been activated by the application?
-bool IsActivated();
+enum class DspState {
+    Off,
+    On,
+    Sleeping
+};
+/// Get the state of the DSP
+DspState GetDspState();
 
 } // namespace HLE
 } // namespace DSP

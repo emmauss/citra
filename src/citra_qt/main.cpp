@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <clocale>
 #include <thread>
 
 #include <QDesktopWidget>
@@ -170,6 +171,8 @@ GMainWindow::GMainWindow() : emu_thread(nullptr)
         ui.menu_recent_files->addAction(actions_recent_files[i]);
     }
     UpdateRecentFiles();
+
+    confirm_before_closing = settings.value("confirmClose", true).toBool();
 
     // Setup connections
     connect(game_list, SIGNAL(GameChosen(QString)), this, SLOT(OnGameListLoadFile(QString)));
@@ -497,7 +500,22 @@ void GMainWindow::OnConfigure() {
     //GControllerConfigDialog* dialog = new GControllerConfigDialog(controller_ports, this);
 }
 
+bool GMainWindow::ConfirmClose() {
+    if (emu_thread == nullptr || !confirm_before_closing)
+        return true;
+
+    auto answer = QMessageBox::question(this, tr("Citra"),
+                                        tr("Are you sure you want to close Citra?"),
+                                        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    return answer != QMessageBox::No;
+}
+
 void GMainWindow::closeEvent(QCloseEvent* event) {
+    if (!ConfirmClose()) {
+        event->ignore();
+        return;
+    }
+
     // Save window layout
     QSettings settings(QSettings::IniFormat, QSettings::UserScope, "Citra team", "Citra");
 
@@ -512,6 +530,7 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     settings.setValue("singleWindowMode", ui.action_Single_Window_Mode->isChecked());
     settings.setValue("displayTitleBars", ui.actionDisplay_widget_title_bars->isChecked());
     settings.setValue("firstStart", false);
+    settings.setValue("confirmClose", confirm_before_closing);
     game_list->SaveInterfaceLayout(settings);
     SaveHotkeys(settings);
 
@@ -544,6 +563,9 @@ int main(int argc, char* argv[]) {
 
     QApplication::setAttribute(Qt::AA_X11InitThreads);
     QApplication app(argc, argv);
+
+    // Qt changes the locale and causes issues in float conversion using std::to_string() when generating shaders
+    setlocale(LC_ALL, "C");
 
     GMainWindow main_window;
     // After settings have been loaded by GMainWindow, apply the filter

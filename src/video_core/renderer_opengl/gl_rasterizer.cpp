@@ -19,6 +19,7 @@
 #include "core/hw/gpu.h"
 
 #include "video_core/pica.h"
+#include "video_core/pica_state.h"
 #include "video_core/utils.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_gen.h"
@@ -886,8 +887,10 @@ void RasterizerOpenGL::SyncStencilTest() {
 
 void RasterizerOpenGL::SyncDepthTest() {
     const auto& regs = Pica::g_state.regs;
-    state.depth.test_enabled = (regs.output_merger.depth_test_enable == 1);
-    state.depth.test_func = PicaToGL::CompareFunc(regs.output_merger.depth_test_func);
+    state.depth.test_enabled = regs.output_merger.depth_test_enable  == 1 ||
+                               regs.output_merger.depth_write_enable == 1;
+    state.depth.test_func = regs.output_merger.depth_test_enable == 1 ?
+                            PicaToGL::CompareFunc(regs.output_merger.depth_test_func) : GL_ALWAYS;
     state.color_mask.red_enabled = regs.output_merger.red_enable;
     state.color_mask.green_enabled = regs.output_merger.green_enable;
     state.color_mask.blue_enabled = regs.output_merger.blue_enable;
