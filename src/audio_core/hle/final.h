@@ -4,8 +4,16 @@
 
 #pragma once
 
+#include "audio_core/hle/dsp.h"
+
 namespace DSP {
 namespace HLE {
+
+void FinalInit();
+
+void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamples& samples);
+
+const Frame16& FinalFrame();
 
 }
 }

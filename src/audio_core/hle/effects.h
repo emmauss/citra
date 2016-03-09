@@ -4,8 +4,17 @@
 
 #pragma once
 
+#include "audio_core/hle/common.h"
+#include "audio_core/hle/dsp.h"
+
 namespace DSP {
 namespace HLE {
+
+void EffectsInit();
+
+void EffectsUpdate(const DspConfiguration& config, IntermediateMixSamples& samples);
+
+const Frame32& IntermediateMixFrame(int mix_id);
 
 }
 }

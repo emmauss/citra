@@ -12,6 +12,7 @@ set(SRCS
 set(HEADERS
             audio_core.h
             codec.h
+            hle/common.h
             hle/effects.h
             hle/dsp.h
             hle/final.h

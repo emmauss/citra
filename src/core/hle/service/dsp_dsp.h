@@ -34,4 +34,7 @@ void SignalAllInterrupts();
  */
 void SignalInterrupt(u32 interrupt_id, u32 channel_id);
 
+/// Returns true it the application signalled the semaphore, then clears the semaphore.
+bool SemaphoreSignalled();
+
 } // namespace

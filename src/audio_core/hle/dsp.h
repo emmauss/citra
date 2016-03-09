@@ -126,25 +126,28 @@ struct SourceConfiguration {
         union {
             u32_le dirty_raw;
 
-            BitField<2, 1, u32_le> adpcm_coefficients_dirty;
-            BitField<3, 1, u32_le> partial_embedded_buffer_dirty; ///< Tends to be set when a looped buffer is queued.
+            BitField<0, 1, u32_le> format_dirty;
+            BitField<1, 1, u32_le> mono_or_stereo_dirty;
+            BitField<2, 1, u32_le> adpcm_coefficients_dirty; //
+            BitField<3, 1, u32_le> partial_embedded_buffer_dirty; ///< length, flags2, buffer_id
+            BitField<4, 1, u32_le> partial_reset_flag;
 
-            BitField<16, 1, u32_le> enable_dirty;
-            BitField<17, 1, u32_le> interpolation_dirty;
-            BitField<18, 1, u32_le> rate_multiplier_dirty;
-            BitField<19, 1, u32_le> buffer_queue_dirty;
-            BitField<20, 1, u32_le> loop_related_dirty;
-            BitField<21, 1, u32_le> play_position_dirty; ///< Tends to also be set when embedded buffer is updated.
-            BitField<22, 1, u32_le> filters_enabled_dirty;
-            BitField<23, 1, u32_le> simple_filter_dirty;
-            BitField<24, 1, u32_le> biquad_filter_dirty;
-            BitField<25, 1, u32_le> gain_0_dirty;
-            BitField<26, 1, u32_le> gain_1_dirty;
-            BitField<27, 1, u32_le> gain_2_dirty;
-            BitField<28, 1, u32_le> sync_dirty;
-            BitField<29, 1, u32_le> reset_flag;
-
-            BitField<31, 1, u32_le> embedded_buffer_dirty;
+            BitField<16, 1, u32_le> enable_dirty; //
+            BitField<17, 1, u32_le> interpolation_dirty; //
+            BitField<18, 1, u32_le> rate_multiplier_dirty; //
+            BitField<19, 1, u32_le> buffer_queue_dirty; //
+            BitField<20, 1, u32_le> loop_related_dirty; //
+            BitField<21, 1, u32_le> play_position_dirty; //
+            BitField<22, 1, u32_le> filters_enabled_dirty; //
+            BitField<23, 1, u32_le> simple_filter_dirty; //
+            BitField<24, 1, u32_le> biquad_filter_dirty;//
+            BitField<25, 1, u32_le> gain_0_dirty; //
+            BitField<26, 1, u32_le> gain_1_dirty; //
+            BitField<27, 1, u32_le> gain_2_dirty; //
+            BitField<28, 1, u32_le> sync_dirty; //
+            BitField<29, 1, u32_le> reset_flag; //
+            BitField<30, 1, u32_le> embedded_buffer_dirty;
+            BitField<31, 1, u32_le> unknown_flag; //
         };
 
         // Gain control
@@ -327,6 +330,13 @@ struct DspConfiguration {
     union {
         u32_le dirty_raw;
 
+        BitField<0, 1, u32_le> unknown10_dirty;
+        BitField<1, 1, u32_le> unknown11_dirty;
+        BitField<2, 1, u32_le> unknown12_dirty;
+        BitField<3, 1, u32_le> unknown13_dirty;
+        BitField<4, 1, u32_le> unknown14_dirty;
+        BitField<5, 1, u32_le> unknown15_dirty;
+
         BitField<8, 1, u32_le> mixer1_enabled_dirty;
         BitField<9, 1, u32_le> mixer2_enabled_dirty;
         BitField<10, 1, u32_le> delay_effect_0_dirty;
@@ -334,6 +344,7 @@ struct DspConfiguration {
         BitField<12, 1, u32_le> reverb_effect_0_dirty;
         BitField<13, 1, u32_le> reverb_effect_1_dirty;
 
+        BitField<15, 1, u32_le> unknown17_dirty;
         BitField<16, 1, u32_le> volume_0_dirty;
 
         BitField<24, 1, u32_le> volume_1_dirty;
@@ -341,12 +352,16 @@ struct DspConfiguration {
         BitField<26, 1, u32_le> output_format_dirty;
         BitField<27, 1, u32_le> limiter_enabled_dirty;
         BitField<28, 1, u32_le> headphones_connected_dirty;
+
+        BitField<30, 1, u32_le> unknown16_dirty;
+        BitField<31, 1, u32_le> unknown18_dirty;
     };
 
     /// The DSP has three intermediate audio mixers. This controls the volume level (0.0-1.0) for each at the final mixer
     float_le volume[3];
 
-    INSERT_PADDING_DSPWORDS(3);
+    u16 unknown17;
+    INSERT_PADDING_DSPWORDS(2);
 
     enum class OutputFormat : u16_le {
         Mono = 0,
@@ -358,7 +373,10 @@ struct DspConfiguration {
 
     u16_le limiter_enabled;      ///< Not sure of the exact gain equation for the limiter.
     u16_le headphones_connected; ///< Application updates the DSP on headphone status.
-    INSERT_PADDING_DSPWORDS(4);  ///< TODO: Surround sound related
+    INSERT_PADDING_DSPWORDS(1);  ///< TODO: Surround sound related
+    u16 unknown16;
+    u16 unknown15;
+    u16 unknown18;
     INSERT_PADDING_DSPWORDS(2);  ///< TODO: Intermediate mixer 1/2 related
     u16_le mixer1_enabled;
     u16_le mixer2_enabled;
@@ -476,24 +494,28 @@ struct SharedMemory {
     AdpcmCoefficients adpcm_coefficients;
 
     struct {
-        INSERT_PADDING_DSPWORDS(0x100);
+        u16 unknown[256];
     } unknown10;
 
     struct {
-        INSERT_PADDING_DSPWORDS(0xC0);
+        u16 unknown[192];
     } unknown11;
 
     struct {
-        INSERT_PADDING_DSPWORDS(0x180);
+        u16 unknown[384];
     } unknown12;
 
     struct {
-        INSERT_PADDING_DSPWORDS(0xA);
+        // biq
+        u32_dsp unknown[5];
     } unknown13;
 
     struct {
-        INSERT_PADDING_DSPWORDS(0x13A3);
+        // biq
+        u32_dsp unknown[5];
     } unknown14;
+
+    INSERT_PADDING_DSPWORDS(0x1399);
 
     u16_le frame_counter;
 };
