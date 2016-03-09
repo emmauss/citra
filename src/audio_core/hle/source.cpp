@@ -157,50 +157,52 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
     config.dirty_raw = 0;
 }
 
-static void AdvanceFrame(State& s) {
+static void DequeueBuffer(State& s) {
+    ASSERT(!s.queue.empty());
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-    if (s.current_buffer[0].empty()) {
-        if (s.queue.empty()) {
-            return;
-        }
+    ASSERT(s.current_buffer[0].empty());
 
-        const Buffer buf = s.queue.top();
-        s.queue.pop();
+    const Buffer buf = s.queue.top();
+    s.queue.pop();
 
-        const u8* const memory = Memory::GetPhysicalPointer(buf.physical_address);
-        const unsigned num_channels = s.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
+    const u8* const memory = Memory::GetPhysicalPointer(buf.physical_address);
+    ASSERT(memory);
+    const unsigned num_channels = s.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
 
-        if (buf.adpcm_dirty) {
-            s.adpcm_state.yn1 = buf.adpcm_yn[0];
-            s.adpcm_state.yn2 = buf.adpcm_yn[1];
-        }
-
-        if (buf.is_looping) {
-            LOG_ERROR(Audio_DSP, "Looped buffers are unimplemented at the moment");
-        }
-
-        switch (s.format) {
-        case Format::PCM8:
-            s.current_buffer = Codec::DecodePCM8(num_channels, memory, buf.length);
-            break;
-        case Format::PCM16:
-            s.current_buffer = Codec::DecodePCM16(num_channels, memory, buf.length);
-            break;
-        case Format::ADPCM:
-            s.current_buffer = Codec::DecodeADPCM(memory, buf.length, s.adpcm_coeffs, s.adpcm_state);
-            break;
-        default:
-            UNIMPLEMENTED();
-            break;
-        }
-
-        s.current_sample_number = s.next_sample_number = 0;
-        s.current_buffer_id = buf.buffer_id;
-        s.buffer_update = buf.from_queue;
+    if (buf.adpcm_dirty) {
+        s.adpcm_state.yn1 = buf.adpcm_yn[0];
+        s.adpcm_state.yn2 = buf.adpcm_yn[1];
     }
 
+    if (buf.is_looping) {
+        LOG_ERROR(Audio_DSP, "Looped buffers are unimplemented at the moment");
+    }
+
+    switch (s.format) {
+    case Format::PCM8:
+        s.current_buffer = Codec::DecodePCM8(num_channels, memory, buf.length);
+        break;
+    case Format::PCM16:
+        s.current_buffer = Codec::DecodePCM16(num_channels, memory, buf.length);
+        break;
+    case Format::ADPCM:
+        s.current_buffer = Codec::DecodeADPCM(memory, buf.length, s.adpcm_coeffs, s.adpcm_state);
+        break;
+    default:
+        UNIMPLEMENTED();
+        break;
+    }
+
+    s.current_sample_number = s.next_sample_number = 0;
+    s.current_buffer_id = buf.buffer_id;
+    s.buffer_update = buf.from_queue;
+}
+
+static void ResampleBuffer(State& s) {
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
     const size_t samples_to_consume = std::min((size_t)AudioCore::samples_per_frame, s.current_buffer[0].size());
+
+    // TODO: Resample.
 
     size_t i = 0;
     for (; i < samples_to_consume; i++) {
@@ -221,6 +223,20 @@ static void AdvanceFrame(State& s) {
 
     s.current_sample_number = s.next_sample_number;
     s.next_sample_number += samples_to_consume;
+}
+
+static void AdvanceFrame(State& s) {
+    if (s.current_buffer[0].empty()) {
+        if (s.queue.empty()) {
+            return;
+        }
+
+        DequeueBuffer(s);
+    }
+
+    ResampleBuffer(s);
+
+    // TODO: Filters
 }
 
 static void UpdateStatus(State& s, SourceStatus::Status& status) {

@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <array>
+#include <cstring>
 #include <vector>
 
 #include "audio_core/codec.h"
