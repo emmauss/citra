@@ -13,7 +13,7 @@ void FinalInit();
 
 void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamples& samples);
 
-const Frame16& FinalFrame();
+const StereoFrame16& FinalFrame();
 
 }
 }

@@ -30,7 +30,7 @@ void Shutdown() {
 static bool next_region_is_ready = true;
 
 bool Tick() {
-    if (!IsActivated() || !DSP_DSP::SemaphoreSignalled())
+    if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
         return false;
 
     auto& region = CurrentRegion();

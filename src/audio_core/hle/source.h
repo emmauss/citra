@@ -26,7 +26,7 @@ void SourceInit();
 void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16], SourceStatus::Status& status);
 
 /// Output of this DSP module
-const Frame32& SourceFrame(int source_id, int channel_id);
+const QuadFrame32& SourceFrame(int source_id);
 
 }
 }

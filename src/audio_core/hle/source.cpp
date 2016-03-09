@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
 #include <array>
 #include <queue>
 #include <vector>
@@ -12,6 +13,8 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+
+#include "core/memory.h"
 
 namespace DSP {
 namespace HLE {
@@ -28,6 +31,17 @@ struct Buffer {
     bool adpcm_dirty;
     bool is_looping;
     u16 buffer_id;
+
+    bool from_queue;
+
+    bool operator < (const Buffer& other) const {
+        // We want things with lower id to appear first, unless we have wraparound.
+        // priority_queue puts a before b when b < a.
+        // Should perhaps be a functor instead.
+        if ((other.buffer_id - buffer_id) > 1000) return true;
+        if ((buffer_id - other.buffer_id) > 1000) return false;
+        return buffer_id > other.buffer_id;
+    }
 };
 
 struct State {
@@ -41,9 +55,16 @@ struct State {
     std::array<s16, 16> adpcm_coeffs;
     Codec::AdpcmState adpcm_state;
 
+    bool do_not_trigger_update = true;
+    bool buffer_update = false;
+    u32 current_buffer_id;
+    u32 previous_buffer_id;
+
     std::priority_queue<Buffer> queue;
-    std::vector<s16> current_buffer;
-    std::array<Frame32, 4> current_frames;
+    u32 current_sample_number;
+    u32 next_sample_number;
+    Codec::StereoBuffer16 current_buffer;
+    QuadFrame32 current_frame;
 };
 
 static void ParseConfig(State& s, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16]) {
@@ -91,10 +112,21 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
 
     if (config.buffer_queue_dirty) {
         for (int i = 0; i < 4; i++) {
-            if (config.buffer_queue_dirty & (1 << i)) {
-                s.queue.emplace(config.buffers[i]);
+            if (config.buffers_dirty & (1 << i)) {
+                const auto& b = config.buffers[i];
+                s.queue.emplace(Buffer {
+                    b.physical_address,
+                    b.length,
+                    (u8)b.adpcm_ps,
+                    { b.adpcm_yn[0], b.adpcm_yn[1] },
+                    b.adpcm_dirty != 0,
+                    b.is_looping != 0,
+                    b.buffer_id,
+                    true
+                });
             }
         }
+        config.buffers_dirty = 0;
     }
 
     if (config.unknown_flag) {
@@ -110,8 +142,6 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
     }
 
     if (config.embedded_buffer_dirty) {
-        ASSERT(s.queue.empty());
-
         s.queue.emplace(Buffer {
             config.physical_address,
             config.length,
@@ -119,7 +149,8 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
             { config.adpcm_yn[0], config.adpcm_yn[1] },
             config.adpcm_dirty.ToBool(),
             config.is_looping.ToBool(),
-            config.buffer_id
+            config.buffer_id,
+            false
         });
     }
 
@@ -127,11 +158,78 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
 }
 
 static void AdvanceFrame(State& s) {
+    ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
+    if (s.current_buffer[0].empty()) {
+        if (s.queue.empty()) {
+            return;
+        }
 
+        const Buffer buf = s.queue.top();
+        s.queue.pop();
+
+        const u8* const memory = Memory::GetPhysicalPointer(buf.physical_address);
+        const unsigned num_channels = s.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
+
+        if (buf.adpcm_dirty) {
+            s.adpcm_state.yn1 = buf.adpcm_yn[0];
+            s.adpcm_state.yn2 = buf.adpcm_yn[1];
+        }
+
+        if (buf.is_looping) {
+            LOG_ERROR(Audio_DSP, "Looped buffers are unimplemented at the moment");
+        }
+
+        switch (s.format) {
+        case Format::PCM8:
+            s.current_buffer = Codec::DecodePCM8(num_channels, memory, buf.length);
+            break;
+        case Format::PCM16:
+            s.current_buffer = Codec::DecodePCM16(num_channels, memory, buf.length);
+            break;
+        case Format::ADPCM:
+            s.current_buffer = Codec::DecodeADPCM(memory, buf.length, s.adpcm_coeffs, s.adpcm_state);
+            break;
+        default:
+            UNIMPLEMENTED();
+            break;
+        }
+
+        s.current_sample_number = s.next_sample_number = 0;
+        s.current_buffer_id = buf.buffer_id;
+        s.buffer_update = buf.from_queue;
+    }
+
+    ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
+    const size_t samples_to_consume = std::min((size_t)AudioCore::samples_per_frame, s.current_buffer[0].size());
+
+    size_t i = 0;
+    for (; i < samples_to_consume; i++) {
+        s.current_frame[0][i] = s.current_buffer[0][i];
+        s.current_frame[1][i] = s.current_buffer[0][i];
+        s.current_frame[2][i] = s.current_buffer[1][i];
+        s.current_frame[3][i] = s.current_buffer[1][i];
+    }
+    for (; i < AudioCore::samples_per_frame; i++) {
+        s.current_frame[0][i] = 0;
+        s.current_frame[1][i] = 0;
+        s.current_frame[2][i] = 0;
+        s.current_frame[3][i] = 0;
+    }
+
+    s.current_buffer[0].erase(s.current_buffer[0].begin(), s.current_buffer[0].begin() + samples_to_consume);
+    s.current_buffer[1].erase(s.current_buffer[1].begin(), s.current_buffer[1].begin() + samples_to_consume);
+
+    s.current_sample_number = s.next_sample_number;
+    s.next_sample_number += samples_to_consume;
 }
 
 static void UpdateStatus(State& s, SourceStatus::Status& status) {
-
+    status.is_enabled = s.enabled;
+    status.previous_buffer_id_dirty = s.buffer_update ? 1 : 0;
+    s.buffer_update = false;
+    status.previous_buffer_id = s.current_buffer_id;
+    status.buffer_position = s.current_sample_number;
+    status.sync = s.sync;
 }
 
 static std::array<State, AudioCore::num_sources> state;
@@ -146,8 +244,8 @@ void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, con
     UpdateStatus(state[source_id], status);
 }
 
-const Frame32& SourceFrame(int source_id, int channel_id) {
-    return state[source_id].current_frames[channel_id];
+const QuadFrame32& SourceFrame(int source_id) {
+    return state[source_id].current_frame;
 }
 
 }

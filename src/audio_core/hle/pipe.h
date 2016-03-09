@@ -23,6 +23,8 @@ enum class DspPipe {
     DspPipe_MAX
 };
 
+constexpr size_t DspPipe_MAX = static_cast<size_t>(DspPipe::DspPipe_MAX);
+
 /**
  * Read a DSP pipe.
  * @param pipe_number The Pipe ID

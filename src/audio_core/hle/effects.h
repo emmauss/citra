@@ -14,7 +14,7 @@ void EffectsInit();
 
 void EffectsUpdate(const DspConfiguration& config, IntermediateMixSamples& samples);
 
-const Frame32& IntermediateMixFrame(int mix_id);
+const QuadFrame32& IntermediateMixFrame(int mix_id);
 
 }
 }

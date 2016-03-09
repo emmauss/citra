@@ -9,7 +9,7 @@ namespace DSP {
 namespace HLE {
 
 struct State {
-    Frame16 current_frame;
+    StereoFrame16 current_frame;
 };
 
 static State state;
@@ -20,7 +20,7 @@ void FinalInit() {
 
 void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamples& samples) {}
 
-const Frame16& FinalFrame() {
+const StereoFrame16& FinalFrame() {
     return state.current_frame;
 }
 
