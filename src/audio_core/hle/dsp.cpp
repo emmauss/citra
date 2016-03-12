@@ -2,6 +2,9 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 #include "audio_core/audio_core.h"
 #include "audio_core/hle/effects.h"
@@ -37,44 +40,66 @@ static bool next_region_is_ready = true;
 unsigned num_frames = 500;
 double time_for_a_frame = 0.005;
 
+std::mutex mtx;
+std::condition_variable cv;
+bool ready = false;
+
+static void ThreadFunc() {
+    while (true) {
+        std::unique_lock<std::mutex> lck(mtx);
+        while (!ready) cv.wait(lck);
+
+        auto& region = CurrentRegion();
+
+        for (int i = 0; i < AudioCore::num_sources; i++) {
+            auto& config = region.source_configurations.config[i];
+            auto& coeffs = region.adpcm_coefficients.coeff[i];
+            auto& status = region.source_statuses.status[i];
+
+            SourceUpdate(i, config, coeffs, status);
+        }
+
+        EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
+
+        FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
+
+        const double sample_scale = (double)AudioCore::sink->GetNativeSampleRate() / (double)AudioCore::native_sample_rate;
+        const double time_scale = time_for_a_frame / ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate);
+        double total_scale = sample_scale * time_scale;
+
+        StereoFrame16 samples = FinalFrame();
+
+        /*std::vector<s16> output;
+        output.reserve(AudioCore::samples_per_frame * 2);
+        for (int i = 0; i < AudioCore::samples_per_frame; i++) {
+        output.push_back(samples[0][i]);
+        output.push_back(samples[1][i]);
+        }
+        AudioCore::sink->EnqueueSamples(output);
+        */
+
+        TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
+        TimeStretch::AddSamples(samples);
+        TimeStretch::OutputSamples([&](const std::vector<s16>& output) {
+            AudioCore::sink->EnqueueSamples(output);
+        });
+
+        ready = false;
+        cv.notify_all();
+    }
+}
+
+static std::thread thread(ThreadFunc);
+
 bool Tick() {
     if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
         return false;
 
-    auto& region = CurrentRegion();
+    std::unique_lock<std::mutex> lck(mtx);
+    while (ready) cv.wait(lck);
 
-    for (int i = 0; i < AudioCore::num_sources; i++) {
-        auto& config = region.source_configurations.config[i];
-        auto& coeffs = region.adpcm_coefficients.coeff[i];
-        auto& status = region.source_statuses.status[i];
-
-        SourceUpdate(i, config, coeffs, status);
-    }
-
-    EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
-
-    FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
-
-    const double sample_scale = (double)AudioCore::sink->GetNativeSampleRate() / (double)AudioCore::native_sample_rate;
-    const double time_scale = time_for_a_frame / ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate);
-    double total_scale = sample_scale * time_scale;
-
-    StereoFrame16 samples = FinalFrame();
-
-    std::vector<s16> output;
-    output.reserve(AudioCore::samples_per_frame * 2);
-    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
-        output.push_back(samples[0][i]);
-        output.push_back(samples[1][i]);
-    }
-    AudioCore::sink->EnqueueSamples(output);
-
-    /*TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
-    TimeStretch::AddSamples(samples);
-    TimeStretch::OutputSamples([&](const std::vector<float>& output) {
-        printf("%zu samples\n", output.size());
-        AudioCore::sink->EnqueueSamples(samples[0]);
-    });*/
+    ready = true;
+    cv.notify_all();
 
     return true;
 }

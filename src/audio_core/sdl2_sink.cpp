@@ -23,14 +23,14 @@ SDL2Sink::SDL2Sink() {
     SDL_zero(desired_audiospec);
     desired_audiospec.format = AUDIO_S16;
     desired_audiospec.channels = 2;
-    desired_audiospec.freq = 48000; // TODO: Maybe go for a smaller value
-    desired_audiospec.samples = 4096;
+    desired_audiospec.freq = AudioCore::native_sample_rate; // TODO: Maybe go for a smaller value
+    desired_audiospec.samples = 128;
     desired_audiospec.callback = nullptr; // We're going to use SDL_QueueAudio
 
     SDL_AudioSpec obtained_audiospec;
     SDL_zero(obtained_audiospec);
 
-    audio_device_id = SDL_OpenAudioDevice(nullptr, /*iscapture=*/false, &desired_audiospec, &obtained_audiospec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+    audio_device_id = SDL_OpenAudioDevice(nullptr, /*iscapture=*/false, &desired_audiospec, &obtained_audiospec, 0);
     if (audio_device_id < 0) {
         LOG_CRITICAL(Audio_SDL2, "SDL_OpenAudioDevice failed");
         exit(-2);
