@@ -21,4 +21,6 @@ struct State {
 
 std::tuple<size_t, bool> KaiserSinc(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change);
 
+std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change);
+
 }

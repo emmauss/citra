@@ -27,6 +27,14 @@ double time_per_sample;
 constexpr double ideal_audio_delay = 0.5;
 double dynamic_delay = 0.2;
 
+/// Short-time FFT (STFT)
+template<s32 sign, typename To, typename Ti, size_t size>
+std::array<To, size> stft(const std::array<Ti, size>& input) {
+    std::array<To, size> output;
+
+    return output;
+}
+
 /// Sliding-window filter that drops extreme values.
 struct {
 private:
