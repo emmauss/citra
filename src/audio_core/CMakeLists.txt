@@ -6,6 +6,7 @@ set(SRCS
             hle/final.cpp
             hle/pipe.cpp
             hle/source.cpp
+            interpolate.cpp
             null_sink.cpp
             time_stretch.cpp
             )
@@ -19,6 +20,7 @@ set(HEADERS
             hle/final.h
             hle/pipe.h
             hle/source.h
+            interpolate.h
             null_sink.h
             sink.h
             time_stretch.h

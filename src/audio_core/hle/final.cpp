@@ -6,6 +6,8 @@
 #include "audio_core/hle/effects.h"
 #include "audio_core/hle/final.h"
 
+#include "common/math_util.h"
+
 namespace DSP {
 namespace HLE {
 
@@ -29,11 +31,12 @@ void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamp
 
     for (int i = 0; i < AudioCore::samples_per_frame; i++) {
         for (int j = 0; j < 2; j++) {
-            state.current_frame[j][i] = 0;
+            s32 value = 0;
             for (int k = 0; k < 3; k++) {
-                state.current_frame[j][i] += 0.5 * config.volume[0] * mix[k][j + 0][i];
-                state.current_frame[j][i] += 0.5 * config.volume[0] * mix[k][j + 2][i];
+                value += 0.5 * config.volume[0] * mix[k][j + 0][i];
+                value += 0.5 * config.volume[0] * mix[k][j + 2][i];
             }
+            state.current_frame[j][i] = (s16)MathUtil::Clamp(value, -0x7FFF, 0x8000);
        }
     }
 }

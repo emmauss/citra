@@ -44,7 +44,7 @@ public:
     double GetAverage() {
         std::vector<double> sorted(buffer.begin(), buffer.end());
         std::sort(sorted.begin(), sorted.end());
-        return sorted[buffer.size() / 2];
+        return std::accumulate(sorted.begin() + 2, sorted.end() - 2, 0.0) / (buffer.size() - 4);
     }
 } averager;
 
@@ -53,24 +53,39 @@ static std::chrono::time_point<std::chrono::steady_clock> time = std::chrono::st
 static std::chrono::time_point<std::chrono::steady_clock> last_set_tempo_time = std::chrono::steady_clock::now();
 static double audio_delay = ideal_audio_delay;
 static double last_tempo = 1.0;
+static double integral = ideal_audio_delay;
+static double smooth = 1.0;
 
 void Tick(unsigned samples_in_queue) {
     auto endtime = std::chrono::steady_clock::now();
     std::chrono::duration<double> duration = endtime - time;
-    written_samples -= duration.count() / time_per_sample + 1;
+    written_samples -= duration.count() / time_per_sample + 10;
     if (written_samples < 0) written_samples = 0;
     time = endtime;
 
+    // A traditional PID is too unresponsive.
+
     double current_delay = (written_samples + samples_in_queue) * time_per_sample;
-    audio_delay += duration.count() * (current_delay - audio_delay) / 0.2;
+    averager.AddSample(current_delay);
+    current_delay = averager.GetAverage();
+    double weight = duration.count() / 0.5;
+    if (weight > 1.0) weight = 1.0;
+    audio_delay += weight * (current_delay - audio_delay);
 
-    double tempo = audio_delay / ideal_audio_delay;
+    double tempo = audio_delay / integral;
 
-    if (last_set_tempo_time - endtime > std::chrono::duration<double>(0.2) || tempo/last_tempo > 1.2 || last_tempo/tempo > 1.2) {
-        sound_touch->setTempo(tempo);
-        last_tempo = tempo;
+    integral += 0.01 * (ideal_audio_delay/tempo - integral);
+    if (integral < ideal_audio_delay) integral = ideal_audio_delay;
+    if (integral > ideal_audio_delay/0.01) integral = ideal_audio_delay / 0.01;
+
+    if (endtime - last_set_tempo_time > std::chrono::duration<double>(0.5)) {
+        printf("%f %f\n", tempo, integral/(ideal_audio_delay/tempo));
         last_set_tempo_time = endtime;
     }
+
+    smooth += weight * (tempo - smooth);
+
+    sound_touch->setTempo(tempo);
 }
 
 void Init() {
@@ -82,7 +97,7 @@ void Init() {
     sound_touch->setSampleRate(AudioCore::native_sample_rate);
     sound_touch->setChannels(2); // Stereo
 
-    sound_touch->setSetting(SETTING_USE_AA_FILTER, 1);
+    sound_touch->setSetting(SETTING_USE_AA_FILTER, 0);
     sound_touch->setSetting(SETTING_USE_QUICKSEEK, 0);
 
     // These numbers are tweakable.
@@ -100,7 +115,7 @@ void Shutdown() {
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    if ((written_samples * time_per_sample) > 1.0) return;
+    if ((written_samples * time_per_sample) > 0.5) return;
     std::array<s16, AudioCore::samples_per_frame * 2> input_samples;
     for (int i = 0; i < AudioCore::samples_per_frame; i++) {
         input_samples[i * 2 + 0] = samples[0][i];

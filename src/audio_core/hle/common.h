@@ -14,8 +14,10 @@
 namespace DSP {
 namespace HLE {
 
+using Frame16 = std::array<s16, AudioCore::samples_per_frame>;
+
 /// The final output to the speakers is stereo.
-using StereoFrame16  = std::array<std::array<s16, AudioCore::samples_per_frame>, 2>;
+using StereoFrame16  = std::array<Frame16, 2>;
 
 /// The DSP is quadraphonic internally.
 using QuadFrame32    = std::array<std::array<s32, AudioCore::samples_per_frame>, 4>;

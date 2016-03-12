@@ -11,6 +11,7 @@
 #include "audio_core/codec.h"
 #include "audio_core/hle/common.h"
 #include "audio_core/hle/source.h"
+#include "audio_core/interpolate.h"
 
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -56,6 +57,8 @@ struct State {
 
     std::array<s16, 16> adpcm_coeffs;
     Codec::AdpcmState adpcm_state;
+
+    AudioInterp::State interp_state;
 
     bool do_not_trigger_update = true;
     bool buffer_update = false;
@@ -171,10 +174,13 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
     config.dirty_raw = 0;
 }
 
-static void DequeueBuffer(State& s) {
-    ASSERT(!s.queue.empty());
+static bool DequeueBuffer(State& s) {
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-    ASSERT(s.current_buffer[0].empty());
+
+    if (!s.current_buffer[0].empty())
+        return true;
+    if (s.queue.empty())
+        return false;
 
     const Buffer buf = s.queue.top();
     s.queue.pop();
@@ -212,39 +218,25 @@ static void DequeueBuffer(State& s) {
     s.buffer_update = buf.from_queue;
 
     LOG_TRACE(Audio_DSP, "source_id=%u buffer_id=%u from_queue=%d", s.source_id, buf.buffer_id, buf.from_queue);
+    return true;
 }
 
 static void ResampleBuffer(State& s) {
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-    const size_t samples_to_consume = std::min<size_t>(AudioCore::samples_per_frame * s.rate_multiplier,
-                                                       s.current_buffer[0].size());
-
-    // TODO: Resample.
-    // TODO: Put resampled buffer into s.current_frame.
-
-    for (size_t i = 0; i < AudioCore::samples_per_frame; i++) {
-        size_t bufferi = i * s.rate_multiplier;
-        if (bufferi >= samples_to_consume) bufferi = samples_to_consume - 1;
-        s.current_frame[0][i] = s.current_buffer[0][bufferi];
-        s.current_frame[1][i] = s.current_buffer[1][bufferi];
-    }
-
-    s.current_buffer[0].erase(s.current_buffer[0].begin(), s.current_buffer[0].begin() + samples_to_consume);
-    s.current_buffer[1].erase(s.current_buffer[1].begin(), s.current_buffer[1].begin() + samples_to_consume);
 
     s.current_sample_number = s.next_sample_number;
-    s.next_sample_number += samples_to_consume;
+    while (true) {
+        if (!DequeueBuffer(s))
+            break;
+
+        auto result = AudioInterp::KaiserSinc(s.interp_state, s.current_frame, s.current_buffer, s.rate_multiplier);
+        s.next_sample_number += std::get<0>(result);
+        if (!std::get<1>(result))
+            break;
+    }
 }
 
 static void AdvanceFrame(State& s) {
-    if (s.current_buffer[0].empty()) {
-        if (s.queue.empty()) {
-            return;
-        }
-
-        DequeueBuffer(s);
-    }
-
     ResampleBuffer(s);
 
     // TODO: Filters
