@@ -40,9 +40,9 @@ static bool next_region_is_ready = true;
 unsigned num_frames = 500;
 double time_for_a_frame = 0.005;
 
-std::mutex mtx;
-std::condition_variable cv;
-bool ready = false;
+static std::mutex mtx;
+static std::condition_variable cv;
+static volatile bool ready = false;
 
 static void ThreadFunc() {
     while (true) {

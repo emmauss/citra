@@ -24,7 +24,7 @@ static soundtouch::SoundTouch* sound_touch;
 
 double time_per_sample;
 /// The amount of delay that this algorithm aims for. (Units: seconds)
-constexpr double ideal_audio_delay = 0.2;
+constexpr double ideal_audio_delay = 0.5;
 double dynamic_delay = 0.2;
 
 /// Sliding-window filter that drops extreme values.
@@ -50,7 +50,9 @@ public:
 
 static int written_samples = 0;
 static std::chrono::time_point<std::chrono::steady_clock> time = std::chrono::steady_clock::now();
-double audio_delay = ideal_audio_delay;
+static std::chrono::time_point<std::chrono::steady_clock> last_set_tempo_time = std::chrono::steady_clock::now();
+static double audio_delay = ideal_audio_delay;
+static double last_tempo = 1.0;
 
 void Tick(unsigned samples_in_queue) {
     auto endtime = std::chrono::steady_clock::now();
@@ -63,9 +65,12 @@ void Tick(unsigned samples_in_queue) {
     audio_delay += duration.count() * (current_delay - audio_delay) / 0.2;
 
     double tempo = audio_delay / ideal_audio_delay;
-    tempo = MathUtil::Clamp(tempo, 0.01, 20.0);
 
-    sound_touch->setTempo(tempo);
+    if (last_set_tempo_time - endtime > std::chrono::duration<double>(0.2) || tempo/last_tempo > 1.2 || last_tempo/tempo > 1.2) {
+        sound_touch->setTempo(tempo);
+        last_tempo = tempo;
+        last_set_tempo_time = endtime;
+    }
 }
 
 void Init() {
@@ -95,6 +100,7 @@ void Shutdown() {
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
+    if ((written_samples * time_per_sample) > 1.0) return;
     std::array<s16, AudioCore::samples_per_frame * 2> input_samples;
     for (int i = 0; i < AudioCore::samples_per_frame; i++) {
         input_samples[i * 2 + 0] = samples[0][i];
