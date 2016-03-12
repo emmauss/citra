@@ -76,6 +76,7 @@ enum class Class : ClassType {
     Render_OpenGL,              ///< OpenGL backend
     Audio,                      ///< Emulator audio output
     Audio_DSP,                  ///< The HLE implementation of the DSP
+    Audio_SDL2,                 ///< SDL2 frontend for audio output
     Loader,                     ///< ROM loader
 
     Count ///< Total number of logging classes

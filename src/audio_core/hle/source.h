@@ -25,8 +25,11 @@ void SourceInit();
  */
 void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16], SourceStatus::Status& status);
 
-/// Output of this DSP module
+/// Output of this DSP module.
 const QuadFrame32& SourceFrame(int source_id);
+
+/// Mix current frame from source_id into buffer based on gain coefficients for intermediate_mix_id.
+void SourceFrameMixInto(QuadFrame32& dest, int source_id, int intermediate_mix_id);
 
 }
 }

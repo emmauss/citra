@@ -2,12 +2,15 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+
 #include "audio_core/audio_core.h"
 #include "audio_core/hle/effects.h"
 #include "audio_core/hle/dsp.h"
 #include "audio_core/hle/final.h"
 #include "audio_core/hle/pipe.h"
 #include "audio_core/hle/source.h"
+#include "audio_core/sink.h"
+#include "audio_core/time_stretch.h"
 
 #include "core/hle/service/dsp_dsp.h"
 
@@ -22,12 +25,17 @@ void Init() {
     SourceInit();
     EffectsInit();
     FinalInit();
+    TimeStretch::Init();
 }
 
 void Shutdown() {
+    TimeStretch::Shutdown();
 }
 
 static bool next_region_is_ready = true;
+
+unsigned num_frames = 500;
+double time_for_a_frame = 0.005;
 
 bool Tick() {
     if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
@@ -46,6 +54,27 @@ bool Tick() {
     EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
 
     FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
+
+    const double sample_scale = (double)AudioCore::sink->GetNativeSampleRate() / (double)AudioCore::native_sample_rate;
+    const double time_scale = time_for_a_frame / ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate);
+    double total_scale = sample_scale * time_scale;
+
+    StereoFrame16 samples = FinalFrame();
+
+    std::vector<s16> output;
+    output.reserve(AudioCore::samples_per_frame * 2);
+    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
+        output.push_back(samples[0][i]);
+        output.push_back(samples[1][i]);
+    }
+    AudioCore::sink->EnqueueSamples(output);
+
+    /*TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
+    TimeStretch::AddSamples(samples);
+    TimeStretch::OutputSamples([&](const std::vector<float>& output) {
+        printf("%zu samples\n", output.size());
+        AudioCore::sink->EnqueueSamples(samples[0]);
+    });*/
 
     return true;
 }

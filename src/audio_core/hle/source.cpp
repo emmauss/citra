@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <queue>
 #include <vector>
 
@@ -37,14 +38,15 @@ struct Buffer {
     bool operator < (const Buffer& other) const {
         // We want things with lower id to appear first, unless we have wraparound.
         // priority_queue puts a before b when b < a.
-        // Should perhaps be a functor instead.
-        if ((other.buffer_id - buffer_id) > 1000) return true;
-        if ((buffer_id - other.buffer_id) > 1000) return false;
-        return buffer_id > other.buffer_id;
+        if (this->buffer_id < 10 && other.buffer_id > 65520) return true;
+        if (other.buffer_id < 10 && this->buffer_id > 65520) return false;
+        return this->buffer_id > other.buffer_id;
     }
 };
 
 struct State {
+    size_t source_id;
+
     bool enabled;
     float rate_multiplier;
     u16 sync;
@@ -73,40 +75,50 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
     }
 
     if (config.reset_flag) {
+        size_t id = s.source_id;
         s = {};
+        s.source_id = id;
+        LOG_DEBUG(Audio_DSP, "source_id=%zu reset", s.source_id);
     }
 
     if (config.enable_dirty) {
         s.enabled = config.enable != 0;
+        LOG_DEBUG(Audio_DSP, "source_id=%zu enable=%d", s.source_id, s.enabled);
     }
 
     if (config.sync_dirty) {
         s.sync = config.sync;
+        LOG_DEBUG(Audio_DSP, "source_id=%zu sync=%u", s.source_id, s.sync);
     }
 
     if (config.rate_multiplier_dirty) {
         s.rate_multiplier = config.rate_multiplier;
+        LOG_DEBUG(Audio_DSP, "source_id=%zu rate=%f", s.source_id, s.rate_multiplier);
     }
 
     if (config.adpcm_coefficients_dirty) {
         std::copy(adpcm_coeffs, adpcm_coeffs + 16, s.adpcm_coeffs.begin());
+        LOG_TRACE(Audio_DSP, "source_id=%zu adpcm update", s.source_id);
     }
 
     if (config.gain_0_dirty) {
         for (int i = 0; i < 4; i++) {
             s.gains[0][i] = config.gain[0][i];
+            LOG_TRACE(Audio_DSP, "source_id=%zu gains[0][%i] = %f", s.source_id, i, s.gains[0][i]);
         }
     }
 
     if (config.gain_1_dirty) {
         for (int i = 0; i < 4; i++) {
             s.gains[1][i] = config.gain[1][i];
+            LOG_TRACE(Audio_DSP, "source_id=%zu gains[1][%i] = %f", s.source_id, i, s.gains[1][i]);
         }
     }
 
     if (config.gain_2_dirty) {
         for (int i = 0; i < 4; i++) {
             s.gains[2][i] = config.gain[2][i];
+            LOG_TRACE(Audio_DSP, "source_id=%zu gains[2][%i] = %f", s.source_id, i, s.gains[2][i]);
         }
     }
 
@@ -135,10 +147,12 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
 
     if (config.format_dirty || config.embedded_buffer_dirty) {
         s.format = config.format;
+        LOG_TRACE(Audio_DSP, "source_id=%zu format=%u", s.source_id, s.format);
     }
 
     if (config.mono_or_stereo_dirty || config.embedded_buffer_dirty) {
         s.mono_or_stereo = config.mono_or_stereo;
+        LOG_TRACE(Audio_DSP, "source_id=%zu mono_or_stereo=%u", s.source_id, s.mono_or_stereo);
     }
 
     if (config.embedded_buffer_dirty) {
@@ -196,26 +210,23 @@ static void DequeueBuffer(State& s) {
     s.current_sample_number = s.next_sample_number = 0;
     s.current_buffer_id = buf.buffer_id;
     s.buffer_update = buf.from_queue;
+
+    LOG_TRACE(Audio_DSP, "source_id=%u buffer_id=%u from_queue=%d", s.source_id, buf.buffer_id, buf.from_queue);
 }
 
 static void ResampleBuffer(State& s) {
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-    const size_t samples_to_consume = std::min((size_t)AudioCore::samples_per_frame, s.current_buffer[0].size());
+    const size_t samples_to_consume = std::min<size_t>(AudioCore::samples_per_frame * s.rate_multiplier,
+                                                       s.current_buffer[0].size());
 
     // TODO: Resample.
+    // TODO: Put resampled buffer into s.current_frame.
 
-    size_t i = 0;
-    for (; i < samples_to_consume; i++) {
-        s.current_frame[0][i] = s.current_buffer[0][i];
-        s.current_frame[1][i] = s.current_buffer[0][i];
-        s.current_frame[2][i] = s.current_buffer[1][i];
-        s.current_frame[3][i] = s.current_buffer[1][i];
-    }
-    for (; i < AudioCore::samples_per_frame; i++) {
-        s.current_frame[0][i] = 0;
-        s.current_frame[1][i] = 0;
-        s.current_frame[2][i] = 0;
-        s.current_frame[3][i] = 0;
+    for (size_t i = 0; i < AudioCore::samples_per_frame; i++) {
+        size_t bufferi = i * s.rate_multiplier;
+        if (bufferi >= samples_to_consume) bufferi = samples_to_consume - 1;
+        s.current_frame[0][i] = s.current_buffer[0][bufferi];
+        s.current_frame[1][i] = s.current_buffer[1][bufferi];
     }
 
     s.current_buffer[0].erase(s.current_buffer[0].begin(), s.current_buffer[0].begin() + samples_to_consume);
@@ -240,10 +251,13 @@ static void AdvanceFrame(State& s) {
 }
 
 static void UpdateStatus(State& s, SourceStatus::Status& status) {
+    // Applications depend on the correct emulation of
+    // previous_buffer_id_dirty and previous_buffer_id to synchronise
+    // audio with video.
     status.is_enabled = s.enabled;
-    status.previous_buffer_id_dirty = s.buffer_update ? 1 : 0;
+    status.current_buffer_id_dirty = s.buffer_update ? 1 : 0;
     s.buffer_update = false;
-    status.previous_buffer_id = s.current_buffer_id;
+    status.current_buffer_id = s.current_buffer_id;
     status.buffer_position = s.current_sample_number;
     status.sync = s.sync;
 }
@@ -252,16 +266,33 @@ static std::array<State, AudioCore::num_sources> state;
 
 void SourceInit() {
     state = {};
+    for (size_t i = 0; i < state.size(); i++)
+        state[i].source_id = i;
 }
 
 void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16], SourceStatus::Status& status) {
+    ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
     ParseConfig(state[source_id], config, adpcm_coeffs);
     AdvanceFrame(state[source_id]);
     UpdateStatus(state[source_id], status);
 }
 
 const QuadFrame32& SourceFrame(int source_id) {
+    ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
     return state[source_id].current_frame;
+}
+
+void SourceFrameMixInto(QuadFrame32& dest, int source_id, int intermediate_mix_id) {
+    ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
+    ASSERT(intermediate_mix_id >= 0 && intermediate_mix_id < 3);
+
+    const State& s = state[source_id];
+
+    for (int i = 0; i < dest[0].size(); i++) {
+        for (int channel = 0; channel < 4; channel++) {
+            dest[channel][i] += s.gains[intermediate_mix_id][channel] * s.current_frame[channel][i];
+        }
+    }
 }
 
 }
