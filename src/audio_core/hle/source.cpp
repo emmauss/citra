@@ -258,8 +258,10 @@ static std::array<State, AudioCore::num_sources> state;
 
 void SourceInit() {
     state = {};
-    for (size_t i = 0; i < state.size(); i++)
+    for (size_t i = 0; i < state.size(); i++) {
+        state[i] = {};
         state[i].source_id = i;
+    }
 }
 
 void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16], SourceStatus::Status& status) {
@@ -271,10 +273,14 @@ void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, con
 
 const QuadFrame32& SourceFrame(int source_id) {
     ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
+    ASSERT(state[source_id].enabled);
     return state[source_id].current_frame;
 }
 
 void SourceFrameMixInto(QuadFrame32& dest, int source_id, int intermediate_mix_id) {
+    if (!state[source_id].enabled)
+        return;
+
     ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
     ASSERT(intermediate_mix_id >= 0 && intermediate_mix_id < 3);
 
