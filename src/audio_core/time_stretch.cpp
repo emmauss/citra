@@ -80,18 +80,22 @@ void Tick(unsigned samples_in_queue) {
     if (weight > 1.0) weight = 1.0;
     audio_delay += weight * (current_delay - audio_delay);
 
+    if (audio_delay < 0.01 && integral < 2.0) {
+        integral = 2.0;
+    }
+
     double tempo = audio_delay / integral;
 
-    integral += 0.01 * (ideal_audio_delay/tempo - integral);
+    integral += 0.001 * (ideal_audio_delay/tempo - integral);
     if (integral < ideal_audio_delay) integral = ideal_audio_delay;
     if (integral > ideal_audio_delay/0.01) integral = ideal_audio_delay / 0.01;
 
     if (endtime - last_set_tempo_time > std::chrono::duration<double>(0.5)) {
-        printf("%f %f\n", tempo, integral/(ideal_audio_delay/tempo));
+        printf("%f %f %f %f\n", tempo, integral/(ideal_audio_delay/tempo), audio_delay, integral);
         last_set_tempo_time = endtime;
     }
 
-    smooth += weight * (tempo - smooth);
+    smooth += (weight * 0.5) * (tempo - smooth);
 
     sound_touch->setTempo(tempo);
 }

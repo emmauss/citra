@@ -229,7 +229,7 @@ static void ResampleBuffer(State& s) {
         if (!DequeueBuffer(s))
             break;
 
-        auto result = AudioInterp::Linear(s.interp_state, s.current_frame, s.current_buffer, s.rate_multiplier);
+        auto result = AudioInterp::None(s.interp_state, s.current_frame, s.current_buffer, s.rate_multiplier);
         s.next_sample_number += std::get<0>(result);
         if (!std::get<1>(result))
             break;

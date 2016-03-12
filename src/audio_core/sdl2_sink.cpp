@@ -24,7 +24,7 @@ SDL2Sink::SDL2Sink() {
     desired_audiospec.format = AUDIO_S16;
     desired_audiospec.channels = 2;
     desired_audiospec.freq = AudioCore::native_sample_rate; // TODO: Maybe go for a smaller value
-    desired_audiospec.samples = 128;
+    desired_audiospec.samples = 2048;
     desired_audiospec.callback = nullptr; // We're going to use SDL_QueueAudio
 
     SDL_AudioSpec obtained_audiospec;

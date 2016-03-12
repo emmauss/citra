@@ -142,7 +142,9 @@ std::tuple<size_t, bool> KaiserSinc(State& state, DSP::HLE::QuadFrame32& output,
 
 std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change) {
     ASSERT(input[0].size() == input[1].size());
-    ASSERT(input[0].size() > required_history);
+    while (input[0].size() < required_history) {
+        input[0].emplace_back(0);
+    }
 
     size_t position = 0;
     double& position_fractional = state.position_fractional;
@@ -195,6 +197,58 @@ std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std
         } else {
             input[j].erase(input[j].begin(),
                 input[j].begin() + position + required_history);
+        }
+    }
+
+    ASSERT(input[0].size() == input[1].size());
+
+    return std::make_tuple(position, continue_feeding_me);
+}
+
+std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change) {
+    ASSERT(input[0].size() == input[1].size());
+
+    size_t position = 0;
+    double& position_fractional = state.position_fractional;
+
+    std::array<BiquadLpf, 2> lpf;
+    const double lpf_cutoff = std::min(0.5 * rate_change, 0.5 / rate_change);
+    lpf[0].Init(lpf_cutoff);
+    lpf[1].Init(lpf_cutoff);
+
+    auto step = [&](size_t i) -> s32 {
+        auto& in = input[i];
+        return input[i][position];
+    };
+
+    const size_t position_stop = input[0].size();
+    while (state.output_position < output[0].size() && position < position_stop) {
+        s32 sample0 = step(0);
+        s32 sample1 = step(1);
+
+        output[0][state.output_position] = sample0;
+        output[1][state.output_position] = sample0;
+        output[2][state.output_position] = sample1;
+        output[3][state.output_position] = sample1;
+
+        position_fractional += rate_change;
+        position += (size_t)position_fractional;
+        position_fractional -= (size_t)position_fractional;
+
+        state.output_position++;
+    }
+
+    bool continue_feeding_me = true;
+    if (state.output_position >= output[0].size()) {
+        state.output_position = 0;
+        continue_feeding_me = false;
+    }
+
+    for (int j = 0; j < 2; j++) {
+        if (position >= input[j].size()) {
+            input[j].clear();
+        } else {
+            input[j].erase(input[j].begin(), input[j].begin() + position);
         }
     }
 

@@ -69,20 +69,21 @@ static void ThreadFunc() {
 
         StereoFrame16 samples = FinalFrame();
 
-        /*std::vector<s16> output;
+#if 0
+        std::vector<s16> output;
         output.reserve(AudioCore::samples_per_frame * 2);
         for (int i = 0; i < AudioCore::samples_per_frame; i++) {
-        output.push_back(samples[0][i]);
-        output.push_back(samples[1][i]);
+            output.push_back(samples[0][i]);
+            output.push_back(samples[1][i]);
         }
         AudioCore::sink->EnqueueSamples(output);
-        */
-
+#else
         TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
         TimeStretch::AddSamples(samples);
         TimeStretch::OutputSamples([&](const std::vector<s16>& output) {
             AudioCore::sink->EnqueueSamples(output);
         });
+#endif
 
         ready = false;
         cv.notify_all();
