@@ -48,28 +48,28 @@ struct Buffer {
 struct State {
     size_t source_id;
 
-    bool enabled;
-    float rate_multiplier;
-    u16 sync;
-    std::array<std::array<float, 4>, 3> gains;
-    MonoOrStereo mono_or_stereo;
-    Format format;
+    bool enabled = false;
+    float rate_multiplier = 1.0;
+    u16 sync = 0;
+    std::array<std::array<float, 4>, 3> gains = {};
+    MonoOrStereo mono_or_stereo = MonoOrStereo::Mono;
+    Format format = Format::PCM16;
 
-    std::array<s16, 16> adpcm_coeffs;
-    Codec::AdpcmState adpcm_state;
+    std::array<s16, 16> adpcm_coeffs = {};
+    Codec::AdpcmState adpcm_state = {};
 
-    AudioInterp::State interp_state;
+    AudioInterp::State interp_state = {};
 
     bool do_not_trigger_update = true;
     bool buffer_update = false;
-    u32 current_buffer_id;
-    u32 previous_buffer_id;
+    u32 current_buffer_id = 0;
+    u32 previous_buffer_id = 0;
 
-    std::priority_queue<Buffer> queue;
-    u32 current_sample_number;
-    u32 next_sample_number;
-    Codec::StereoBuffer16 current_buffer;
-    QuadFrame32 current_frame;
+    std::priority_queue<Buffer> queue = {};
+    u32 current_sample_number = 0;
+    u32 next_sample_number = 0;
+    Codec::StereoBuffer16 current_buffer = {};
+    QuadFrame32 current_frame = {};
 };
 
 static void ParseConfig(State& s, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16]) {
