@@ -66,6 +66,8 @@ static double integral = ideal_audio_delay;
 static double smooth = 1.0;
 static unsigned frame_counter = 0;
 
+static double current_tempo = 1.0;
+
 void Tick(unsigned samples_in_queue) {
     auto endtime = std::chrono::steady_clock::now();
     std::chrono::duration<double> duration = endtime - time;
@@ -75,7 +77,7 @@ void Tick(unsigned samples_in_queue) {
 
     // A traditional PID is too unresponsive.
 
-    double current_delay = (written_samples + samples_in_queue) * time_per_sample;
+    double current_delay = written_samples * time_per_sample;
     averager.AddSample(current_delay);
     current_delay = averager.GetAverage();
     double weight = duration.count() / 0.5;
@@ -102,6 +104,7 @@ void Tick(unsigned samples_in_queue) {
     smooth += (weight * 0.5) * (tempo - smooth);
 
     sound_touch->setTempo(tempo);
+    current_tempo = tempo;
 }
 
 void Init() {
@@ -122,6 +125,7 @@ void Init() {
     sound_touch->setSetting(SETTING_OVERLAP_MS, 20);
 
     sound_touch->setTempo(1.0);
+    current_tempo = 1.0;
 
     written_samples = 1;
 }
@@ -131,7 +135,8 @@ void Shutdown() {
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    if ((written_samples * time_per_sample) > 0.5) return;
+    // if ((written_samples * time_per_sample) > 0.5) return;
+    written_samples += AudioCore::samples_per_frame / current_tempo;
     std::array<s16, AudioCore::samples_per_frame * 2> input_samples;
     for (int i = 0; i < AudioCore::samples_per_frame; i++) {
         input_samples[i * 2 + 0] = samples[0][i];
@@ -145,9 +150,8 @@ void OutputSamples(std::function<void(const std::vector<s16>&)> fn) {
     int num;
 
     while (true) {
-        output_samples.resize(1024);
+        output_samples.resize(4096);
         num = sound_touch->receiveSamples(output_samples.data(), output_samples.size()/2);
-        written_samples += num;
         if (num == 0) {
             break;
         }
