@@ -17,6 +17,7 @@
 
 #include "common/common_types.h"
 #include "common/math_util.h"
+#include "common/logging/log.h"
 
 namespace TimeStretch {
 
@@ -63,6 +64,7 @@ static double audio_delay = ideal_audio_delay;
 static double last_tempo = 1.0;
 static double integral = ideal_audio_delay;
 static double smooth = 1.0;
+static unsigned frame_counter = 0;
 
 void Tick(unsigned samples_in_queue) {
     auto endtime = std::chrono::steady_clock::now();
@@ -90,10 +92,12 @@ void Tick(unsigned samples_in_queue) {
     if (integral < ideal_audio_delay) integral = ideal_audio_delay;
     if (integral > ideal_audio_delay/0.01) integral = ideal_audio_delay / 0.01;
 
-    if (endtime - last_set_tempo_time > std::chrono::duration<double>(0.5)) {
-        printf("%f %f %f %f\n", tempo, integral/(ideal_audio_delay/tempo), audio_delay, integral);
+    if (endtime - last_set_tempo_time > std::chrono::duration<double>(5.0)) {
+        LOG_INFO(Audio, "Emulation is at %.1f%% speed\n", 100.0 * ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate) / (5.0 / frame_counter), frame_counter / 5.0);
         last_set_tempo_time = endtime;
+        frame_counter = 0;
     }
+    frame_counter++;
 
     smooth += (weight * 0.5) * (tempo - smooth);
 

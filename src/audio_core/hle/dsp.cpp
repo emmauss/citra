@@ -12,6 +12,7 @@
 #include "audio_core/hle/final.h"
 #include "audio_core/hle/pipe.h"
 #include "audio_core/hle/source.h"
+#include "audio_core/interpolate.h"
 #include "audio_core/sink.h"
 #include "audio_core/time_stretch.h"
 
@@ -40,14 +41,16 @@ static bool next_region_is_ready = true;
 unsigned num_frames = 500;
 double time_for_a_frame = 0.005;
 
-static std::mutex mtx;
-static std::condition_variable cv;
-static volatile bool ready = false;
+static std::mutex mtx_start;
+static std::condition_variable cv_start;
+static volatile bool start = false;
 
 static void ThreadFunc() {
+    std::unique_lock<std::mutex> lck(mtx_start);
     while (true) {
-        std::unique_lock<std::mutex> lck(mtx);
-        while (!ready) cv.wait(lck);
+        start = false;
+        while (!start)
+            cv_start.wait(lck);
 
         auto& region = CurrentRegion();
 
@@ -84,9 +87,6 @@ static void ThreadFunc() {
             AudioCore::sink->EnqueueSamples(output);
         });
 #endif
-
-        ready = false;
-        cv.notify_all();
     }
 }
 
@@ -96,11 +96,9 @@ bool Tick() {
     if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
         return false;
 
-    std::unique_lock<std::mutex> lck(mtx);
-    while (ready) cv.wait(lck);
-
-    ready = true;
-    cv.notify_all();
+    std::unique_lock<std::mutex> lck(mtx_start);
+    start = true;
+    cv_start.notify_all();
 
     return true;
 }

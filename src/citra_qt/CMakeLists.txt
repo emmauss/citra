@@ -106,6 +106,8 @@ if (Qt5_FOUND AND MSVC)
     )
     windows_copy_files(citra-qt ${Qt5_PLATFORMS_DIR} ${PLATFORMS} qwindows$<$<CONFIG:Debug>:d>.*)
 
+    windows_copy_files(citra ${SDL2_DLL_DIR} ${DLL_DEST} SDL2.dll)
+
     unset(Qt5_DLL_DIR)
     unset(Qt5_PLATFORMS_DIR)
     unset(DLL_DEST)

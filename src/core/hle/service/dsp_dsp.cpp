@@ -418,7 +418,7 @@ static void GetHeadphoneStatus(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 0; // Not using headphones?
 
-    LOG_WARNING(Service_DSP, "(STUBBED) called");
+    LOG_TRACE(Service_DSP, "called");
 }
 
 /**

@@ -142,21 +142,13 @@ std::tuple<size_t, bool> KaiserSinc(State& state, DSP::HLE::QuadFrame32& output,
 
 std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change) {
     ASSERT(input[0].size() == input[1].size());
-    while (input[0].size() < required_history) {
+    while (input[0].size() < 2) {
         input[0].emplace_back(0);
+        input[1].emplace_back(0);
     }
 
     size_t position = 0;
     double& position_fractional = state.position_fractional;
-
-    for (int j = 0; j < 2; j++) {
-        input[j].insert(input[j].begin(), state.history[j].begin(), state.history[j].end());
-    }
-
-    std::array<BiquadLpf, 2> lpf;
-    const double lpf_cutoff = std::min(0.5 * rate_change, 0.5 / rate_change);
-    lpf[0].Init(lpf_cutoff);
-    lpf[1].Init(lpf_cutoff);
 
     auto step = [&](size_t i) -> s32 {
         auto& in = input[i];
@@ -165,7 +157,7 @@ std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std
         return sample;
     };
 
-    const size_t position_stop = input[0].size() - required_history;
+    const size_t position_stop = input[0].size() - 1;
     while (state.output_position < output[0].size() && position < position_stop) {
         s32 sample0 = step(0);
         s32 sample1 = step(1);
@@ -189,14 +181,11 @@ std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std
     }
 
     for (int j = 0; j < 2; j++) {
-        std::copy(input[j].begin() + position,
-            input[j].begin() + position + required_history,
-            state.history[j].begin());
-        if (position + required_history >= input[j].size()) {
+        if (position >= input[j].size()) {
             input[j].clear();
         } else {
             input[j].erase(input[j].begin(),
-                input[j].begin() + position + required_history);
+                           input[j].begin() + position);
         }
     }
 
@@ -211,13 +200,7 @@ std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::
     size_t position = 0;
     double& position_fractional = state.position_fractional;
 
-    std::array<BiquadLpf, 2> lpf;
-    const double lpf_cutoff = std::min(0.5 * rate_change, 0.5 / rate_change);
-    lpf[0].Init(lpf_cutoff);
-    lpf[1].Init(lpf_cutoff);
-
     auto step = [&](size_t i) -> s32 {
-        auto& in = input[i];
         return input[i][position];
     };
 

@@ -34,6 +34,9 @@ struct Buffer {
     bool is_looping;
     u16 buffer_id;
 
+    MonoOrStereo mono_or_stereo;
+    Format format;
+
     bool from_queue;
 
     bool operator < (const Buffer& other) const {
@@ -96,11 +99,11 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
 
     if (config.rate_multiplier_dirty) {
         s.rate_multiplier = config.rate_multiplier;
-        LOG_DEBUG(Audio_DSP, "source_id=%zu rate=%f", s.source_id, s.rate_multiplier);
+        LOG_TRACE(Audio_DSP, "source_id=%zu rate=%f", s.source_id, s.rate_multiplier);
     }
 
     if (config.adpcm_coefficients_dirty) {
-        std::copy(adpcm_coeffs, adpcm_coeffs + 16, s.adpcm_coeffs.begin());
+        std::copy(adpcm_coeffs, adpcm_coeffs + s.adpcm_coeffs.size(), s.adpcm_coeffs.begin());
         LOG_TRACE(Audio_DSP, "source_id=%zu adpcm update", s.source_id);
     }
 
@@ -125,25 +128,6 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
         }
     }
 
-    if (config.buffer_queue_dirty) {
-        for (int i = 0; i < 4; i++) {
-            if (config.buffers_dirty & (1 << i)) {
-                const auto& b = config.buffers[i];
-                s.queue.emplace(Buffer {
-                    b.physical_address,
-                    b.length,
-                    (u8)b.adpcm_ps,
-                    { b.adpcm_yn[0], b.adpcm_yn[1] },
-                    b.adpcm_dirty != 0,
-                    b.is_looping != 0,
-                    b.buffer_id,
-                    true
-                });
-            }
-        }
-        config.buffers_dirty = 0;
-    }
-
     if (config.unknown_flag) {
         LOG_WARNING(Audio_DSP, "(STUB) unknown_flag is set!!!");
     }
@@ -158,6 +142,27 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
         LOG_TRACE(Audio_DSP, "source_id=%zu mono_or_stereo=%u", s.source_id, s.mono_or_stereo);
     }
 
+    if (config.buffer_queue_dirty) {
+        for (int i = 0; i < 4; i++) {
+            if (config.buffers_dirty & (1 << i)) {
+                const auto& b = config.buffers[i];
+                s.queue.emplace(Buffer{
+                    b.physical_address,
+                    b.length,
+                    (u8)b.adpcm_ps,
+                    { b.adpcm_yn[0], b.adpcm_yn[1] },
+                    b.adpcm_dirty != 0,
+                    b.is_looping != 0,
+                    b.buffer_id,
+                    s.mono_or_stereo,
+                    s.format,
+                    true
+                });
+            }
+        }
+        config.buffers_dirty = 0;
+    }
+
     if (config.embedded_buffer_dirty) {
         s.queue.emplace(Buffer {
             config.physical_address,
@@ -167,8 +172,15 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
             config.adpcm_dirty.ToBool(),
             config.is_looping.ToBool(),
             config.buffer_id,
+            s.mono_or_stereo,
+            s.format,
             false
         });
+    }
+
+    if (config.interpolation_dirty) {
+        //config.interpolation_mode
+        LOG_TRACE(Audio_DSP, "source_id=%zu interpolation_mode=%u ", s.source_id, config.interpolation_mode);
     }
 
     config.dirty_raw = 0;
@@ -187,7 +199,6 @@ static bool DequeueBuffer(State& s) {
 
     const u8* const memory = Memory::GetPhysicalPointer(buf.physical_address);
     ASSERT(memory);
-    const unsigned num_channels = s.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
 
     if (buf.adpcm_dirty) {
         s.adpcm_state.yn1 = buf.adpcm_yn[0];
@@ -198,7 +209,8 @@ static bool DequeueBuffer(State& s) {
         LOG_ERROR(Audio_DSP, "Looped buffers are unimplemented at the moment");
     }
 
-    switch (s.format) {
+    const unsigned num_channels = buf.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
+    switch (buf.format) {
     case Format::PCM8:
         s.current_buffer = Codec::DecodePCM8(num_channels, memory, buf.length);
         break;
@@ -223,6 +235,8 @@ static bool DequeueBuffer(State& s) {
 
 static void ResampleBuffer(State& s) {
     ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
+
+    s.current_frame.fill({});
 
     s.current_sample_number = s.next_sample_number;
     while (true) {
@@ -266,6 +280,7 @@ void SourceInit() {
 
 void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, const s16_le adpcm_coeffs[16], SourceStatus::Status& status) {
     ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
+
     ParseConfig(state[source_id], config, adpcm_coeffs);
     AdvanceFrame(state[source_id]);
     UpdateStatus(state[source_id], status);
@@ -274,17 +289,18 @@ void SourceUpdate(int source_id, SourceConfiguration::Configuration& config, con
 const QuadFrame32& SourceFrame(int source_id) {
     ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
     ASSERT(state[source_id].enabled);
+
     return state[source_id].current_frame;
 }
 
 void SourceFrameMixInto(QuadFrame32& dest, int source_id, int intermediate_mix_id) {
-    if (!state[source_id].enabled)
-        return;
-
     ASSERT(source_id >= 0 && source_id < AudioCore::num_sources);
     ASSERT(intermediate_mix_id >= 0 && intermediate_mix_id < 3);
 
     const State& s = state[source_id];
+
+    if (!s.enabled)
+        return;
 
     for (int i = 0; i < dest[0].size(); i++) {
         for (int channel = 0; channel < 4; channel++) {
