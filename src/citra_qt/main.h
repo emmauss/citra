@@ -59,6 +59,8 @@ signals:
     void EmulationStopping();
 
 private:
+    bool InitializeSystem();
+    bool LoadROM(const std::string& filename);
     void BootGame(const std::string& filename);
     void ShutdownGame();
 
@@ -73,7 +75,7 @@ private:
      *
      * @param filename the filename to store
      */
-    void StoreRecentFile(const QString& filename);
+    void StoreRecentFile(const std::string& filename);
 
     /**
      * Updates the recent files menu.

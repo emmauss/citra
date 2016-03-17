@@ -5,6 +5,7 @@
 #include <cmath>
 #include <boost/range/algorithm/fill.hpp>
 
+#include "common/alignment.h"
 #include "common/microprofile.h"
 #include "common/profiler.h"
 
@@ -142,7 +143,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                         // Send to renderer
                         using Pica::Shader::OutputVertex;
                         auto AddTriangle = [](const OutputVertex& v0, const OutputVertex& v1, const OutputVertex& v2) {
-                            VideoCore::g_renderer->rasterizer->AddTriangle(v0, v1, v2);
+                            VideoCore::g_renderer->Rasterizer()->AddTriangle(v0, v1, v2);
                         };
 
                         g_state.immediate.primitive_assembler.SubmitVertex(output, AddTriangle);
@@ -155,7 +156,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
         case PICA_REG_INDEX(gpu_mode):
             if (regs.gpu_mode == Regs::GPUMode::Configuring && regs.vs_default_attributes_setup.index == 15) {
                 // Draw immediate mode triangles when GPU Mode is set to GPUMode::Configuring
-                VideoCore::g_renderer->rasterizer->DrawTriangles();
+                VideoCore::g_renderer->Rasterizer()->DrawTriangles();
             }
             break;
 
@@ -210,14 +211,17 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
                     u32 attribute_index = loader_config.GetComponent(component);
                     if (attribute_index < 12) {
+                        int element_size = attribute_config.GetElementSizeInBytes(attribute_index);
+                        load_address = Common::AlignUp(load_address, element_size);
                         vertex_attribute_sources[attribute_index] = load_address;
                         vertex_attribute_strides[attribute_index] = static_cast<u32>(loader_config.byte_count);
                         vertex_attribute_formats[attribute_index] = attribute_config.GetFormat(attribute_index);
                         vertex_attribute_elements[attribute_index] = attribute_config.GetNumElements(attribute_index);
-                        vertex_attribute_element_size[attribute_index] = attribute_config.GetElementSizeInBytes(attribute_index);
+                        vertex_attribute_element_size[attribute_index] = element_size;
                         load_address += attribute_config.GetStride(attribute_index);
                     } else if (attribute_index < 16) {
                         // Attribute ids 12, 13, 14 and 15 signify 4, 8, 12 and 16-byte paddings, respectively
+                        load_address = Common::AlignUp(load_address, 4);
                         load_address += (attribute_index - 11) * 4;
                     } else {
                         UNREACHABLE(); // This is truly unreachable due to the number of bits for each component
@@ -396,7 +400,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                 using Pica::Shader::OutputVertex;
                 auto AddTriangle = [](
                         const OutputVertex& v0, const OutputVertex& v1, const OutputVertex& v2) {
-                    VideoCore::g_renderer->rasterizer->AddTriangle(v0, v1, v2);
+                    VideoCore::g_renderer->Rasterizer()->AddTriangle(v0, v1, v2);
                 };
 
                 primitive_assembler.SubmitVertex(output, AddTriangle);
@@ -407,7 +411,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                                                           range.second, range.first);
             }
 
-            VideoCore::g_renderer->rasterizer->DrawTriangles();
+            VideoCore::g_renderer->Rasterizer()->DrawTriangles();
 
 #if PICA_DUMP_GEOMETRY
             geometry_dumper.Dump();
@@ -542,7 +546,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
             break;
     }
 
-    VideoCore::g_renderer->rasterizer->NotifyPicaRegisterChanged(id);
+    VideoCore::g_renderer->Rasterizer()->NotifyPicaRegisterChanged(id);
 
     if (g_debug_context)
         g_debug_context->OnEvent(DebugContext::Event::PicaCommandProcessed, reinterpret_cast<void*>(&id));

@@ -12,6 +12,7 @@
 #include "core/hle/service/apt/apt_a.h"
 #include "core/hle/service/apt/apt_s.h"
 #include "core/hle/service/apt/apt_u.h"
+#include "core/hle/service/fs/archive.h"
 
 #include "core/hle/kernel/event.h"
 #include "core/hle/kernel/mutex.h"
@@ -378,6 +379,24 @@ void StartLibraryApplet(Service::Interface* self) {
     cmd_buff[1] = applet->Start(parameter).raw;
 }
 
+void GetAppletInfo(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+    auto app_id = static_cast<AppletId>(cmd_buff[1]);
+
+    if (auto applet = HLE::Applets::Applet::Get(app_id)) {
+        // TODO(Subv): Get the title id for the current applet and write it in the response[2-3]
+        cmd_buff[1] = RESULT_SUCCESS.raw;
+        cmd_buff[4] = static_cast<u32>(Service::FS::MediaType::NAND);
+        cmd_buff[5] = 1; // Registered
+        cmd_buff[6] = 1; // Loaded
+        cmd_buff[7] = 0; // Applet Attributes
+    } else {
+        cmd_buff[1] = ResultCode(ErrorDescription::NotFound, ErrorModule::Applet,
+                                 ErrorSummary::NotFound, ErrorLevel::Status).raw;
+    }
+    LOG_WARNING(Service_APT, "(stubbed) called appid=%u", app_id);
+}
+
 void Init() {
     AddService(new APT_A_Interface);
     AddService(new APT_S_Interface);
@@ -415,8 +434,8 @@ void Init() {
     cpu_percent = 0;
 
     // TODO(bunnei): Check if these are created in Initialize or on APT process startup.
-    notification_event = Kernel::Event::Create(RESETTYPE_ONESHOT, "APT_U:Notification");
-    parameter_event = Kernel::Event::Create(RESETTYPE_ONESHOT, "APT_U:Start");
+    notification_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "APT_U:Notification");
+    parameter_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "APT_U:Start");
 
     next_parameter.signal = static_cast<u32>(SignalType::AppJustStarted);
     next_parameter.destination_id = 0x300;

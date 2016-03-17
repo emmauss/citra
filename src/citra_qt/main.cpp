@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <clocale>
 #include <thread>
 
 #include <QDesktopWidget>
@@ -248,22 +249,74 @@ void GMainWindow::OnDisplayTitleBars(bool show)
     }
 }
 
-void GMainWindow::BootGame(const std::string& filename) {
-    LOG_INFO(Frontend, "Citra starting...");
-
+bool GMainWindow::InitializeSystem() {
     // Shutdown previous session if the emu thread is still active...
     if (emu_thread != nullptr)
         ShutdownGame();
 
     // Initialize the core emulation
-    System::Init(render_window);
+    System::Result system_result = System::Init(render_window);
+    if (System::Result::Success != system_result) {
+        switch (system_result) {
+        case System::Result::ErrorInitVideoCore:
+            QMessageBox::critical(this, tr("Error while starting Citra!"),
+                                  tr("Failed to initialize the video core!\n\n"
+                                     "Please ensure that your GPU supports OpenGL 3.3 and that you have the latest graphics driver."));
+            break;
 
-    // Load the game
-    if (Loader::ResultStatus::Success != Loader::LoadFile(filename)) {
+        default:
+            QMessageBox::critical(this, tr("Error while starting Citra!"),
+                                  tr("Unknown error (please check the log)!"));
+            break;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool GMainWindow::LoadROM(const std::string& filename) {
+    Loader::ResultStatus result = Loader::LoadFile(filename);
+    if (Loader::ResultStatus::Success != result) {
         LOG_CRITICAL(Frontend, "Failed to load ROM!");
         System::Shutdown();
-        return;
+
+        switch (result) {
+        case Loader::ResultStatus::ErrorEncrypted: {
+            // Build the MessageBox ourselves to have clickable link
+            QMessageBox popup_error;
+            popup_error.setTextFormat(Qt::RichText);
+            popup_error.setWindowTitle(tr("Error while loading ROM!"));
+            popup_error.setText(tr("The game that you are trying to load must be decrypted before being used with Citra.<br/><br/>"
+                                  "For more information on dumping and decrypting games, please see: <a href='https://citra-emu.org/wiki/Dumping-Game-Cartridges'>https://citra-emu.org/wiki/Dumping-Game-Cartridges</a>"));
+            popup_error.setIcon(QMessageBox::Critical);
+            popup_error.exec();
+            break;
+        }
+        case Loader::ResultStatus::ErrorInvalidFormat:
+            QMessageBox::critical(this, tr("Error while loading ROM!"),
+                                  tr("The ROM format is not supported."));
+            break;
+        case Loader::ResultStatus::Error:
+
+        default:
+            QMessageBox::critical(this, tr("Error while loading ROM!"),
+                                  tr("Unknown error!"));
+            break;
+        }
+        return false;
     }
+    return true;
+}
+
+void GMainWindow::BootGame(const std::string& filename) {
+    LOG_INFO(Frontend, "Citra starting...");
+    StoreRecentFile(filename); // Put the filename on top of the list
+
+    if (!InitializeSystem())
+        return;
+
+    if (!LoadROM(filename))
+        return;
 
     // Create and start the emulation thread
     emu_thread = Common::make_unique<EmuThread>(render_window);
@@ -322,11 +375,11 @@ void GMainWindow::ShutdownGame() {
     emulation_running = false;
 }
 
-void GMainWindow::StoreRecentFile(const QString& filename)
+void GMainWindow::StoreRecentFile(const std::string& filename)
 {
     QSettings settings;
     QStringList recent_files = settings.value("recentFiles").toStringList();
-    recent_files.prepend(filename);
+    recent_files.prepend(QString::fromStdString(filename));
     recent_files.removeDuplicates();
     while (recent_files.size() > max_recent_files_item) {
         recent_files.removeLast();
@@ -374,7 +427,6 @@ void GMainWindow::OnMenuLoadFile() {
     QString filename = QFileDialog::getOpenFileName(this, tr("Load File"), rom_path, tr("3DS executable (*.3ds *.3dsx *.elf *.axf *.cci *.cxi)"));
     if (!filename.isEmpty()) {
         settings.setValue("romsPath", QFileInfo(filename).path());
-        StoreRecentFile(filename);
 
         BootGame(filename.toLocal8Bit().data());
     }
@@ -410,7 +462,6 @@ void GMainWindow::OnMenuRecentFile() {
     QFileInfo file_info(filename);
     if (file_info.exists()) {
         BootGame(filename.toLocal8Bit().data());
-        StoreRecentFile(filename); // Put the filename on top of the list
     } else {
         // Display an error message and remove the file from the list.
         QMessageBox::information(this, tr("File not found"), tr("File \"%1\" not found").arg(filename));
@@ -562,6 +613,9 @@ int main(int argc, char* argv[]) {
 
     QApplication::setAttribute(Qt::AA_X11InitThreads);
     QApplication app(argc, argv);
+
+    // Qt changes the locale and causes issues in float conversion using std::to_string() when generating shaders
+    setlocale(LC_ALL, "C");
 
     GMainWindow main_window;
     // After settings have been loaded by GMainWindow, apply the filter

@@ -17,16 +17,20 @@
 
 namespace System {
 
-void Init(EmuWindow* emu_window) {
+Result Init(EmuWindow* emu_window) {
     Core::Init();
     CoreTiming::Init();
     Memory::Init();
     HW::Init();
     Kernel::Init();
     HLE::Init();
-    VideoCore::Init(emu_window);
+    if (!VideoCore::Init(emu_window)) {
+        return Result::ErrorInitVideoCore;
+    }
     AudioCore::Init();
     GDBStub::Init();
+
+    return Result::Success;
 }
 
 void Shutdown() {

@@ -2,8 +2,11 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cinttypes>
+
 #include "audio_core/hle/pipe.h"
 
+#include "common/hash.h"
 #include "common/logging/log.h"
 
 #include "core/hle/kernel/event.h"
@@ -55,18 +58,18 @@ static void ConvertProcessAddressFromDspDram(Service::Interface* self) {
 
     u32 addr = cmd_buff[1];
 
-    cmd_buff[1] = 0; // No error
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = (addr << 1) + (Memory::DSP_RAM_VADDR + 0x40000);
 
-    LOG_TRACE(Service_DSP, "addr=0x%08X", addr);
+    LOG_DEBUG(Service_DSP, "addr=0x%08X", addr);
 }
 
 /**
  * DSP_DSP::LoadComponent service function
  *  Inputs:
  *      1 : Size
- *      2 : Unknown (observed only half word used)
- *      3 : Unknown (observed only half word used)
+ *      2 : Program mask (observed only half word used)
+ *      3 : Data mask (observed only half word used)
  *      4 : (size << 4) | 0xA
  *      5 : Buffer address
  *  Outputs:
@@ -77,18 +80,28 @@ static void LoadComponent(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     u32 size       = cmd_buff[1];
-    u32 unk1       = cmd_buff[2];
-    u32 unk2       = cmd_buff[3];
-    u32 new_size   = cmd_buff[4];
+    u32 prog_mask  = cmd_buff[2];
+    u32 data_mask  = cmd_buff[3];
+    u32 desc       = cmd_buff[4];
     u32 buffer     = cmd_buff[5];
 
-    cmd_buff[1] = 0; // No error
+    cmd_buff[0] = IPC::MakeHeader(0x11, 2, 2);
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 1; // Pretend that we actually loaded the DSP firmware
+    cmd_buff[3] = desc;
+    cmd_buff[4] = buffer;
 
     // TODO(bunnei): Implement real DSP firmware loading
 
-    LOG_WARNING(Service_DSP, "(STUBBED) called size=0x%X, unk1=0x%08X, unk2=0x%08X, new_size=0x%X, buffer=0x%08X",
-                size, unk1, unk2, new_size, buffer);
+    ASSERT(Memory::GetPointer(buffer) != nullptr);
+    ASSERT(size > 0x37C);
+
+    LOG_INFO(Service_DSP, "Firmware hash: %#" PRIx64, Common::ComputeHash64(Memory::GetPointer(buffer), size));
+    // Some versions of the firmware have the location of DSP structures listed here.
+    LOG_INFO(Service_DSP, "Structures hash: %#" PRIx64, Common::ComputeHash64(Memory::GetPointer(buffer) + 0x340, 60));
+
+    LOG_WARNING(Service_DSP, "(STUBBED) called size=0x%X, prog_mask=0x%08X, data_mask=0x%08X, buffer=0x%08X",
+                size, prog_mask, data_mask, buffer);
 }
 
 /**
@@ -129,8 +142,7 @@ static void FlushDataCache(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
-    LOG_DEBUG(Service_DSP, "(STUBBED) called address=0x%08X, size=0x%X, process=0x%08X",
-              address, size, process);
+    LOG_TRACE(Service_DSP, "called address=0x%08X, size=0x%X, process=0x%08X", address, size, process);
 }
 
 /**
@@ -154,14 +166,14 @@ static void RegisterInterruptEvents(Service::Interface* self) {
         if (evt) {
             interrupt_events[std::make_pair(interrupt, channel)] = evt;
             cmd_buff[1] = RESULT_SUCCESS.raw;
-            LOG_WARNING(Service_DSP, "Registered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+            LOG_INFO(Service_DSP, "Registered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
         } else {
-            cmd_buff[1] = -1;
-            LOG_ERROR(Service_DSP, "Invalid event handle! interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+            LOG_CRITICAL(Service_DSP, "Invalid event handle! interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+            ASSERT(false); // This should really be handled at a IPC translation layer.
         }
     } else {
         interrupt_events.erase(std::make_pair(interrupt, channel));
-        LOG_WARNING(Service_DSP, "Unregistered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+        LOG_INFO(Service_DSP, "Unregistered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
     }
 }
 
@@ -175,7 +187,7 @@ static void RegisterInterruptEvents(Service::Interface* self) {
 static void SetSemaphore(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    cmd_buff[1] = 0; // No error
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
     LOG_WARNING(Service_DSP, "(STUBBED) called");
 }
@@ -194,21 +206,12 @@ static void SetSemaphore(Service::Interface* self) {
 static void WriteProcessPipe(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    u32 channel  = cmd_buff[1];
-    u32 size     = cmd_buff[2];
-    u32 buffer   = cmd_buff[4];
+    DSP::HLE::DspPipe pipe = static_cast<DSP::HLE::DspPipe>(cmd_buff[1]);
+    u32 size = cmd_buff[2];
+    u32 buffer = cmd_buff[4];
 
-    if (IPC::StaticBufferDesc(size, 1) != cmd_buff[3]) {
-        LOG_ERROR(Service_DSP, "IPC static buffer descriptor failed validation (0x%X). channel=%u, size=0x%X, buffer=0x%08X", cmd_buff[3], channel, size, buffer);
-        cmd_buff[1] = -1; // TODO
-        return;
-    }
-
-    if (!Memory::GetPointer(buffer)) {
-        LOG_ERROR(Service_DSP, "Invalid Buffer: channel=%u, size=0x%X, buffer=0x%08X", channel, size, buffer);
-        cmd_buff[1] = -1; // TODO
-        return;
-    }
+    ASSERT_MSG(IPC::StaticBufferDesc(size, 1) == cmd_buff[3], "IPC static buffer descriptor failed validation (0x%X). pipe=%u, size=0x%X, buffer=0x%08X", cmd_buff[3], pipe, size, buffer);
+    ASSERT_MSG(Memory::GetPointer(buffer) != nullptr, "Invalid Buffer: pipe=%u, size=0x%X, buffer=0x%08X", pipe, size, buffer);
 
     std::vector<u8> message(size);
 
@@ -216,11 +219,11 @@ static void WriteProcessPipe(Service::Interface* self) {
         message[i] = Memory::Read8(buffer + i);
     }
 
-    DSP::HLE::PipeWrite(channel, message);
+    DSP::HLE::PipeWrite(pipe, message);
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
-    LOG_TRACE(Service_DSP, "channel=%u, size=0x%X, buffer=0x%08X", channel, size, buffer);
+    LOG_DEBUG(Service_DSP, "pipe=%u, size=0x%X, buffer=0x%08X", pipe, size, buffer);
 }
 
 /**
@@ -232,7 +235,7 @@ static void WriteProcessPipe(Service::Interface* self) {
  *      1 : Pipe Number
  *      2 : Unknown
  *      3 : Size in bytes of read (observed only lower half word used)
- *      0x41 : Virtual address to read from DSP pipe to in memory
+ *      0x41 : Virtual address of memory buffer to write pipe contents to
  *  Outputs:
  *      1 : Result of function, 0 on success, otherwise error code
  *      2 : Number of bytes read from pipe
@@ -240,25 +243,82 @@ static void WriteProcessPipe(Service::Interface* self) {
 static void ReadPipeIfPossible(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    u32 pipe = cmd_buff[1];
-    u32 unk2 = cmd_buff[2];
-    u32 size = cmd_buff[3] & 0xFFFF;// Lower 16 bits are size
+    DSP::HLE::DspPipe pipe = static_cast<DSP::HLE::DspPipe>(cmd_buff[1]);
+    u32 unknown = cmd_buff[2];
+    u32 size = cmd_buff[3] & 0xFFFF; // Lower 16 bits are size
     VAddr addr = cmd_buff[0x41];
 
-    if (!Memory::GetPointer(addr)) {
-        LOG_ERROR(Service_DSP, "Invalid addr: pipe=0x%08X, unk2=0x%08X, size=0x%X, buffer=0x%08X", pipe, unk2, size, addr);
-        cmd_buff[1] = -1; // TODO
-        return;
+    ASSERT_MSG(Memory::GetPointer(addr) != nullptr, "Invalid addr: pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X", pipe, unknown, size, addr);
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    if (DSP::HLE::GetPipeReadableSize(pipe) >= size) {
+        std::vector<u8> response = DSP::HLE::PipeRead(pipe, size);
+
+        Memory::WriteBlock(addr, response.data(), response.size());
+
+        cmd_buff[2] = static_cast<u32>(response.size());
+    } else {
+        cmd_buff[2] = 0; // Return no data
     }
 
-    std::vector<u8> response = DSP::HLE::PipeRead(pipe, size);
+    LOG_DEBUG(Service_DSP, "pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X, return cmd_buff[2]=0x%08X", pipe, unknown, size, addr, cmd_buff[2]);
+}
 
-    Memory::WriteBlock(addr, response.data(), response.size());
+/**
+ * DSP_DSP::ReadPipe service function
+ *  Inputs:
+ *      1 : Pipe Number
+ *      2 : Unknown
+ *      3 : Size in bytes of read (observed only lower half word used)
+ *      0x41 : Virtual address of memory buffer to write pipe contents to
+ *  Outputs:
+ *      1 : Result of function, 0 on success, otherwise error code
+ *      2 : Number of bytes read from pipe
+ */
+static void ReadPipe(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    cmd_buff[1] = 0; // No error
-    cmd_buff[2] = (u32)response.size();
+    DSP::HLE::DspPipe pipe = static_cast<DSP::HLE::DspPipe>(cmd_buff[1]);
+    u32 unknown = cmd_buff[2];
+    u32 size = cmd_buff[3] & 0xFFFF; // Lower 16 bits are size
+    VAddr addr = cmd_buff[0x41];
 
-    LOG_TRACE(Service_DSP, "pipe=0x%08X, unk2=0x%08X, size=0x%X, buffer=0x%08X", pipe, unk2, size, addr);
+    ASSERT_MSG(Memory::GetPointer(addr) != nullptr, "Invalid addr: pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X", pipe, unknown, size, addr);
+
+    if (DSP::HLE::GetPipeReadableSize(pipe) >= size) {
+        std::vector<u8> response = DSP::HLE::PipeRead(pipe, size);
+
+        Memory::WriteBlock(addr, response.data(), response.size());
+
+        cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+        cmd_buff[2] = static_cast<u32>(response.size());
+    } else {
+        // No more data is in pipe. Hardware hangs in this case; this should never happen.
+        UNREACHABLE();
+    }
+
+    LOG_DEBUG(Service_DSP, "pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X, return cmd_buff[2]=0x%08X", pipe, unknown, size, addr, cmd_buff[2]);
+}
+
+/**
+ * DSP_DSP::GetPipeReadableSize service function
+ *  Inputs:
+ *      1 : Pipe Number
+ *      2 : Unknown
+ *  Outputs:
+ *      1 : Result of function, 0 on success, otherwise error code
+ *      2 : Number of bytes readable from pipe
+ */
+static void GetPipeReadableSize(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    DSP::HLE::DspPipe pipe = static_cast<DSP::HLE::DspPipe>(cmd_buff[1]);
+    u32 unknown = cmd_buff[2];
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[2] = DSP::HLE::GetPipeReadableSize(pipe);
+
+    LOG_DEBUG(Service_DSP, "pipe=0x%08X, unknown=0x%08X, return cmd_buff[2]=0x%08X", pipe, unknown, cmd_buff[2]);
 }
 
 /**
@@ -293,12 +353,73 @@ static void GetHeadphoneStatus(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 0; // Not using headphones?
 
-    LOG_DEBUG(Service_DSP, "(STUBBED) called");
+    LOG_WARNING(Service_DSP, "(STUBBED) called");
+}
+
+/**
+ * DSP_DSP::RecvData service function
+ *      This function reads a value out of a DSP register.
+ *  Inputs:
+ *      1 : Register Number
+ *  Outputs:
+ *      1 : Result of function, 0 on success, otherwise error code
+ *      2 : Value in the register
+ *  Notes:
+ *      This function has only been observed being called with a register number of 0.
+ */
+static void RecvData(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    u32 register_number = cmd_buff[1];
+
+    ASSERT_MSG(register_number == 0, "Unknown register_number %u", register_number);
+
+    // Application reads this after requesting DSP shutdown, to verify the DSP has indeed shutdown or slept.
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    switch (DSP::HLE::GetDspState()) {
+    case DSP::HLE::DspState::On:
+        cmd_buff[2] = 0;
+        break;
+    case DSP::HLE::DspState::Off:
+    case DSP::HLE::DspState::Sleeping:
+        cmd_buff[2] = 1;
+        break;
+    default:
+        UNREACHABLE();
+        break;
+    }
+
+    LOG_DEBUG(Service_DSP, "register_number=%u", register_number);
+}
+
+/**
+ * DSP_DSP::RecvDataIsReady service function
+ *      This function checks whether a DSP register is ready to be read.
+ *  Inputs:
+ *      1 : Register Number
+ *  Outputs:
+ *      1 : Result of function, 0 on success, otherwise error code
+ *      2 : non-zero == ready
+ *  Note:
+ *      This function has only been observed being called with a register number of 0.
+ */
+static void RecvDataIsReady(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    u32 register_number = cmd_buff[1];
+
+    ASSERT_MSG(register_number == 0, "Unknown register_number %u", register_number);
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = 1; // Ready to read
+
+    LOG_DEBUG(Service_DSP, "register_number=%u", register_number);
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
-    {0x00010040, nullptr,                          "RecvData"},
-    {0x00020040, nullptr,                          "RecvDataIsReady"},
+    {0x00010040, RecvData,                         "RecvData"},
+    {0x00020040, RecvDataIsReady,                  "RecvDataIsReady"},
     {0x00030080, nullptr,                          "SendData"},
     {0x00040040, nullptr,                          "SendDataIsEmpty"},
     {0x000500C2, nullptr,                          "SendFifoEx"},
@@ -310,8 +431,8 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x000B0000, nullptr,                          "CheckSemaphoreRequest"},
     {0x000C0040, ConvertProcessAddressFromDspDram, "ConvertProcessAddressFromDspDram"},
     {0x000D0082, WriteProcessPipe,                 "WriteProcessPipe"},
-    {0x000E00C0, nullptr,                          "ReadPipe"},
-    {0x000F0080, nullptr,                          "GetPipeReadableSize"},
+    {0x000E00C0, ReadPipe,                         "ReadPipe"},
+    {0x000F0080, GetPipeReadableSize,              "GetPipeReadableSize"},
     {0x001000C0, ReadPipeIfPossible,               "ReadPipeIfPossible"},
     {0x001100C2, LoadComponent,                    "LoadComponent"},
     {0x00120000, nullptr,                          "UnloadComponent"},
@@ -336,7 +457,7 @@ const Interface::FunctionInfo FunctionTable[] = {
 // Interface class
 
 Interface::Interface() {
-    semaphore_event = Kernel::Event::Create(RESETTYPE_ONESHOT, "DSP_DSP::semaphore_event");
+    semaphore_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "DSP_DSP::semaphore_event");
     read_pipe_count = 0;
 
     Register(FunctionTable);
