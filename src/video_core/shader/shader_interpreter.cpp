@@ -2,10 +2,10 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <common/file_util.h>
-
+#include <numeric>
 #include <nihstro/shader_bytecode.h>
 
+#include "common/file_util.h"
 #include "video_core/pica.h"
 #include "video_core/pica_state.h"
 #include "video_core/shader/shader.h"
@@ -214,10 +214,8 @@ void RunInterpreter(UnitState<Debug>& state) {
                 if (opcode == OpCode::Id::DPH || opcode == OpCode::Id::DPHI)
                     src1[3] = float24::FromFloat32(1.0f);
 
-                float24 dot = float24::FromFloat32(0.f);
                 int num_components = (opcode == OpCode::Id::DP3) ? 3 : 4;
-                for (int i = 0; i < num_components; ++i)
-                    dot = dot + src1[i] * src2[i];
+                float24 dot = std::inner_product(src1, src1 + num_components, src2, float24::FromFloat32(0.f));
 
                 for (int i = 0; i < 4; ++i) {
                     if (!swizzle.DestComponentEnabled(i))
@@ -409,7 +407,7 @@ void RunInterpreter(UnitState<Debug>& state) {
         {
             if ((instr.opcode.Value().EffectiveOpCode() == OpCode::Id::MAD) ||
                 (instr.opcode.Value().EffectiveOpCode() == OpCode::Id::MADI)) {
-                const SwizzlePattern& swizzle = *(SwizzlePattern*)&swizzle_data[instr.mad.operand_desc_id];
+                const SwizzlePattern& swizzle = *reinterpret_cast<const SwizzlePattern*>(&swizzle_data[instr.mad.operand_desc_id]);
 
                 bool is_inverted = (instr.opcode.Value().EffectiveOpCode() == OpCode::Id::MADI);
 
