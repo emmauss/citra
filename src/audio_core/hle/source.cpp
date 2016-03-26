@@ -59,7 +59,7 @@ struct State {
     Format format = Format::PCM16;
 
     std::array<s16, 16> adpcm_coeffs = {};
-    Codec::AdpcmState adpcm_state = {};
+    Codec::ADPCMState adpcm_state = {};
 
     AudioInterp::State interp_state = {};
 
@@ -187,9 +187,7 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
 }
 
 static bool DequeueBuffer(State& s) {
-    ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-
-    if (!s.current_buffer[0].empty())
+    if (!s.current_buffer.empty())
         return true;
     if (s.queue.empty())
         return false;
@@ -234,8 +232,6 @@ static bool DequeueBuffer(State& s) {
 }
 
 static void ResampleBuffer(State& s) {
-    ASSERT(s.current_buffer[0].size() == s.current_buffer[1].size());
-
     s.current_frame.fill({});
 
     s.current_sample_number = s.next_sample_number;

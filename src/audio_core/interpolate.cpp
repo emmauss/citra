@@ -194,17 +194,15 @@ std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std
     return std::make_tuple(position, continue_feeding_me);
 }
 
-std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::array<std::vector<s16>, 2>& input, const float rate_change) {
-    ASSERT(input[0].size() == input[1].size());
-
+std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::vector<std::array<s16, 2>>& input, const float rate_change) {
     size_t position = 0;
     double& position_fractional = state.position_fractional;
 
     auto step = [&](size_t i) -> s32 {
-        return input[i][position];
+        return input[position][i];
     };
 
-    const size_t position_stop = input[0].size();
+    const size_t position_stop = input.size();
     while (state.output_position < output[0].size() && position < position_stop) {
         s32 sample0 = step(0);
         s32 sample1 = step(1);
@@ -227,15 +225,11 @@ std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::
         continue_feeding_me = false;
     }
 
-    for (int j = 0; j < 2; j++) {
-        if (position >= input[j].size()) {
-            input[j].clear();
-        } else {
-            input[j].erase(input[j].begin(), input[j].begin() + position);
-        }
+    if (position >= input.size()) {
+        input.clear();
+    } else {
+        input.erase(input.begin(), input.begin() + position);
     }
-
-    ASSERT(input[0].size() == input[1].size());
 
     return std::make_tuple(position, continue_feeding_me);
 }
