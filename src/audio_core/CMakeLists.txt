@@ -1,8 +1,8 @@
 set(SRCS
             audio_core.cpp
             codec.cpp
-            hle/effects.cpp
             hle/dsp.cpp
+            hle/effects.cpp
             hle/final.cpp
             hle/pipe.cpp
             hle/source.cpp
@@ -15,8 +15,8 @@ set(HEADERS
             audio_core.h
             codec.h
             hle/common.h
-            hle/effects.h
             hle/dsp.h
+            hle/effects.h
             hle/final.h
             hle/pipe.h
             hle/source.h

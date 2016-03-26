@@ -160,40 +160,41 @@ void JitCompiler::Compile_SwizzleSrc(Instruction instr, unsigned src_num, Source
     ASSERT_MSG(src_offset == src_offset_disp, "Source register offset too large for int type");
 
     unsigned operand_desc_id;
+
+    const bool is_inverted = (0 != (instr.opcode.Value().GetInfo().subtype & OpCode::Info::SrcInversed));
+
+    unsigned address_register_index;
+    unsigned offset_src;
+
     if (instr.opcode.Value().EffectiveOpCode() == OpCode::Id::MAD ||
         instr.opcode.Value().EffectiveOpCode() == OpCode::Id::MADI) {
-        // The MAD and MADI instructions do not use the address offset registers, so loading the
-        // source is a bit simpler here
-
         operand_desc_id = instr.mad.operand_desc_id;
-
-        // Load the source
-        MOVAPS(dest, MDisp(src_ptr, src_offset_disp));
+        offset_src = is_inverted ? 3 : 2;
+        address_register_index = instr.mad.address_register_index;
     } else {
         operand_desc_id = instr.common.operand_desc_id;
+        offset_src = is_inverted ? 2 : 1;
+        address_register_index = instr.common.address_register_index;
+    }
 
-        const bool is_inverted = (0 != (instr.opcode.Value().GetInfo().subtype & OpCode::Info::SrcInversed));
-        unsigned offset_src = is_inverted ? 2 : 1;
-
-        if (src_num == offset_src && instr.common.address_register_index != 0) {
-            switch (instr.common.address_register_index) {
-            case 1: // address offset 1
-                MOVAPS(dest, MComplex(src_ptr, ADDROFFS_REG_0, SCALE_1, src_offset_disp));
-                break;
-            case 2: // address offset 2
-                MOVAPS(dest, MComplex(src_ptr, ADDROFFS_REG_1, SCALE_1, src_offset_disp));
-                break;
-            case 3: // address offset 3
-                MOVAPS(dest, MComplex(src_ptr, LOOPCOUNT_REG, SCALE_1, src_offset_disp));
-                break;
-            default:
-                UNREACHABLE();
-                break;
-            }
-        } else {
-            // Load the source
-            MOVAPS(dest, MDisp(src_ptr, src_offset_disp));
+    if (src_num == offset_src && address_register_index != 0) {
+        switch (address_register_index) {
+        case 1: // address offset 1
+            MOVAPS(dest, MComplex(src_ptr, ADDROFFS_REG_0, SCALE_1, src_offset_disp));
+            break;
+        case 2: // address offset 2
+            MOVAPS(dest, MComplex(src_ptr, ADDROFFS_REG_1, SCALE_1, src_offset_disp));
+            break;
+        case 3: // address offset 3
+            MOVAPS(dest, MComplex(src_ptr, LOOPCOUNT_REG, SCALE_1, src_offset_disp));
+            break;
+        default:
+            UNREACHABLE();
+            break;
         }
+    } else {
+        // Load the source
+        MOVAPS(dest, MDisp(src_ptr, src_offset_disp));
     }
 
     SwizzlePattern swiz = { g_state.vs.swizzle_data[operand_desc_id] };
@@ -644,7 +645,8 @@ void JitCompiler::Compile_MAD(Instruction instr) {
 }
 
 void JitCompiler::Compile_IF(Instruction instr) {
-    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards if-statements not supported");
+    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards if-statements (%d -> %d) not supported",
+            *offset_ptr, instr.flow_control.dest_offset.Value());
 
     // Evaluate the "IF" condition
     if (instr.opcode.Value() == OpCode::Id::IFU) {
@@ -675,7 +677,8 @@ void JitCompiler::Compile_IF(Instruction instr) {
 }
 
 void JitCompiler::Compile_LOOP(Instruction instr) {
-    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards loops not supported");
+    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards loops (%d -> %d) not supported",
+            *offset_ptr, instr.flow_control.dest_offset.Value());
     ASSERT_MSG(!looping, "Nested loops not supported");
 
     looping = true;
@@ -703,7 +706,8 @@ void JitCompiler::Compile_LOOP(Instruction instr) {
 }
 
 void JitCompiler::Compile_JMP(Instruction instr) {
-    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards jumps not supported");
+    ASSERT_MSG(instr.flow_control.dest_offset > *offset_ptr, "Backwards jumps (%d -> %d) not supported",
+            *offset_ptr, instr.flow_control.dest_offset.Value());
 
     if (instr.opcode.Value() == OpCode::Id::JMPC)
         Compile_EvaluateCondition(instr);
@@ -747,7 +751,7 @@ void JitCompiler::Compile_NextInstr(unsigned* offset) {
     } else {
         // Unhandled instruction
         LOG_CRITICAL(HW_GPU, "Unhandled instruction: 0x%02x (0x%08x)",
-                     instr.opcode.Value().EffectiveOpCode(), instr.hex);
+                instr.opcode.Value().EffectiveOpCode(), instr.hex);
     }
 }
 
@@ -786,7 +790,7 @@ CompiledShader* JitCompiler::Compile() {
 }
 
 JitCompiler::JitCompiler() {
-    AllocCodeSpace(1024 * 1024 * 4);
+    AllocCodeSpace(jit_cache_size);
 }
 
 void JitCompiler::Clear() {

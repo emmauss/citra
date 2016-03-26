@@ -26,6 +26,7 @@ set(SRCS
             hle/config_mem.cpp
             hle/hle.cpp
             hle/applets/applet.cpp
+            hle/applets/mii_selector.cpp
             hle/applets/swkbd.cpp
             hle/kernel/address_arbiter.cpp
             hle/kernel/event.cpp
@@ -86,7 +87,8 @@ set(SRCS
             hle/service/ir/ir_user.cpp
             hle/service/ldr_ro.cpp
             hle/service/mic_u.cpp
-            hle/service/ndm_u.cpp
+            hle/service/ndm/ndm.cpp
+            hle/service/ndm/ndm_u.cpp
             hle/service/news/news.cpp
             hle/service/news/news_s.cpp
             hle/service/news/news_u.cpp
@@ -155,6 +157,7 @@ set(HEADERS
             hle/function_wrappers.h
             hle/hle.h
             hle/applets/applet.h
+            hle/applets/mii_selector.h
             hle/applets/swkbd.h
             hle/kernel/address_arbiter.h
             hle/kernel/event.h
@@ -216,7 +219,8 @@ set(HEADERS
             hle/service/ir/ir_user.h
             hle/service/ldr_ro.h
             hle/service/mic_u.h
-            hle/service/ndm_u.h
+            hle/service/ndm/ndm.h
+            hle/service/ndm/ndm_u.h
             hle/service/news/news.h
             hle/service/news/news_s.h
             hle/service/news/news_u.h
