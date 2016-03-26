@@ -39,7 +39,7 @@ std::array<To, size> stft(const std::array<Ti, size>& input) {
 /// Sliding-window filter that drops extreme values.
 struct {
 private:
-    std::array<double, 51> buffer;
+    std::array<double, 11> buffer;
     int ptr = 0;
 public:
     void Reset() {
@@ -57,26 +57,6 @@ public:
     }
 } averager;
 
-struct {
-private:
-    std::array<double, 51> buffer;
-    int ptr = 0;
-public:
-    void Reset() {
-        buffer.fill(ideal_audio_delay);
-        ptr = 0;
-    }
-    void AddSample(double time) {
-        buffer[ptr] = time;
-        ptr = (ptr + 1) % buffer.size();
-    }
-    double GetAverage() {
-        std::vector<double> sorted(buffer.begin(), buffer.end());
-        std::sort(sorted.begin(), sorted.end());
-        return std::accumulate(sorted.begin() + 2, sorted.end() - 2, 0.0) / (buffer.size() - 4);
-    }
-} averager2;
-
 static int written_samples = 0;
 static std::chrono::time_point<std::chrono::steady_clock> time = std::chrono::steady_clock::now();
 static std::chrono::time_point<std::chrono::steady_clock> last_set_tempo_time = std::chrono::steady_clock::now();
@@ -86,14 +66,12 @@ static double integral = ideal_audio_delay;
 static double smooth = 1.0;
 static unsigned frame_counter = 0;
 
-static double force_tempo = 1.0;
-
 static double current_tempo = 1.0;
 
 void Tick(unsigned samples_in_queue) {
     auto endtime = std::chrono::steady_clock::now();
     std::chrono::duration<double> duration = endtime - time;
-    written_samples -= duration.count() / time_per_sample + 10;
+    written_samples -= duration.count() / time_per_sample;
     if (written_samples < 0) written_samples = 0;
     time = endtime;
 
@@ -116,24 +94,14 @@ void Tick(unsigned samples_in_queue) {
     if (integral < ideal_audio_delay) integral = ideal_audio_delay;
     if (integral > ideal_audio_delay/0.01) integral = ideal_audio_delay / 0.01;
 
-    if (endtime - last_set_tempo_time > std::chrono::duration<double>(1.0)) {
+    if (endtime - last_set_tempo_time > std::chrono::duration<double>(5.0)) {
         LOG_INFO(Audio, "Emulation is at %.1f%% speed\n", 100.0 * ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate) / (5.0 / frame_counter), frame_counter / 5.0);
-
-        force_tempo = ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate) / (5.0 / frame_counter);
-
         last_set_tempo_time = endtime;
         frame_counter = 0;
     }
     frame_counter++;
 
     smooth += (weight * 0.5) * (tempo - smooth);
-
-    tempo = force_tempo;
-    if (tempo < 0.1) tempo = 0.1;
-    if (tempo > 10.) tempo = 10.;
-
-    tempo *= 0.9;
-    tempo += 0.1 * smooth;
 
     sound_touch->setTempo(tempo);
     current_tempo = tempo;
@@ -167,7 +135,7 @@ void Shutdown() {
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    if ((written_samples * time_per_sample) > 1.5) return;
+    // if ((written_samples * time_per_sample) > 0.5) return;
     written_samples += AudioCore::samples_per_frame / current_tempo;
     std::array<s16, AudioCore::samples_per_frame * 2> input_samples;
     for (int i = 0; i < AudioCore::samples_per_frame; i++) {
