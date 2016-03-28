@@ -24,7 +24,7 @@ namespace TimeStretch {
 const RubberBand::RubberBandStretcher::Options options =
     RubberBand::RubberBandStretcher::OptionProcessRealTime |  // Must be used since we stretch in real-time
     RubberBand::RubberBandStretcher::OptionStretchPrecise |   // Must be used since we stretch in real-time
-    RubberBand::RubberBandStretcher::OptionTransientsSmooth | // (Can be adjusted later.) An equitable default that's muddy for most inputs
+    RubberBand::RubberBandStretcher::OptionTransientsCrisp |  // (Can be adjusted later.) Smooth is probably better as a default but it's quite muddy sounding.
     RubberBand::RubberBandStretcher::OptionDetectorCompound | // (Can be adjusted later.) Select the transients detector
     RubberBand::RubberBandStretcher::OptionPhaseLaminar |     // (Can be adjusted later.) I have no idea what this does
     RubberBand::RubberBandStretcher::OptionThreadingAuto |    // Use a processing thread where possible
