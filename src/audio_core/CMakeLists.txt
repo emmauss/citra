@@ -33,11 +33,12 @@ if(SDL2_FOUND)
 endif()
 
 include_directories(../../externals/soundtouch)
+include_directories(../../externals/rubberband/rubberband/rubberband)
 
 create_directory_groups(${SRCS} ${HEADERS})
 
 add_library(audio_core STATIC ${SRCS} ${HEADERS})
-target_link_libraries(audio_core SoundTouch)
+target_link_libraries(audio_core SoundTouch rubberband)
 
 if(SDL2_FOUND)
     target_link_libraries(audio_core ${SDL2_LIBRARY})

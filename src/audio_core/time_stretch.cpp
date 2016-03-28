@@ -9,7 +9,7 @@
 #include <numeric>
 #include <vector>
 
-#include <SoundTouch.h>
+#include <RubberBandStretcher.h>
 
 #include "audio_core/audio_core.h"
 #include "audio_core/sink.h"
@@ -21,143 +21,84 @@
 
 namespace TimeStretch {
 
-static soundtouch::SoundTouch* sound_touch;
+const RubberBand::RubberBandStretcher::Options options =
+    RubberBand::RubberBandStretcher::OptionProcessRealTime |  // Must be used since we stretch in real-time
+    RubberBand::RubberBandStretcher::OptionStretchPrecise |   // Must be used since we stretch in real-time
+    RubberBand::RubberBandStretcher::OptionTransientsSmooth | // (Can be adjusted later.) An equitable default that's muddy for most inputs
+    RubberBand::RubberBandStretcher::OptionDetectorCompound | // (Can be adjusted later.) Select the transients detector
+    RubberBand::RubberBandStretcher::OptionPhaseLaminar |     // (Can be adjusted later.) I have no idea what this does
+    RubberBand::RubberBandStretcher::OptionThreadingAuto |    // Use a processing thread where possible
+    RubberBand::RubberBandStretcher::OptionWindowStandard |   // Tradeoff between latency and smoothness
+    RubberBand::RubberBandStretcher::OptionSmoothingOff |     // Don't allow smoothing in the t-domain
+    RubberBand::RubberBandStretcher::OptionFormantShifted |   // We don't do pitch-shifting
+    RubberBand::RubberBandStretcher::OptionPitchHighSpeed |   // We don't do pitch-shifting
+    RubberBand::RubberBandStretcher::OptionChannelsApart;     // This increases stereo spacing but results in clearer audio
 
-double time_per_sample;
-/// The amount of delay that this algorithm aims for. (Units: seconds)
-constexpr double ideal_audio_delay = 0.5;
-double dynamic_delay = 0.2;
+static RubberBand::RubberBandStretcher stretcher(AudioCore::native_sample_rate, /* number of channels = */ 2, options);
 
-/// Short-time FFT (STFT)
-template<s32 sign, typename To, typename Ti, size_t size>
-std::array<To, size> stft(const std::array<Ti, size>& input) {
-    std::array<To, size> output;
+using steady_clock = std::chrono::steady_clock;
 
-    return output;
-}
-
-/// Sliding-window filter that drops extreme values.
-struct {
-private:
-    std::array<double, 11> buffer;
-    int ptr = 0;
-public:
-    void Reset() {
-        buffer.fill(ideal_audio_delay);
-        ptr = 0;
-    }
-    void AddSample(double time) {
-        buffer[ptr] = time;
-        ptr = (ptr + 1) % buffer.size();
-    }
-    double GetAverage() {
-        std::vector<double> sorted(buffer.begin(), buffer.end());
-        std::sort(sorted.begin(), sorted.end());
-        return std::accumulate(sorted.begin() + 2, sorted.end() - 2, 0.0) / (buffer.size() - 4);
-    }
-} averager;
-
-static int written_samples = 0;
-static std::chrono::time_point<std::chrono::steady_clock> time = std::chrono::steady_clock::now();
-static std::chrono::time_point<std::chrono::steady_clock> last_set_tempo_time = std::chrono::steady_clock::now();
-static double audio_delay = ideal_audio_delay;
-static double last_tempo = 1.0;
-static double integral = ideal_audio_delay;
-static double smooth = 1.0;
-static unsigned frame_counter = 0;
-
-static double current_tempo = 1.0;
-
+steady_clock::time_point frame_timer = steady_clock::now();
+double smooth_ratio = 1.0;
 void Tick(unsigned samples_in_queue) {
-    auto endtime = std::chrono::steady_clock::now();
-    std::chrono::duration<double> duration = endtime - time;
-    written_samples -= duration.count() / time_per_sample;
-    if (written_samples < 0) written_samples = 0;
-    time = endtime;
+    const steady_clock::time_point now = steady_clock::now();
+    const std::chrono::duration<double> duration = now - frame_timer;
+    frame_timer = now;
 
-    // A traditional PID is too unresponsive.
+    constexpr double native_frame_time = (double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate;
+    const double actual_frame_time = duration.count();
 
-    double current_delay = (written_samples + samples_in_queue) * time_per_sample;
-    averager.AddSample(current_delay);
-    current_delay = averager.GetAverage();
-    double weight = duration.count() / 0.5;
-    if (weight > 1.0) weight = 1.0;
-    audio_delay += weight * (current_delay - audio_delay);
-
-    if (audio_delay < 0.01 && integral < 2.0) {
-        integral = 2.0;
+    double ratio = actual_frame_time / native_frame_time;
+    ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
+    if (samples_in_queue < 4096) {
+        ratio = ratio > 1.0 ? ratio * ratio : 1.0;
+        ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
+        printf("underflow\n");
     }
 
-    double tempo = audio_delay / integral;
+    smooth_ratio = 0.8 * smooth_ratio + 0.2 * ratio;
+    smooth_ratio = MathUtil::Clamp<double>(smooth_ratio, 0.01, 100.0);
 
-    integral += 0.001 * (ideal_audio_delay/tempo - integral);
-    if (integral < ideal_audio_delay) integral = ideal_audio_delay;
-    if (integral > ideal_audio_delay/0.01) integral = ideal_audio_delay / 0.01;
-
-    if (endtime - last_set_tempo_time > std::chrono::duration<double>(5.0)) {
-        LOG_INFO(Audio, "Emulation is at %.1f%% speed\n", 100.0 * ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate) / (5.0 / frame_counter), frame_counter / 5.0);
-        last_set_tempo_time = endtime;
-        frame_counter = 0;
-    }
-    frame_counter++;
-
-    smooth += (weight * 0.5) * (tempo - smooth);
-
-    sound_touch->setTempo(tempo);
-    current_tempo = tempo;
+    stretcher.setTimeRatio(smooth_ratio);
 }
 
 void Init() {
-    time_per_sample = 1.0 / (double)AudioCore::sink->GetNativeSampleRate();
-    averager.Reset();
-
-    sound_touch = new soundtouch::SoundTouch();
-
-    sound_touch->setSampleRate(AudioCore::native_sample_rate);
-    sound_touch->setChannels(2); // Stereo
-
-    sound_touch->setSetting(SETTING_USE_AA_FILTER, 0);
-    sound_touch->setSetting(SETTING_USE_QUICKSEEK, 0);
-
-    // These numbers are tweakable.
-    sound_touch->setSetting(SETTING_SEQUENCE_MS, 100);
-    sound_touch->setSetting(SETTING_SEEKWINDOW_MS, 50);
-    sound_touch->setSetting(SETTING_OVERLAP_MS, 20);
-
-    sound_touch->setTempo(1.0);
-    current_tempo = 1.0;
-
-    written_samples = 1;
+    stretcher.reset();
+    stretcher.setMaxProcessSize(AudioCore::samples_per_frame);
+    stretcher.setPitchScale(1.0);
+    stretcher.setTimeRatio(1.0);
 }
 
 void Shutdown() {
-    sound_touch->clear();
+    stretcher.reset();
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    // if ((written_samples * time_per_sample) > 0.5) return;
-    written_samples += AudioCore::samples_per_frame / current_tempo;
-    std::array<s16, AudioCore::samples_per_frame * 2> input_samples;
-    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
-        input_samples[i * 2 + 0] = samples[0][i];
-        input_samples[i * 2 + 1] = samples[1][i];
-    }
-    sound_touch->putSamples(input_samples.data(), AudioCore::samples_per_frame);
+    std::array<float, AudioCore::samples_per_frame> left;
+    std::array<float, AudioCore::samples_per_frame> right;
+
+    std::transform(samples[0].begin(), samples[0].end(), left.begin(), [](s16 sample) { return (float)sample / 32768.f; });
+    std::transform(samples[1].begin(), samples[1].end(), right.begin(), [](s16 sample) { return (float)sample / 32768.f; });
+
+    float* fsamples[2] = { left.data(), right.data() };
+    stretcher.process(fsamples, AudioCore::samples_per_frame, /*final=*/false);
 }
 
 void OutputSamples(std::function<void(const std::vector<s16>&)> fn) {
-    std::vector<s16> output_samples;
-    int num;
+    size_t num_samples = stretcher.available();
+    std::vector<float> left(num_samples);
+    std::vector<float> right(num_samples);
 
-    while (true) {
-        output_samples.resize(4096);
-        num = sound_touch->receiveSamples(output_samples.data(), output_samples.size()/2);
-        if (num == 0) {
-            break;
-        }
-        output_samples.resize(num*2);
-        fn(output_samples);
+    float* fsamples[2] = { left.data(), right.data() };
+    stretcher.retrieve(fsamples, num_samples);
+
+    std::vector<s16> output(num_samples * 2);
+    for (int i = 0; i < num_samples; i++) {
+        output[i * 2 + 0] = MathUtil::Clamp<s16>(left[i] * 32768, -32768, 32767);
+        output[i * 2 + 1] = MathUtil::Clamp<s16>(right[i] * 32768, -32768, 32767);
     }
+
+    fn(output);
 }
 
 }

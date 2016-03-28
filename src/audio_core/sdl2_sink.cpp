@@ -7,6 +7,7 @@
 #include "audio_core/audio_core.h"
 #include "audio_core/sdl2_sink.h"
 
+#include "common/assert.h"
 #include "common/logging/log.h"
 
 namespace AudioCore {
@@ -23,9 +24,10 @@ SDL2Sink::SDL2Sink() {
     SDL_zero(desired_audiospec);
     desired_audiospec.format = AUDIO_S16;
     desired_audiospec.channels = 2;
-    desired_audiospec.freq = AudioCore::native_sample_rate; // TODO: Maybe go for a smaller value
-    desired_audiospec.samples = 2048;
-    desired_audiospec.callback = nullptr; // We're going to use SDL_QueueAudio
+    desired_audiospec.freq = AudioCore::native_sample_rate;
+    desired_audiospec.samples = 4096;
+    desired_audiospec.userdata = this;
+    desired_audiospec.callback = &SDL2Sink::Callback; // We're going to use SDL_QueueAudio
 
     SDL_AudioSpec obtained_audiospec;
     SDL_zero(obtained_audiospec);
@@ -54,12 +56,63 @@ unsigned SDL2Sink::GetNativeSampleRate() const {
 * @param samples Samples in interleaved stereo PCM16 format. Size of vector must be multiple of two.
 */
 void SDL2Sink::EnqueueSamples(const std::vector<s16>& samples) {
-    SDL_QueueAudio(audio_device_id, samples.data(), samples.size() * sizeof(s16));
+    ASSERT(samples.size() % 2 == 0);
+    SDL_LockAudioDevice(audio_device_id);
+    queue.emplace_back(samples);
+    SDL_UnlockAudioDevice(audio_device_id);
 }
 
 /// Samples enqueued that have not been played yet.
-std::size_t SDL2Sink::SamplesInQueue() const {
-    return SDL_GetQueuedAudioSize(audio_device_id) / sizeof(s16);
+size_t SDL2Sink::SamplesInQueue() const {
+    const size_t queue_size = RealQueueSize() + dequeue_consumed;
+
+    if (dequeue_consumed == 0)
+        return queue_size;
+
+    const std::chrono::duration<double> duration = std::chrono::steady_clock::now() - dequeue_time;
+    const size_t estimated_samples_consumed = sample_rate * duration.count();
+
+    if (estimated_samples_consumed > queue_size)
+        return 0;
+
+    return queue_size - estimated_samples_consumed;
+}
+
+size_t SDL2Sink::RealQueueSize() const {
+    size_t total_size = 0;
+    SDL_LockAudioDevice(audio_device_id);
+    for (const auto& buf : queue) {
+        total_size += buf.size() / 2;
+    }
+    SDL_UnlockAudioDevice(audio_device_id);
+    return total_size;
+}
+
+void SDL2Sink::Callback(void* sink_, u8* buffer, int buffer_size) {
+    SDL2Sink* sink = reinterpret_cast<SDL2Sink*>(sink_);
+    buffer_size /= sizeof(s16); // Convert to number of half-samples.
+
+    sink->dequeue_time = std::chrono::steady_clock::now();
+    sink->dequeue_consumed = buffer_size / 2;
+
+    while (buffer_size > 0 && !sink->queue.empty()) {
+        if (sink->queue.front().size() <= buffer_size) {
+            memcpy(buffer, sink->queue.front().data(), sink->queue.front().size() * sizeof(s16));
+            buffer += sink->queue.front().size() * sizeof(s16);
+            buffer_size -= sink->queue.front().size();
+            sink->queue.pop_front();
+        } else {
+            memcpy(buffer, sink->queue.front().data(), buffer_size * sizeof(s16));
+            buffer += buffer_size * sizeof(s16);
+            sink->queue.front().erase(sink->queue.front().begin(), sink->queue.front().begin() + buffer_size);
+            buffer_size = 0;
+        }
+    }
+
+    if (buffer_size > 0) {
+        sink->dequeue_consumed -= buffer_size / 2;
+        memset(buffer, 0, buffer_size * sizeof(s16));
+    }
 }
 
 }

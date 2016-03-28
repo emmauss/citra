@@ -247,6 +247,7 @@ if(ENABLE_QT)
 endif()
 
 add_subdirectory(externals/soundtouch)
+add_subdirectory(externals/rubberband)
 
 # process subdirectories
 add_subdirectory(src)

@@ -4,7 +4,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstddef>
+#include <list>
+#include <vector>
 
 #include "audio_core/sink.h"
 
@@ -31,6 +34,13 @@ private:
     using SDL_AudioDeviceID = u32;
     unsigned sample_rate;
     SDL_AudioDeviceID audio_device_id;
+
+    std::list<std::vector<s16>> queue;
+    size_t RealQueueSize() const;
+    static void Callback(void* sink, u8* buffer, int buffer_size);
+
+    std::chrono::steady_clock::time_point dequeue_time;
+    size_t dequeue_consumed = 0;
 };
 
 }
