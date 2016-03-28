@@ -9,8 +9,6 @@ set(SRCS
         rubberband/src/dsp/AudioCurveCalculator.cpp
         rubberband/src/dsp/FFT.cpp
         rubberband/src/dsp/Resampler.cpp
-        rubberband/src/getopt/getopt.c
-        rubberband/src/getopt/getopt_long.c
         rubberband/src/kissfft/kiss_fft.c
         rubberband/src/kissfft/kiss_fftr.c
         rubberband/src/RubberBandStretcher.cpp
@@ -43,8 +41,6 @@ SET(HEADERS
         rubberband/src/dsp/SincWindow.h
         rubberband/src/dsp/Window.h
         rubberband/src/float_cast/float_cast.h
-        rubberband/src/getopt/getopt.h
-        rubberband/src/getopt/unistd.h
         rubberband/src/kissfft/kiss_fft.h
         rubberband/src/kissfft/kiss_fftr.h
         rubberband/src/kissfft/_kiss_fft_guts.h
