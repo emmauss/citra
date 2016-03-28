@@ -10,6 +10,3 @@
 [submodule "rubberband"]
 	path = externals/rubberband/rubberband
 	url = https://github.com/breakfastquay/rubberband.git
-[submodule "externals/rubberband/rubberband"]
-	path = externals/rubberband/rubberband
-	url = https://github.com/breakfastquay/rubberband.git
