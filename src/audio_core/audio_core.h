@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <stddef>
+
 namespace Kernel {
 class VMManager;
 }
