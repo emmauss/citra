@@ -56,8 +56,10 @@ void Tick(unsigned samples_in_queue) {
         printf("underflow\n");
     }
 
-    smooth_ratio = 0.95 * smooth_ratio + 0.05 * ratio;
+    smooth_ratio = 0.99 * smooth_ratio + 0.01 * ratio;
     smooth_ratio = MathUtil::Clamp<double>(smooth_ratio, 0.01, 100.0);
+
+    printf("%f\n", smooth_ratio);
 
     stretcher.setTimeRatio(smooth_ratio);
 }
