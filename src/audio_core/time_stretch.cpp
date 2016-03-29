@@ -9,7 +9,7 @@
 #include <numeric>
 #include <vector>
 
-#include <RubberBandStretcher.h>
+#include <SoundTouch.h>
 
 #include "audio_core/audio_core.h"
 #include "audio_core/sink.h"
@@ -21,20 +21,7 @@
 
 namespace TimeStretch {
 
-const RubberBand::RubberBandStretcher::Options options =
-    RubberBand::RubberBandStretcher::OptionProcessRealTime |  // Must be used since we stretch in real-time
-    RubberBand::RubberBandStretcher::OptionStretchPrecise |   // Must be used since we stretch in real-time
-    RubberBand::RubberBandStretcher::OptionTransientsSmooth | // (Can be adjusted later.) Muddy sounding but eh.
-    RubberBand::RubberBandStretcher::OptionDetectorCompound | // (Can be adjusted later.) Select the transients detector
-    RubberBand::RubberBandStretcher::OptionPhaseLaminar |     // (Can be adjusted later.) I have no idea what this does
-    RubberBand::RubberBandStretcher::OptionThreadingAuto |    // Use a processing thread where possible
-    RubberBand::RubberBandStretcher::OptionWindowStandard |   // Tradeoff between latency and smoothness
-    RubberBand::RubberBandStretcher::OptionSmoothingOff |     // Don't allow smoothing in the t-domain
-    RubberBand::RubberBandStretcher::OptionFormantShifted |   // We don't do pitch-shifting
-    RubberBand::RubberBandStretcher::OptionPitchHighSpeed |   // We don't do pitch-shifting
-    RubberBand::RubberBandStretcher::OptionChannelsApart;     // This increases stereo spacing but results in clearer audio
-
-static RubberBand::RubberBandStretcher stretcher(AudioCore::native_sample_rate, /* number of channels = */ 2, options);
+static soundtouch::SoundTouch soundtouch;
 
 using steady_clock = std::chrono::steady_clock;
 
@@ -53,50 +40,42 @@ void Tick(unsigned samples_in_queue) {
     if (samples_in_queue < 4096) {
         ratio = ratio > 1.0 ? ratio * ratio : 1.0;
         ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
-        printf("underflow\n");
+    } else if (AudioCore::sink->SamplesInQueue() < 16000) {
+        ratio = ratio > 1.0 ? sqrt(ratio) : 0.01;
+        ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
     }
 
     smooth_ratio = 0.99 * smooth_ratio + 0.01 * ratio;
     smooth_ratio = MathUtil::Clamp<double>(smooth_ratio, 0.01, 100.0);
 
-    stretcher.setTimeRatio(smooth_ratio);
+    soundtouch.setTempo(1.0 / smooth_ratio);
 }
 
 void Init() {
-    stretcher.reset();
-    stretcher.setMaxProcessSize(AudioCore::samples_per_frame);
-    stretcher.setPitchScale(1.0);
-    stretcher.setTimeRatio(1.0);
+    soundtouch.setTempo(1.0);
+    soundtouch.setChannels(2);
 }
 
 void Shutdown() {
-    stretcher.reset();
+    soundtouch.setTempo(1.0);
 }
 
 void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    std::array<float, AudioCore::samples_per_frame> left;
-    std::array<float, AudioCore::samples_per_frame> right;
+    std::array<s16, AudioCore::samples_per_frame * 2> input;
+    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
+        input[i * 2 + 0] = samples[0][i];
+        input[i * 2 + 1] = samples[1][i];
+    }
 
-    std::transform(samples[0].begin(), samples[0].end(), left.begin(), [](s16 sample) { return (float)sample / 32768.f; });
-    std::transform(samples[1].begin(), samples[1].end(), right.begin(), [](s16 sample) { return (float)sample / 32768.f; });
-
-    float* fsamples[2] = { left.data(), right.data() };
-    stretcher.process(fsamples, AudioCore::samples_per_frame, /*final=*/false);
+    soundtouch.putSamples(input.data(), AudioCore::samples_per_frame);
 }
 
 void OutputSamples(std::function<void(const std::vector<s16>&)> fn) {
-    size_t num_samples = stretcher.available();
-    std::vector<float> left(num_samples);
-    std::vector<float> right(num_samples);
+    size_t available = soundtouch.numSamples();
 
-    float* fsamples[2] = { left.data(), right.data() };
-    stretcher.retrieve(fsamples, num_samples);
+    std::vector<s16> output(available * 2);
 
-    std::vector<s16> output(num_samples * 2);
-    for (int i = 0; i < num_samples; i++) {
-        output[i * 2 + 0] = MathUtil::Clamp<s16>(left[i] * 32768, -32768, 32767);
-        output[i * 2 + 1] = MathUtil::Clamp<s16>(right[i] * 32768, -32768, 32767);
-    }
+    soundtouch.receiveSamples(output.data(), available);
 
     fn(output);
 }

@@ -207,7 +207,7 @@ static bool DequeueBuffer(State& s) {
         LOG_ERROR(Audio_DSP, "Looped buffers are unimplemented at the moment");
     }
 
-    const unsigned num_channels = buf.mono_or_stereo == MonoOrStereo::Mono ? 1 : 2;
+    const unsigned num_channels = buf.mono_or_stereo == MonoOrStereo::Stereo ? 2 : 1;
     switch (buf.format) {
     case Format::PCM8:
         s.current_buffer = Codec::DecodePCM8(num_channels, memory, buf.length);
@@ -216,6 +216,7 @@ static bool DequeueBuffer(State& s) {
         s.current_buffer = Codec::DecodePCM16(num_channels, memory, buf.length);
         break;
     case Format::ADPCM:
+        ASSERT(num_channels == 1);
         s.current_buffer = Codec::DecodeADPCM(memory, buf.length, s.adpcm_coeffs, s.adpcm_state);
         break;
     default:

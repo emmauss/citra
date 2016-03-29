@@ -86,8 +86,6 @@ static void ThreadFunc() {
         TimeStretch::OutputSamples([&](const std::vector<s16>& output) {
             if (AudioCore::sink->SamplesInQueue() < 16000) {
                 AudioCore::sink->EnqueueSamples(output);
-            } else {
-                printf("drop\n");
             }
         });
 #endif
