@@ -4,6 +4,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <functional>
 #include <list>
 #include <numeric>
