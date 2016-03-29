@@ -24,7 +24,7 @@ namespace TimeStretch {
 const RubberBand::RubberBandStretcher::Options options =
     RubberBand::RubberBandStretcher::OptionProcessRealTime |  // Must be used since we stretch in real-time
     RubberBand::RubberBandStretcher::OptionStretchPrecise |   // Must be used since we stretch in real-time
-    RubberBand::RubberBandStretcher::OptionTransientsCrisp |  // (Can be adjusted later.) Smooth is probably better as a default but it's quite muddy sounding.
+    RubberBand::RubberBandStretcher::OptionTransientsSmooth | // (Can be adjusted later.) Muddy sounding but eh.
     RubberBand::RubberBandStretcher::OptionDetectorCompound | // (Can be adjusted later.) Select the transients detector
     RubberBand::RubberBandStretcher::OptionPhaseLaminar |     // (Can be adjusted later.) I have no idea what this does
     RubberBand::RubberBandStretcher::OptionThreadingAuto |    // Use a processing thread where possible
@@ -56,7 +56,7 @@ void Tick(unsigned samples_in_queue) {
         printf("underflow\n");
     }
 
-    smooth_ratio = 0.8 * smooth_ratio + 0.2 * ratio;
+    smooth_ratio = 0.95 * smooth_ratio + 0.05 * ratio;
     smooth_ratio = MathUtil::Clamp<double>(smooth_ratio, 0.01, 100.0);
 
     stretcher.setTimeRatio(smooth_ratio);
