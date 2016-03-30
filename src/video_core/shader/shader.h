@@ -77,6 +77,15 @@ struct OutputVertex {
 static_assert(std::is_pod<OutputVertex>::value, "Structure is not POD");
 static_assert(sizeof(OutputVertex) == 32 * sizeof(float), "OutputVertex has invalid size");
 
+struct OutputRegisters {
+    OutputRegisters() = default;
+
+    alignas(16) Math::Vec4<float24> value[16];
+
+    OutputVertex ToVertex(const Regs::ShaderConfig& config);
+};
+static_assert(std::is_pod<OutputRegisters>::value, "Structure is not POD");
+
 // Helper structure used to keep track of data useful for inspection of shader emulation
 template<bool full_debugging>
 struct DebugData;
@@ -260,43 +269,27 @@ struct UnitState {
         // The registers are accessed by the shader JIT using SSE instructions, and are therefore
         // required to be 16-byte aligned.
         alignas(16) Math::Vec4<float24> input[16];
-        alignas(16) Math::Vec4<float24> output[16];
         alignas(16) Math::Vec4<float24> temporary[16];
     } registers;
     static_assert(std::is_pod<Registers>::value, "Structure is not POD");
 
-    u32 program_counter;
+    OutputRegisters output_registers;
+
     bool conditional_code[2];
 
     // Two Address registers and one loop counter
     // TODO: How many bits do these actually have?
     s32 address_registers[3];
 
-    enum {
-        INVALID_ADDRESS = 0xFFFFFFFF
-    };
-
-    struct CallStackElement {
-        u32 final_address;  // Address upon which we jump to return_address
-        u32 return_address; // Where to jump when leaving scope
-        u8 repeat_counter;  // How often to repeat until this call stack element is removed
-        u8 loop_increment;  // Which value to add to the loop counter after an iteration
-                            // TODO: Should this be a signed value? Does it even matter?
-        u32 loop_address;   // The address where we'll return to after each loop iteration
-    };
-
-    // TODO: Is there a maximal size for this?
-    boost::container::static_vector<CallStackElement, 16> call_stack;
-
     DebugData<Debug> debug;
 
     static size_t InputOffset(const SourceRegister& reg) {
         switch (reg.GetRegisterType()) {
         case RegisterType::Input:
-            return offsetof(UnitState::Registers, input) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
+            return offsetof(UnitState, registers.input) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
 
         case RegisterType::Temporary:
-            return offsetof(UnitState::Registers, temporary) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
+            return offsetof(UnitState, registers.temporary) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
 
         default:
             UNREACHABLE();
@@ -307,10 +300,10 @@ struct UnitState {
     static size_t OutputOffset(const DestRegister& reg) {
         switch (reg.GetRegisterType()) {
         case RegisterType::Output:
-            return offsetof(UnitState::Registers, output) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
+            return offsetof(UnitState, output_registers.value) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
 
         case RegisterType::Temporary:
-            return offsetof(UnitState::Registers, temporary) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
+            return offsetof(UnitState, registers.temporary) + reg.GetIndex()*sizeof(Math::Vec4<float24>);
 
         default:
             UNREACHABLE();
@@ -332,7 +325,22 @@ public:
         std::array<Math::Vec4<u8>, 4> i;
     } uniforms;
 
-    Math::Vec4<float24> default_attributes[16];
+    static size_t UniformOffset(RegisterType type, unsigned index) {
+        switch (type) {
+        case RegisterType::FloatUniform:
+            return offsetof(ShaderSetup, uniforms.f) + index*sizeof(Math::Vec4<float24>);
+
+        case RegisterType::BoolUniform:
+            return offsetof(ShaderSetup, uniforms.b) + index*sizeof(bool);
+
+        case RegisterType::IntUniform:
+            return offsetof(ShaderSetup, uniforms.i) + index*sizeof(Math::Vec4<u8>);
+
+        default:
+            UNREACHABLE();
+            return 0;
+        }
+    }
 
     std::array<u32, 1024> program_code;
     std::array<u32, 1024> swizzle_data;
@@ -352,9 +360,8 @@ public:
      * @param state Shader unit state, must be setup per shader and per shader unit
      * @param input Input vertex into the shader
      * @param num_attributes The number of vertex shader attributes
-     * @return The output vertex, after having been processed by the vertex shader
      */
-    OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attributes);
+    void Run(UnitState<false>& state, const InputVertex& input, int num_attributes);
 
     /**
      * Produce debug information based on the given shader and input vertex
