@@ -497,8 +497,7 @@ void Init() {
 }
 
 void Shutdown() {
-    g_state.vs.Shutdown();
-    g_state.gs.Shutdown();
+    Shader::ShaderSetup::Shutdown();
 }
 
 template <typename T>

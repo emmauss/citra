@@ -362,7 +362,7 @@ public:
     void Setup();
 
     /// Performs any cleanup when the emulator is shutdown
-    void Shutdown();
+    static void Shutdown();
 
     /**
      * Runs the currently setup shader
