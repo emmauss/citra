@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include <boost/container/static_vector.hpp>
@@ -23,6 +24,11 @@ using nihstro::DestRegister;
 namespace Pica {
 
 namespace Shader {
+
+#ifdef ARCHITECTURE_x86_64
+// Forward declare JitShader because shader_jit_x64.h requires ShaderSetup (which uses JitShader) from this file
+class JitShader;
+#endif // ARCHITECTURE_x86_64
 
 struct InputVertex {
     Math::Vec4<float24> attr[16];
@@ -184,9 +190,9 @@ inline void SetField<DebugDataRecord::SRC3>(DebugDataRecord& record, float24* va
     record.src3.x = value[0];
     record.src3.y = value[1];
     record.src3.z = value[2];
+
     record.src3.w = value[3];
 }
-
 template<>
 inline void SetField<DebugDataRecord::DEST_IN>(DebugDataRecord& record, float24* value) {
     record.dest_in.x = value[0];
@@ -345,12 +351,15 @@ public:
     std::array<u32, 1024> program_code;
     std::array<u32, 1024> swizzle_data;
 
+#ifdef ARCHITECTURE_x86_64
+    std::weak_ptr<const JitShader> jit_shader;
+#endif
+
     /**
-     * Performs any shader unit setup that only needs to happen once per shader (as opposed to once per
+     * Performs any shader setup that only needs to happen once per shader (as opposed to once per
      * vertex, which would happen within the `Run` function).
-     * @param state Shader unit state, must be setup per shader and per shader unit
      */
-    void Setup(UnitState<false>& state);
+    void Setup();
 
     /// Performs any cleanup when the emulator is shutdown
     void Shutdown();
@@ -360,18 +369,18 @@ public:
      * @param state Shader unit state, must be setup per shader and per shader unit
      * @param input Input vertex into the shader
      * @param num_attributes The number of vertex shader attributes
+     * @param config Configuration object for the shader pipeline
      */
-    void Run(UnitState<false>& state, const InputVertex& input, int num_attributes);
+    void Run(UnitState<false>& state, const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config);
 
     /**
      * Produce debug information based on the given shader and input vertex
      * @param input Input vertex into the shader
      * @param num_attributes The number of vertex shader attributes
      * @param config Configuration object for the shader pipeline
-     * @param setup Setup object for the shader pipeline
      * @return Debug information for this shader with regards to the given vertex
      */
-    DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config, const ShaderSetup& setup);
+    DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config);
 
 };
 
