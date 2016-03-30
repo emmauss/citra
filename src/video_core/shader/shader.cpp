@@ -32,7 +32,7 @@ static std::unordered_map<u64, std::unique_ptr<JitShader>> shader_map;
 static const JitShader* jit_shader;
 #endif // ARCHITECTURE_x86_64
 
-void Setup() {
+void ShaderSetup::Setup(UnitState<false>& state) {
 #ifdef ARCHITECTURE_x86_64
     if (VideoCore::g_shader_jit_enabled) {
         u64 cache_key = (Common::ComputeHash64(&g_state.vs.program_code, sizeof(g_state.vs.program_code)) ^
@@ -51,20 +51,20 @@ void Setup() {
 #endif // ARCHITECTURE_x86_64
 }
 
-void Shutdown() {
+void ShaderSetup::Shutdown() {
 #ifdef ARCHITECTURE_x86_64
     shader_map.clear();
 #endif // ARCHITECTURE_x86_64
 }
 
-static Common::Profiling::TimingCategory shader_category("Vertex Shader");
-MICROPROFILE_DEFINE(GPU_VertexShader, "GPU", "Vertex Shader", MP_RGB(50, 50, 240));
+static Common::Profiling::TimingCategory shader_category("Shader");
+MICROPROFILE_DEFINE(GPU_Shader, "GPU", "Shader", MP_RGB(50, 50, 240));
 
-OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attributes) {
+OutputVertex ShaderSetup::Run(UnitState<false>& state, const InputVertex& input, int num_attributes) {
     auto& config = g_state.regs.vs;
 
     Common::Profiling::ScopeTimer timer(shader_category);
-    MICROPROFILE_SCOPE(GPU_VertexShader);
+    MICROPROFILE_SCOPE(GPU_Shader);
 
     state.program_counter = config.main_offset;
     state.debug.max_offset = 0;
@@ -155,7 +155,7 @@ OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attr
     return ret;
 }
 
-DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config, const ShaderSetup& setup) {
+DebugData<true> ShaderSetup::ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config, const ShaderSetup& setup) {
     UnitState<true> state;
 
     state.program_counter = config.main_offset;
