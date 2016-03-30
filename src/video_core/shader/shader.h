@@ -348,6 +348,9 @@ public:
         }
     }
 
+    int float_regs_counter = 0;
+    u32 uniform_write_buffer[4];
+
     std::array<u32, 1024> program_code;
     std::array<u32, 1024> swizzle_data;
 
@@ -383,6 +386,16 @@ public:
     DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config);
 
 };
+
+bool SharedGS();
+void WriteUniformBoolReg(bool gs, u32 value);
+void WriteUniformIntReg(bool gs, unsigned index, const Math::Vec4<u8>& values);
+void WriteUniformFloatSetupReg(bool gs, u32 value);
+void WriteUniformFloatReg(bool gs, u32 value);
+void WriteProgramCodeOffset(bool gs, u32 value);
+void WriteProgramCode(bool gs, u32 value);
+void WriteSwizzlePatternsOffset(bool gs, u32 value);
+void WriteSwizzlePatterns(bool gs, u32 value);
 
 } // namespace Shader
 
