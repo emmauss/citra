@@ -142,10 +142,9 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                         Shader::UnitState<false> shader_unit;
                         g_state.vs.Setup(shader_unit);
 
-                        if (g_debug_context)
-                            g_debug_context->OnEvent(DebugContext::Event::VertexLoaded, static_cast<void*>(&immediate_input));
-
                         // Send to vertex shader
+                        if (g_debug_context)
+                            g_debug_context->OnEvent(DebugContext::Event::RunVS, static_cast<void*>(&immediate_input));
                         g_state.vs.Run(shader_unit, immediate_input, regs.vs.num_input_attributes+1);
                         Shader::OutputVertex output_vertex = shader_unit.output_registers.ToVertex(regs.vs);
 
@@ -382,10 +381,9 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                         }
                     }
 
-                    if (g_debug_context)
-                        g_debug_context->OnEvent(DebugContext::Event::VertexLoaded, (void*)&input);
-
                     // Send to vertex shader
+                    if (g_debug_context)
+                        g_debug_context->OnEvent(DebugContext::Event::RunVS, (void*)&input);
                     g_state.vs.Run(shader_unit, input, attribute_config.GetNumTotalAttributes());
                     output_registers = shader_unit.output_registers;
 

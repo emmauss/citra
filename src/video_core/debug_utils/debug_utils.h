@@ -30,7 +30,7 @@ public:
         PicaCommandProcessed,
         IncomingPrimitiveBatch,
         FinishedPrimitiveBatch,
-        VertexLoaded,
+        RunVS,
         IncomingDisplayTransfer,
         GSPCommandProcessed,
         BufferSwapped,
