@@ -424,7 +424,6 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
         memcpy(Memory::GetPointer(command.dma_request.dest_address),
                Memory::GetPointer(command.dma_request.source_address),
                command.dma_request.size);
-
         SignalInterrupt(InterruptId::DMA);
         break;
 
