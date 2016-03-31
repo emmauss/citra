@@ -3,6 +3,7 @@ set(SRCS
             codec.cpp
             hle/dsp.cpp
             hle/effects.cpp
+            hle/filter.cpp
             hle/final.cpp
             hle/pipe.cpp
             hle/source.cpp
@@ -17,6 +18,7 @@ set(HEADERS
             hle/common.h
             hle/dsp.h
             hle/effects.h
+            hle/filter.h
             hle/final.h
             hle/pipe.h
             hle/source.h

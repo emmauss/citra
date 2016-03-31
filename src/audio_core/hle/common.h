@@ -4,8 +4,8 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
-#include <vector>
 
 #include "audio_core/audio_core.h"
 
@@ -14,13 +14,22 @@
 namespace DSP {
 namespace HLE {
 
-using Frame16 = std::array<s16, AudioCore::samples_per_frame>;
-
-/// The final output to the speakers is stereo.
-using StereoFrame16  = std::array<Frame16, 2>;
+/// The final output to the speakers is stereo. Preprocessing output in Source is also stereo.
+using StereoFrame16 = std::array<std::array<s16, 2>, AudioCore::samples_per_frame>;
 
 /// The DSP is quadraphonic internally.
-using QuadFrame32    = std::array<std::array<s32, AudioCore::samples_per_frame>, 4>;
+using QuadFrame32   = std::array<std::array<s32, 4>, AudioCore::samples_per_frame>;
 
+/**
+ * This performs the filter operation defined by FilterT::ProcessSample on the frame in-place.
+ * FilterT::ProcessSample is called sequentially on the samples.
+ */
+template<typename FrameT, typename FilterT>
+void FilterFrame(FrameT& frame, FilterT& filter) {
+    std::transform(frame.begin(), frame.end(), frame.begin(), [&filter](const typename FrameT::value_type& sample) {
+        return filter.ProcessSample(sample);
+    });
 }
-}
+
+} // namespace HLE
+} // namespace DSP
