@@ -157,15 +157,15 @@ std::tuple<size_t, bool> Linear(State& state, DSP::HLE::QuadFrame32& output, std
         return sample;
     };
 
-    const size_t position_stop = input[0].size() - 1;
-    while (state.output_position < output[0].size() && position < position_stop) {
+    const size_t position_stop = input.size() - 1;
+    while (state.output_position < output.size() && position < position_stop) {
         s32 sample0 = step(0);
         s32 sample1 = step(1);
 
-        output[0][state.output_position] = sample0;
-        output[1][state.output_position] = sample0;
-        output[2][state.output_position] = sample1;
-        output[3][state.output_position] = sample1;
+        output[state.output_position][0] = sample0;
+        output[state.output_position][1] = sample0;
+        output[state.output_position][2] = sample1;
+        output[state.output_position][3] = sample1;
 
         position_fractional += rate_change;
         position += (size_t)position_fractional;
@@ -203,14 +203,14 @@ std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::
     };
 
     const size_t position_stop = input.size();
-    while (state.output_position < output[0].size() && position < position_stop) {
+    while (state.output_position < output.size() && position < position_stop) {
         s32 sample0 = step(0);
         s32 sample1 = step(1);
 
-        output[0][state.output_position] = sample0;
-        output[1][state.output_position] = sample0;
-        output[2][state.output_position] = sample1;
-        output[3][state.output_position] = sample1;
+        output[state.output_position][0] = sample0;
+        output[state.output_position][1] = sample0;
+        output[state.output_position][2] = sample1;
+        output[state.output_position][3] = sample1;
 
         position_fractional += rate_change;
         position += (size_t)position_fractional;
@@ -220,7 +220,7 @@ std::tuple<size_t, bool> None(State& state, DSP::HLE::QuadFrame32& output, std::
     }
 
     bool continue_feeding_me = true;
-    if (state.output_position >= output[0].size()) {
+    if (state.output_position >= output.size()) {
         state.output_position = 0;
         continue_feeding_me = false;
     }

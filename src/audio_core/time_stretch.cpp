@@ -61,14 +61,9 @@ void Shutdown() {
     soundtouch.setTempo(1.0);
 }
 
-void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples) {
-    std::array<s16, AudioCore::samples_per_frame * 2> input;
-    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
-        input[i * 2 + 0] = samples[0][i];
-        input[i * 2 + 1] = samples[1][i];
-    }
-
-    soundtouch.putSamples(input.data(), AudioCore::samples_per_frame);
+void AddSamples(const std::array<std::array<s16, 2>, AudioCore::samples_per_frame>& samples) {
+    // FIXME: lol don't do this c-style cast
+    soundtouch.putSamples((s16*)samples.data(), AudioCore::samples_per_frame);
 }
 
 void OutputSamples(std::function<void(const std::vector<s16>&)> fn) {

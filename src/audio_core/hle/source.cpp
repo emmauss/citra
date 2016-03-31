@@ -128,9 +128,9 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
         }
     }
 
-    if (config.unknown_flag) {
-        LOG_WARNING(Audio_DSP, "(STUB) unknown_flag is set!!!");
-    }
+//    if (config.unknown_flag) {
+//        LOG_WARNING(Audio_DSP, "(STUB) unknown_flag is set!!!");
+//    }
 
     if (config.format_dirty || config.embedded_buffer_dirty) {
         s.format = config.format;
@@ -299,9 +299,9 @@ void SourceFrameMixInto(QuadFrame32& dest, int source_id, int intermediate_mix_i
     if (!s.enabled)
         return;
 
-    for (int i = 0; i < dest[0].size(); i++) {
+    for (int i = 0; i < dest.size(); i++) {
         for (int channel = 0; channel < 4; channel++) {
-            dest[channel][i] += s.gains[intermediate_mix_id][channel] * s.current_frame[channel][i];
+            dest[i][channel] += s.gains[intermediate_mix_id][channel] * s.current_frame[i][channel];
         }
     }
 }

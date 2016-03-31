@@ -18,7 +18,7 @@ void Init();
 void Shutdown();
 
 void Tick(unsigned samples_in_queue);
-void AddSamples(const std::array<std::array<s16, AudioCore::samples_per_frame>, 2>& samples);
+void AddSamples(const std::array<std::array<s16, 2>, AudioCore::samples_per_frame>& samples);
 void OutputSamples(std::function<void(const std::vector<s16>&)> fn);
 
 }

@@ -33,10 +33,10 @@ void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamp
         for (int j = 0; j < 2; j++) {
             s32 value = 0;
             for (int k = 0; k < 3; k++) {
-                value += 0.2 * config.volume[0] * mix[k][j + 0][i];
-                value += 0.2 * config.volume[0] * mix[k][j + 2][i];
+                value += 0.2 * config.volume[0] * mix[k][i][j + 0];
+                value += 0.2 * config.volume[0] * mix[k][i][j + 2];
             }
-            state.current_frame[j][i] = (s16)MathUtil::Clamp(value, -0x7FFF, 0x8000);
+            state.current_frame[i][j] = (s16)MathUtil::Clamp(value, -0x7FFF, 0x8000);
        }
     }
 }
