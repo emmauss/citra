@@ -149,14 +149,19 @@ VAddr PhysicalToVirtualAddress(PAddr addr);
 u8* GetPhysicalPointer(PAddr address);
 
 /**
- * Increments (if value true) or decrements (if false) the resource cache counter of each
- * page touching the region
+ * Adds the supplied value to the rasterizer resource cache counter of each
+ * page touching the region.
  */
-void MarkRegionCached(PAddr start, u32 size, bool value);
+void RasterizerMarkRegionCached(PAddr start, u32 size, int count_delta);
 
 /**
- * Flushes and optionally invalidates any externally cached resources touching the given region
+ * Flushes any externally cached rasterizer resources touching the given region.
  */
-void FlushRegion(PAddr start, u32 size, bool invalidate);
+void RasterizerFlushRegion(PAddr start, u32 size);
+
+/**
+ * Flushes and invalidates any externally cached rasterizer resources touching the given region.
+ */
+void RasterizerFlushAndInvalidateRegion(PAddr start, u32 size);
 
 }

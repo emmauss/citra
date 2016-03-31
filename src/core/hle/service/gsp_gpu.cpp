@@ -4,6 +4,7 @@
 
 #include "common/bit_field.h"
 #include "common/microprofile.h"
+#include "common/profiler.h"
 
 #include "core/memory.h"
 #include "core/hle/kernel/event.h"
@@ -404,6 +405,9 @@ void SignalInterrupt(InterruptId interrupt_id) {
     g_interrupt_event->Signal();
 }
 
+Common::Profiling::TimingCategory category_gsp_dma("GSP DMA");
+MICROPROFILE_DEFINE(GPU_GSP_DMA, "GPU", "GSP DMA", MP_RGB(100, 0, 255));
+
 /// Executes the next GSP command
 static void ExecuteCommand(const Command& command, u32 thread_id) {
     // Utility function to convert register ID to address
@@ -415,18 +419,22 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
 
     // GX request DMA - typically used for copying memory from GSP heap to VRAM
     case CommandId::REQUEST_DMA:
+    {
+        Common::Profiling::ScopeTimer scope_timer(category_gsp_dma);
+        MICROPROFILE_SCOPE(GPU_GSP_DMA);
+
         // TODO: Consider attempting rasterizer-accelerated surface blit if that usage is ever possible/likely
-        Memory::FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.source_address),
-                            command.dma_request.size, false);
-        Memory::FlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.dest_address),
-                            command.dma_request.size, true);
+        Memory::RasterizerFlushRegion(Memory::VirtualToPhysicalAddress(command.dma_request.source_address),
+                            command.dma_request.size);
+        Memory::RasterizerFlushAndInvalidateRegion(Memory::VirtualToPhysicalAddress(command.dma_request.dest_address),
+                            command.dma_request.size);
 
         memcpy(Memory::GetPointer(command.dma_request.dest_address),
                Memory::GetPointer(command.dma_request.source_address),
                command.dma_request.size);
         SignalInterrupt(InterruptId::DMA);
         break;
-
+    }
     // TODO: This will need some rework in the future. (why?)
     case CommandId::SUBMIT_GPU_CMDLIST:
     {
@@ -513,11 +521,8 @@ static void ExecuteCommand(const Command& command, u32 thread_id) {
 
     case CommandId::CACHE_FLUSH:
     {
-        for (auto& region : command.cache_flush.regions) {
-            if (region.size == 0)
-                break;
-
-        }
+        // NOTE: Rasterizer flushing handled elsewhere in CPU read/write and other GPU handlers
+        // Use command.cache_flush.regions to implement this handler
         break;
     }
 

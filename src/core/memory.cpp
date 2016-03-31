@@ -25,8 +25,12 @@ enum class PageType {
     Unmapped,
     /// Page is mapped to regular memory. This is the only type you can get pointers to.
     Memory,
+    /// Page is mapped to regular memory, but also needs to check for rasterizer cache flushing and invalidation
+    RasterizerCachedMemory,
     /// Page is mapped to a I/O region. Writing and reading to this page is handled by functions.
     Special,
+    /// Page is mapped to a I/O region, but also needs to check for rasterizer cache flushing and invalidation
+    RasterizerCachedSpecial,
 };
 
 struct SpecialRegion {
@@ -65,7 +69,7 @@ struct PageTable {
      * Indicates the number of externally cached resources touching a page that should be
      * flushed before the memory is accessed
      */
-    std::array<int, NUM_ENTRIES> cached_res_count;
+    std::array<u8, NUM_ENTRIES> cached_res_count;
 };
 
 /// Singular page table used for the singleton process
@@ -80,6 +84,13 @@ static void MapPages(u32 base, u32 size, u8* memory, PageType type) {
 
     while (base != end) {
         ASSERT_MSG(base < PageTable::NUM_ENTRIES, "out of range mapping at %08X", base);
+
+        // Since pages are unmapped on shutdown after video core is shutdown, the renderer may be null here
+        if ((current_page_table->attributes[base] == PageType::RasterizerCachedMemory ||
+            current_page_table->attributes[base] == PageType::RasterizerCachedSpecial) &&
+            VideoCore::g_renderer != nullptr) {
+            RasterizerFlushAndInvalidateRegion(VirtualToPhysicalAddress(base << PAGE_BITS), PAGE_SIZE);
+        }
 
         current_page_table->attributes[base] = type;
         current_page_table->pointers[base] = memory;
@@ -118,6 +129,28 @@ void UnmapRegion(VAddr base, u32 size) {
 }
 
 /**
+ * Gets a pointer to the exact memory at the virtual address (i.e. not page aligned)
+ * using a VMA from the current process
+ */
+static u8* GetPointerFromVMA(VAddr vaddr) {
+    u8* direct_pointer = nullptr;
+
+    auto& vma = Kernel::g_current_process->vm_manager.FindVMA(vaddr)->second;
+    switch (vma.type) {
+    case Kernel::VMAType::AllocatedMemoryBlock:
+        direct_pointer = vma.backing_block->data() + vma.offset;
+        break;
+    case Kernel::VMAType::BackingMemory:
+        direct_pointer = vma.backing_memory;
+        break;
+    default:
+        UNREACHABLE();
+    }
+
+    return direct_pointer + (vaddr - vma.base);
+}
+
+/**
  * This function should only be called for virtual addreses with attribute `PageType::Special`.
  */
 static MMIORegionPointer GetMMIOHandler(VAddr vaddr) {
@@ -137,9 +170,7 @@ template <typename T>
 T Read(const VAddr vaddr) {
     const u8* page_pointer = current_page_table->pointers[vaddr >> PAGE_BITS];
     if (page_pointer) {
-        if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
-            FlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T), false);
-
+        // NOTE: Avoid adding any extra logic to this fast-path block
         T value;
         std::memcpy(&value, &page_pointer[vaddr & PAGE_MASK], sizeof(T));
         return value;
@@ -153,8 +184,22 @@ T Read(const VAddr vaddr) {
     case PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ %08X", vaddr);
         break;
+    case PageType::RasterizerCachedMemory:
+    {
+        RasterizerFlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T));
+
+        T value;
+        std::memcpy(&value, GetPointerFromVMA(vaddr), sizeof(T));
+        return value;
+    }
     case PageType::Special:
         return ReadMMIO<T>(GetMMIOHandler(vaddr), vaddr);
+    case PageType::RasterizerCachedSpecial:
+    {
+        RasterizerFlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T));
+
+        return ReadMMIO<T>(GetMMIOHandler(vaddr), vaddr);
+    }
     default:
         UNREACHABLE();
     }
@@ -167,9 +212,7 @@ template <typename T>
 void Write(const VAddr vaddr, const T data) {
     u8* page_pointer = current_page_table->pointers[vaddr >> PAGE_BITS];
     if (page_pointer) {
-        if (current_page_table->cached_res_count[vaddr >> PAGE_BITS] > 0)
-            FlushRegion(VirtualToPhysicalAddress(vaddr), sizeof(T), true);
-
+        // NOTE: Avoid adding any extra logic to this fast-path block
         std::memcpy(&page_pointer[vaddr & PAGE_MASK], &data, sizeof(T));
         return;
     }
@@ -182,9 +225,23 @@ void Write(const VAddr vaddr, const T data) {
     case PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ %08X", vaddr);
         break;
+    case PageType::RasterizerCachedMemory:
+    {
+        RasterizerFlushAndInvalidateRegion(VirtualToPhysicalAddress(vaddr), sizeof(T));
+
+        std::memcpy(GetPointerFromVMA(vaddr), &data, sizeof(T));
+        break;
+    }
     case PageType::Special:
         WriteMMIO<T>(GetMMIOHandler(vaddr), vaddr, data);
         break;
+    case PageType::RasterizerCachedSpecial:
+    {
+        RasterizerFlushAndInvalidateRegion(VirtualToPhysicalAddress(vaddr), sizeof(T));
+
+        WriteMMIO<T>(GetMMIOHandler(vaddr), vaddr, data);
+        break;
+    }
     default:
         UNREACHABLE();
     }
@@ -196,6 +253,10 @@ u8* GetPointer(const VAddr vaddr) {
         return page_pointer + (vaddr & PAGE_MASK);
     }
 
+    if (current_page_table->attributes[vaddr >> PAGE_BITS] == PageType::RasterizerCachedMemory) {
+        return GetPointerFromVMA(vaddr);
+    }
+
     LOG_ERROR(HW_Memory, "unknown GetPointer @ 0x%08x", vaddr);
     return nullptr;
 }
@@ -204,27 +265,61 @@ u8* GetPhysicalPointer(PAddr address) {
     return GetPointer(PhysicalToVirtualAddress(address));
 }
 
-void MarkRegionCached(PAddr start, u32 size, bool value) {
+void RasterizerMarkRegionCached(PAddr start, u32 size, int count_delta) {
     u32 num_pages = ((start + size - 1) >> PAGE_BITS) - (start >> PAGE_BITS) + 1;
     PAddr paddr = start;
 
     for (unsigned i = 0; i < num_pages; ++i) {
         VAddr vaddr = PhysicalToVirtualAddress(paddr);
-        if (vaddr != (paddr | 0x80000000)) {
-            if (value) {
-                current_page_table->cached_res_count[vaddr >> PAGE_BITS]++;
-            } else {
-                current_page_table->cached_res_count[vaddr >> PAGE_BITS]--;
+        if (vaddr != 0) {
+            u8& res_count = current_page_table->cached_res_count[vaddr >> PAGE_BITS];
+            ASSERT_MSG(count_delta <= UINT8_MAX - res_count, "Rasterizer resource cache counter overflow!");
+            ASSERT_MSG(count_delta >= -res_count, "Rasterizer resource cache counter underflow!");
+
+            // Switch page type to cached if now cached
+            if (res_count == 0) {
+                PageType& page_type = current_page_table->attributes[vaddr >> PAGE_BITS];
+                switch (page_type) {
+                case PageType::Memory:
+                    page_type = PageType::RasterizerCachedMemory;
+                    current_page_table->pointers[vaddr >> PAGE_BITS] = nullptr;
+                    break;
+                case PageType::Special:
+                    page_type = PageType::RasterizerCachedSpecial;
+                    break;
+                default:
+                    UNREACHABLE();
+                }
+            }
+
+            res_count += count_delta;
+
+            // Switch page type to uncached if now uncached
+            if (res_count == 0) {
+                PageType& page_type = current_page_table->attributes[vaddr >> PAGE_BITS];
+                switch (page_type) {
+                case PageType::RasterizerCachedMemory:
+                    page_type = PageType::Memory;
+                    current_page_table->pointers[vaddr >> PAGE_BITS] = GetPointerFromVMA(vaddr & ~PAGE_MASK);
+                    break;
+                case PageType::RasterizerCachedSpecial:
+                    page_type = PageType::Special;
+                    break;
+                default:
+                    UNREACHABLE();
+                }
             }
         }
         paddr += PAGE_SIZE;
     }
 }
 
-void FlushRegion(PAddr start, u32 size, bool invalidate) {
-    // This is the common dispatch point to tell all components to
-    // flush any resources they have cached that touch the given region
-    VideoCore::g_renderer->Rasterizer()->FlushRegion(start, size, invalidate);
+void RasterizerFlushRegion(PAddr start, u32 size) {
+    VideoCore::g_renderer->Rasterizer()->FlushRegion(start, size);
+}
+
+void RasterizerFlushAndInvalidateRegion(PAddr start, u32 size) {
+    VideoCore::g_renderer->Rasterizer()->FlushAndInvalidateRegion(start, size);
 }
 
 u8 Read8(const VAddr addr) {

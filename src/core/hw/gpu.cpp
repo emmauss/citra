@@ -115,12 +115,17 @@ inline void Write(u32 addr, const T data) {
                 u8* start = Memory::GetPhysicalPointer(config.GetStartAddress());
                 u8* end = Memory::GetPhysicalPointer(config.GetEndAddress());
 
-                // TODO: Consider always accelerating and returning vector of regions that the accelerated fill did not cover to reduce/eliminate the fill that the cpu has to do
-                //       This would also mean that the flush below is not needed
-                //       Fill should first flush all surfaces that touch but are not completely within the fill range
-                //       Then fill all completely covered surfaces, and return the regions that were between surfaces or within the touching ones for cpu to manually fill here
+                // TODO: Consider always accelerating and returning vector of
+                //       regions that the accelerated fill did not cover to
+                //       reduce/eliminate the fill that the cpu has to do.
+                //       This would also mean that the flush below is not needed.
+                //       Fill should first flush all surfaces that touch but are
+                //       not completely within the fill range.
+                //       Then fill all completely covered surfaces, and return the
+                //       regions that were between surfaces or within the touching
+                //       ones for cpu to manually fill here.
                 if (!VideoCore::g_renderer->Rasterizer()->AccelerateFill(config)) {
-                    Memory::FlushRegion(config.GetStartAddress(), config.GetEndAddress() - config.GetStartAddress(), true);
+                    Memory::RasterizerFlushAndInvalidateRegion(config.GetStartAddress(), config.GetEndAddress() - config.GetStartAddress());
 
                     if (config.fill_24bit) {
                         // fill with 24-bit values
@@ -131,8 +136,10 @@ inline void Write(u32 addr, const T data) {
                         }
                     } else if (config.fill_32bit) {
                         // fill with 32-bit values
-                        for (u8* ptr = start; ptr < end; ptr += sizeof(u32))
-                            memcpy(ptr, &config.value_32bit, sizeof(u32));
+                        u32 value = config.value_32bit;
+                        size_t len = (end - start) / sizeof(u32);
+                        for (size_t i = 0; i < len; ++i)
+                            memcpy(&start[i * sizeof(u32)], &value, sizeof(u32));
                     } else {
                         // fill with 16-bit values
                         u16 value_16bit = config.value_16bit.Value();
@@ -168,31 +175,25 @@ inline void Write(u32 addr, const T data) {
             if (Pica::g_debug_context)
                 Pica::g_debug_context->OnEvent(Pica::DebugContext::Event::IncomingDisplayTransfer, nullptr);
 
-            bool horizontal_scale = config.scaling != config.NoScale;
-            bool vertical_scale = config.scaling == config.ScaleXY;
-
-            u32 output_width = config.output_width >> horizontal_scale;
-            u32 output_height = config.output_height >> vertical_scale;
-
             if (!VideoCore::g_renderer->Rasterizer()->AccelerateDisplayTransfer(config)) {
                 u8* src_pointer = Memory::GetPhysicalPointer(config.GetPhysicalInputAddress());
                 u8* dst_pointer = Memory::GetPhysicalPointer(config.GetPhysicalOutputAddress());
 
                 if (config.is_texture_copy) {
-                    u32 t_input_width = config.texture_copy.input_width * 16;
+                    u32 input_width = config.texture_copy.input_width * 16;
                     u32 input_gap = config.texture_copy.input_gap * 16;
-                    u32 t_output_width = config.texture_copy.output_width * 16;
+                    u32 output_width = config.texture_copy.output_width * 16;
                     u32 output_gap = config.texture_copy.output_gap * 16;
 
-                    size_t contiguous_input_size = config.texture_copy.size / t_input_width * (t_input_width + input_gap);
-                    Memory::FlushRegion(config.GetPhysicalInputAddress(), contiguous_input_size, false);
+                    size_t contiguous_input_size = config.texture_copy.size / input_width * (input_width + input_gap);
+                    Memory::RasterizerFlushRegion(config.GetPhysicalInputAddress(), contiguous_input_size);
 
-                    size_t contiguous_output_size = config.texture_copy.size / t_output_width * (t_output_width + output_gap);
-                    Memory::FlushRegion(config.GetPhysicalOutputAddress(), contiguous_output_size, true);
+                    size_t contiguous_output_size = config.texture_copy.size / output_width * (output_width + output_gap);
+                    Memory::RasterizerFlushAndInvalidateRegion(config.GetPhysicalOutputAddress(), contiguous_output_size);
 
                     u32 remaining_size = config.texture_copy.size;
-                    u32 remaining_input = t_input_width;
-                    u32 remaining_output = t_output_width;
+                    u32 remaining_input = input_width;
+                    u32 remaining_output = output_width;
                     while (remaining_size > 0) {
                         u32 copy_size = std::min({ remaining_input, remaining_output, remaining_size });
 
@@ -205,19 +206,19 @@ inline void Write(u32 addr, const T data) {
                         remaining_size -= copy_size;
 
                         if (remaining_input == 0) {
-                            remaining_input = t_input_width;
+                            remaining_input = input_width;
                             src_pointer += input_gap;
                         }
                         if (remaining_output == 0) {
-                            remaining_output = t_output_width;
+                            remaining_output = output_width;
                             dst_pointer += output_gap;
                         }
                     }
 
                     LOG_TRACE(HW_GPU, "TextureCopy: 0x%X bytes from 0x%08X(%u+%u)-> 0x%08X(%u+%u), flags 0x%08X",
                         config.texture_copy.size,
-                        config.GetPhysicalInputAddress(), t_input_width, input_gap,
-                        config.GetPhysicalOutputAddress(), t_output_width, output_gap,
+                        config.GetPhysicalInputAddress(), input_width, input_gap,
+                        config.GetPhysicalOutputAddress(), output_width, output_gap,
                         config.flags);
 
                     GSP_GPU::SignalInterrupt(GSP_GPU::InterruptId::PPF);
@@ -236,11 +237,17 @@ inline void Write(u32 addr, const T data) {
                     break;
                 }
 
+                bool horizontal_scale = config.scaling != config.NoScale;
+                bool vertical_scale = config.scaling == config.ScaleXY;
+
+                u32 output_width = config.output_width >> horizontal_scale;
+                u32 output_height = config.output_height >> vertical_scale;
+
                 u32 input_size = config.input_width * config.input_height * GPU::Regs::BytesPerPixel(config.input_format);
                 u32 output_size = output_width * output_height * GPU::Regs::BytesPerPixel(config.output_format);
 
-                Memory::FlushRegion(config.GetPhysicalInputAddress(), input_size, false);
-                Memory::FlushRegion(config.GetPhysicalOutputAddress(), output_size, true);
+                Memory::RasterizerFlushRegion(config.GetPhysicalInputAddress(), input_size);
+                Memory::RasterizerFlushAndInvalidateRegion(config.GetPhysicalOutputAddress(), output_size);
 
                 for (u32 y = 0; y < output_height; ++y) {
                     for (u32 x = 0; x < output_width; ++x) {
@@ -337,13 +344,13 @@ inline void Write(u32 addr, const T data) {
                         }
                     }
                 }
-            }
 
-            LOG_TRACE(HW_GPU, "DisplayTriggerTransfer: 0x%08x bytes from 0x%08x(%ux%u)-> 0x%08x(%ux%u), dst format %x, flags 0x%08X",
+                LOG_TRACE(HW_GPU, "DisplayTriggerTransfer: 0x%08x bytes from 0x%08x(%ux%u)-> 0x%08x(%ux%u), dst format %x, flags 0x%08X",
                       config.output_height * output_width * GPU::Regs::BytesPerPixel(config.output_format),
                       config.GetPhysicalInputAddress(), config.input_width.Value(), config.input_height.Value(),
                       config.GetPhysicalOutputAddress(), output_width, output_height,
                       config.output_format.Value(), config.flags);
+            }
 
             g_regs.display_transfer_config.trigger = 0;
             GSP_GPU::SignalInterrupt(GSP_GPU::InterruptId::PPF);

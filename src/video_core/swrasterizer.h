@@ -16,8 +16,9 @@ class SWRasterizer : public RasterizerInterface {
             const Pica::Shader::OutputVertex& v2) override;
     void DrawTriangles() override {}
     void NotifyPicaRegisterChanged(u32 id) override {}
-    void FlushFramebuffer() override {}
-    void FlushRegion(PAddr addr, u32 size, bool invalidate) override {}
+    void FlushAll() override {}
+    void FlushRegion(PAddr addr, u32 size) override {}
+    void FlushAndInvalidateRegion(PAddr addr, u32 size) override {}
 };
 
 }

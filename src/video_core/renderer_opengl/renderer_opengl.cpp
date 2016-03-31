@@ -192,7 +192,7 @@ void RendererOpenGL::LoadFBToScreenInfo(const GPU::Regs::FramebufferConfig& fram
         screen_info.display_texture = screen_info.texture.resource.handle;
         screen_info.display_texcoords = MathUtil::Rectangle<float>(0.f, 0.f, 1.f, 1.f);
 
-        Memory::FlushRegion(framebuffer_addr, framebuffer.stride * framebuffer.height, false);
+        Memory::RasterizerFlushRegion(framebuffer_addr, framebuffer.stride * framebuffer.height);
 
         const u8* framebuffer_data = Memory::GetPhysicalPointer(framebuffer_addr);
 
@@ -232,6 +232,9 @@ void RendererOpenGL::LoadColorToActiveGLTexture(u8 color_r, u8 color_g, u8 color
 
     // Update existing texture
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, framebuffer_data);
+
+    state.texture_units[0].texture_2d = 0;
+    state.Apply();
 }
 
 /**
@@ -345,6 +348,9 @@ void RendererOpenGL::ConfigureFramebufferTexture(TextureInfo& texture,
     glActiveTexture(GL_TEXTURE0);
     glTexImage2D(GL_TEXTURE_2D, 0, internal_format, texture.width, texture.height, 0,
             texture.gl_format, texture.gl_type, nullptr);
+
+    state.texture_units[0].texture_2d = 0;
+    state.Apply();
 }
 
 /**
@@ -365,6 +371,9 @@ void RendererOpenGL::DrawSingleScreenRotated(const ScreenInfo& screen_info, floa
 
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices.data());
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    state.texture_units[0].texture_2d = 0;
+    state.Apply();
 }
 
 /**

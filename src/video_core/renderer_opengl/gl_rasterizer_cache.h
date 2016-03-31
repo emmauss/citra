@@ -184,7 +184,7 @@ public:
     bool BlitTextures(GLuint src_tex, GLuint dst_tex, CachedSurface::SurfaceType type, const MathUtil::Rectangle<int>& src_rect, const MathUtil::Rectangle<int>& dst_rect);
 
     /// Attempt to blit one surface's texture to another
-    bool TryBlitSurfaces(CachedSurface* src_surface, CachedSurface* dst_surface, const MathUtil::Rectangle<int>& src_rect, const MathUtil::Rectangle<int>& dst_rect);
+    bool TryBlitSurfaces(CachedSurface* src_surface, const MathUtil::Rectangle<int>& src_rect, CachedSurface* dst_surface, const MathUtil::Rectangle<int>& dst_rect);
 
     /// Loads a texture from 3DS memory to OpenGL and caches it (if not already cached)
     CachedSurface* GetSurface(const CachedSurface& params, bool match_tiling, bool match_res_scale, bool load_if_create);
@@ -196,7 +196,7 @@ public:
     CachedSurface* GetTextureSurface(const Pica::Regs::FullTextureConfig& config);
 
     /// Gets the color and depth surfaces based on the framebuffer configuration
-    std::tuple<CachedSurface*, CachedSurface*> GetFramebufferSurfaces(const Pica::Regs::FramebufferConfig& config, MathUtil::Rectangle<int>& rect);
+    std::tuple<CachedSurface*, CachedSurface*, MathUtil::Rectangle<int>> GetFramebufferSurfaces(const Pica::Regs::FramebufferConfig& config);
 
     /// Attempt to get a surface that exactly matches the fill region and format
     CachedSurface* TryGetFillSurface(const GPU::Regs::MemoryFillConfig& config);

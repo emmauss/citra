@@ -262,7 +262,7 @@ static void StartConversion(Service::Interface* self) {
     // dst_image_size would seem to be perfect for this, but it doesn't include the gap :(
     u32 total_output_size = conversion.input_lines *
         (conversion.dst.transfer_unit + conversion.dst.gap);
-    Memory::FlushRegion(Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size, true);
+    Memory::RasterizerFlushAndInvalidateRegion(Memory::VirtualToPhysicalAddress(conversion.dst.address), total_output_size);
 
     HW::Y2R::PerformConversion(conversion);
 

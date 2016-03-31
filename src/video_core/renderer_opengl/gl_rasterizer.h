@@ -197,8 +197,9 @@ public:
                      const Pica::Shader::OutputVertex& v2) override;
     void DrawTriangles() override;
     void NotifyPicaRegisterChanged(u32 id) override;
-    void FlushFramebuffer() override;
-    void FlushRegion(PAddr addr, u32 size, bool invalidate) override;
+    void FlushAll() override;
+    void FlushRegion(PAddr addr, u32 size) override;
+    void FlushAndInvalidateRegion(PAddr addr, u32 size) override;
     bool AccelerateDisplayTransfer(const GPU::Regs::DisplayTransferConfig& config) override;
     bool AccelerateFill(const GPU::Regs::MemoryFillConfig& config) override;
     bool AccelerateDisplay(const GPU::Regs::FramebufferConfig& config, PAddr framebuffer_addr, u32 pixel_stride, ScreenInfo& screen_info) override;
