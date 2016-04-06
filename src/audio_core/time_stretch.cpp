@@ -38,6 +38,8 @@ void Tick(unsigned samples_in_queue) {
 
     double ratio = actual_frame_time / native_frame_time;
     ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
+    
+    // TODO: Uhh was just reading this and this seems super wonky double-check your logic wtf are you thinking.
     if (samples_in_queue < 4096) {
         ratio = ratio > 1.0 ? ratio * ratio : 1.0;
         ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
