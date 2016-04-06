@@ -31,6 +31,7 @@ public:
         IncomingPrimitiveBatch,
         FinishedPrimitiveBatch,
         RunVS,
+        RunGS,
         IncomingDisplayTransfer,
         GSPCommandProcessed,
         BufferSwapped,
