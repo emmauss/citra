@@ -54,6 +54,9 @@ ResultCode MiiSelector::StartImpl(const Service::APT::AppletStartupParameter& pa
 
     // TODO(Subv): Set the expected fields in the response buffer before resending it to the application.
     // TODO(Subv): Reverse the parameter format for the Mii Selector
+    MiiConfig* config = reinterpret_cast<MiiConfig*>(parameter.data);
+
+    config->unk_000 = config->unk_001 = config->unk_002 = config->unk_003 = 0;
 
     // Let the application know that we're closing
     Service::APT::MessageParameter message;

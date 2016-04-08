@@ -10,12 +10,11 @@
 // This needs to be included before getopt.h because the latter #defines symbols used by it
 #include "common/microprofile.h"
 
-#ifdef _MSC_VER
-#include <getopt.h>
-#else
+#ifndef _MSC_VER
 #include <unistd.h>
-#include <getopt.h>
 #endif
+
+#include <getopt.h>
 
 #include "common/logging/log.h"
 #include "common/logging/backend.h"

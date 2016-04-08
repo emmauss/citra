@@ -21,6 +21,8 @@
 
 #include "video_core/video_core.h"
 
+static SDL_Joystick* joystick = nullptr;
+
 void EmuWindow_SDL2::OnMouseMotion(s32 x, s32 y) {
     TouchMoved((unsigned)std::max(x, 0), (unsigned)std::max(y, 0));
 }
@@ -64,9 +66,22 @@ EmuWindow_SDL2::EmuWindow_SDL2() {
     SDL_SetMainReady();
 
     // Initialize the window
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) < 0) {
         LOG_CRITICAL(Frontend, "Failed to initialize SDL2! Exiting...");
         exit(1);
+    }
+
+    LOG_WARNING(Frontend, "%i joysticks were found.", SDL_NumJoysticks());
+    LOG_WARNING(Frontend, "The names of the joysticks are:");
+    SDL_JoystickEventState(SDL_ENABLE);
+    for (int i = 0; i < SDL_NumJoysticks(); i++)
+    {
+        std::string name(SDL_JoystickNameForIndex(i));
+        LOG_WARNING(Frontend, "    %s", name.c_str());
+        if(name == "NVIDIA Shield") {
+            joystick = SDL_JoystickOpen(i);
+            break;
+        }
     }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -120,6 +135,13 @@ void EmuWindow_SDL2::PollEvents() {
     // SDL_PollEvent returns 0 when there are no more events in the event queue
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
+        case SDL_JOYBUTTONDOWN:  /* Handle Joystick Button Presses */
+            LOG_WARNING(Frontend, "%i joysticks key pressed.", event.jbutton.button);
+            if (event.jbutton.button == 0)
+            {
+                /* code goes here */
+            }
+            break;
         case SDL_WINDOWEVENT:
             switch (event.window.event) {
             case SDL_WINDOWEVENT_SIZE_CHANGED:

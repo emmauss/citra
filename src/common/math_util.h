@@ -24,10 +24,10 @@ inline T Clamp(const T val, const T& min, const T& max)
 template<class T>
 struct Rectangle
 {
-    T left;
-    T top;
-    T right;
-    T bottom;
+    T left = {};
+    T top = {};
+    T right = {};
+    T bottom = {};
 
     Rectangle() {}
 

@@ -8,10 +8,13 @@
 #include "common/common_types.h"
 #include "common/swap.h"
 
-#include "core/hle/kernel/kernel.h"
-#include "core/hle/service/service.h"
+
+
 
 namespace Service {
+
+class Interface;
+
 namespace CAM {
 
 enum class Port : u8 {
@@ -191,6 +194,11 @@ struct PackageParameterCameraSelect {
 static_assert(sizeof(PackageParameterCameraSelect) == 28, "PackageParameterCameraSelect structure size is wrong");
 
 /**
+ * Signal camera Vblank event, if capture started
+ */
+void SignalVblankInterrupt();
+
+/**
  * Unknown
  *  Inputs:
  *      0: 0x00010040
@@ -211,6 +219,10 @@ void StartCapture(Service::Interface* self);
  *      1: ResultCode
  */
 void StopCapture(Service::Interface* self);
+
+void IsBusy(Service::Interface* self);
+
+void ClearBuffer(Service::Interface* self);
 
 /**
  * Unknown
@@ -285,6 +297,8 @@ void SetTransferLines(Service::Interface* self);
  */
 void GetMaxLines(Service::Interface* self);
 
+void SetTransferBytes(Service::Interface* self);
+
 /**
  * Unknown
  *  Inputs:
@@ -308,6 +322,8 @@ void GetTransferBytes(Service::Interface* self);
  *      1: ResultCode
  */
 void SetTrimming(Service::Interface* self);
+
+void SetTrimmingParams(Service::Interface* self);
 
 /**
  * Unknown
@@ -347,6 +363,8 @@ void Activate(Service::Interface* self);
  *      1: ResultCode
  */
 void FlipImage(Service::Interface* self);
+
+void SetDetailSize(Service::Interface* self);
 
 /**
  * Unknown

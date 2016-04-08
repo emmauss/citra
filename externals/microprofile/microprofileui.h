@@ -213,9 +213,8 @@ struct MicroProfileCustom
 
 struct SOptionDesc
 {
-    SOptionDesc(){}
-    SOptionDesc(uint8_t nSubType, uint8_t nIndex, const char* fmt, ...):nSubType(nSubType), nIndex(nIndex)
-    {
+    SOptionDesc(): nSubType(0), nIndex(0), bSelected(false) {}
+    SOptionDesc(uint8_t nSubType, uint8_t nIndex, const char* fmt, ...):nSubType(nSubType), nIndex(nIndex), bSelected(false) {
         va_list args;
         va_start (args, fmt);
         vsprintf(Text, fmt, args);

@@ -3895,6 +3895,10 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
         else
             cpu->Reg[15] &= 0xfffffffc;
 
+        if(cpu->Reg[15] == 0x3521AC) {
+            cpu->Reg[15] = 0x3521AC;
+        }
+
         // Find the cached instruction cream, otherwise translate it...
         auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
         if (itr != cpu->instruction_cache.end()) {

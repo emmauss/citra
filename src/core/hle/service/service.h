@@ -29,6 +29,7 @@ class Interface : public Kernel::Session {
     // processes.
 public:
     std::string GetName() const override { return GetPortName(); }
+    virtual void SetVersion(u32 raw_version) { version.raw = raw_version; }
 
     typedef void (*Function)(Interface*);
 
@@ -49,6 +50,13 @@ public:
     ResultVal<bool> SyncRequest() override;
 
 protected:
+    union {
+        u32 raw;
+        BitField< 0, 8, u32> major;
+        BitField< 8, 8, u32> minor;
+        BitField<16, 8, u32> build;
+        BitField<24, 8, u32> revision;
+    } version = {};
 
     /**
      * Registers the functions in the service

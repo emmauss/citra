@@ -38,6 +38,7 @@ namespace Log {
         SUB(Service, FS) \
         SUB(Service, ERR) \
         SUB(Service, APT) \
+        SUB(Service, BOSS) \
         SUB(Service, GSP) \
         SUB(Service, AC) \
         SUB(Service, AM) \
@@ -46,6 +47,7 @@ namespace Log {
         SUB(Service, NDM) \
         SUB(Service, NIM) \
         SUB(Service, NWM) \
+        SUB(Service, MIC) \
         SUB(Service, CAM) \
         SUB(Service, CECD) \
         SUB(Service, CFG) \

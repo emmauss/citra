@@ -35,6 +35,8 @@ static_assert(sizeof(ConversionParameters) == 12, "ConversionParameters struct h
 
 static Kernel::SharedPtr<Kernel::Event> completion_event;
 static ConversionConfiguration conversion;
+static bool temporal_dithering = false;
+static bool spacial_dithering = false;
 
 static const CoefficientSet standard_coefficients[4] = {
     {{ 0x100, 0x166, 0xB6, 0x58, 0x1C5, -0x166F, 0x10EE, -0x1C5B }}, // ITU_Rec601
@@ -116,6 +118,50 @@ static void SetBlockAlignment(Service::Interface* self) {
     LOG_DEBUG(Service_Y2R, "called alignment=%hhu", conversion.block_alignment);
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
+}
+
+static void GetBlockAlignment(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = static_cast<u32>(conversion.block_alignment);
+    LOG_DEBUG(Service_Y2R, "(STUBBED) called");
+}
+
+static void SetSpacialDithering(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    spacial_dithering = cmd_buff[1] & 0xFF;
+    LOG_DEBUG(Service_Y2R, "called spacial_dithering=%u", spacial_dithering);
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+}
+
+static void GetSpacialDithering(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    LOG_DEBUG(Service_Y2R, "(STUBBED) called");
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = spacial_dithering;
+}
+
+static void SetTemporalDithering(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    temporal_dithering = cmd_buff[1] & 0xFF;
+    LOG_DEBUG(Service_Y2R, "called spacial_dithering=%u", temporal_dithering);
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+}
+
+static void GetTemporalDithering(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    LOG_DEBUG(Service_Y2R, "(STUBBED) called");
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = temporal_dithering;
 }
 
 static void SetTransferEndInterrupt(Service::Interface* self) {
@@ -381,11 +427,11 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00050040, SetRotation,             "SetRotation"},
     {0x00060000, nullptr,                 "GetRotation"},
     {0x00070040, SetBlockAlignment,       "SetBlockAlignment"},
-    {0x00080000, nullptr,                 "GetBlockAlignment"},
-    {0x00090040, nullptr,                 "SetSpacialDithering"},
-    {0x000A0000, nullptr,                 "GetSpacialDithering"},
-    {0x000B0040, nullptr,                 "SetTemporalDithering"},
-    {0x000C0000, nullptr,                 "GetTemporalDithering"},
+    {0x00080000, GetBlockAlignment,       "GetBlockAlignment"},
+    {0x00090040, SetSpacialDithering,     "SetSpacialDithering"},
+    {0x000A0000, GetSpacialDithering,     "GetSpacialDithering"},
+    {0x000B0040, SetTemporalDithering,    "SetTemporalDithering"},
+    {0x000C0000, GetTemporalDithering,    "GetTemporalDithering"},
     {0x000D0040, SetTransferEndInterrupt, "SetTransferEndInterrupt"},
     {0x000F0000, GetTransferEndEvent,     "GetTransferEndEvent"},
     {0x00100102, SetSendingY,             "SetSendingY"},
@@ -424,7 +470,8 @@ const Interface::FunctionInfo FunctionTable[] = {
 // Interface class
 
 Interface::Interface() {
-    completion_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "Y2R:Completed");
+    //completion_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "Y2R:Completed");
+    completion_event = Kernel::Event::Create(Kernel::ResetType::Sticky, "Y2R:Completed");
     std::memset(&conversion, 0, sizeof(conversion));
 
     Register(FunctionTable);
