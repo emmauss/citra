@@ -10,6 +10,8 @@
 #include "core/hle/service/hid/hid_spvr.h"
 #include "core/hle/service/hid/hid_user.h"
 
+#include "core/core.h"
+#include "core/arm/arm_interface.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/event.h"
 #include "core/hle/kernel/shared_memory.h"
@@ -63,13 +65,12 @@ const std::array<Service::HID::PadState, Settings::NativeInput::NUM_INPUTS> pad_
 //     * Set PadData.current_state.circle_right = 1 if current PadEntry.circle_pad_y <= -41
 
 void Update() {
-    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer());
-    const PadState state = VideoCore::g_emu_window->GetPadState();
-
-    if (mem == nullptr) {
-        LOG_DEBUG(Service_HID, "Cannot update HID prior to mapping shared memory!");
+    if(shared_mem->base_address == 0) {
         return;
     }
+
+    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer());
+    const PadState state = VideoCore::g_emu_window->GetPadState();
 
     mem->pad.current_state.hex = state.hex;
     mem->pad.index = next_pad_index;
@@ -182,7 +183,7 @@ void Update() {
 void GetIPCHandles(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    cmd_buff[1] = 0; // No error
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 0x14000000; // IPC Command Structure translate-header
     // TODO(yuriks): Return error from SendSyncRequest is this fails (part of IPC marshalling)
     cmd_buff[3] = Kernel::g_handle_table.Create(Service::HID::shared_mem).MoveFrom();
@@ -270,7 +271,81 @@ void GetSoundVolume(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = volume;
 
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_TRACE(Service_HID, "(STUBBED) ca lled");
+}
+
+void CheckHidRead(u32 address, u32 size) {
+    static bool out = false;
+    if(!out) {
+        return;
+    }
+    if (shared_mem->base_address == 0) {
+        return;
+    }
+    Kernel::Thread* thread = Kernel::GetCurrentThread();
+
+    u32 ptr = (u32)shared_mem->base_address;
+
+    if((address >= ptr) && (address < (ptr + shared_mem->size))) {
+        std::string s;
+        u32 index = (address - ptr) / 4;
+        switch (index) {
+        case 0x00: s = "pad->index_reset_ticks low"; break;
+        case 0x01: s = "pad->index_reset_ticks hi"; break;
+        case 0x02: s = "pad->index_reset_ticks_previous low"; break;
+        case 0x03: s = "pad->index_reset_ticks_previous hi"; break;
+        case 0x04: s = "pad->index"; break;
+        case 0x07: s = "pad->current_state"; break;
+        case 0x08: s = "pad->raw_circle_pad_data"; break;
+
+        case 0x0A: s = "pad->entries[0]->current_state"; break;
+        case 0x0B: s = "pad->entries[0]->delta_additions"; break;
+        case 0x0C: s = "pad->entries[0]->delta_removals"; break;
+        case 0x0D: s = "pad->entries[0]->circle_pad_x/circle_pad_y"; break;
+
+        case 0x0E: s = "pad->entries[1]->current_state"; break;
+        case 0x0F: s = "pad->entries[1]->delta_additions"; break;
+        case 0x10: s = "pad->entries[1]->delta_removals"; break;
+        case 0x11: s = "pad->entries[1]->circle_pad_x/circle_pad_y"; break;
+
+        case 0x12: s = "pad->entries[2]->current_state"; break;
+        case 0x13: s = "pad->entries[2]->delta_additions"; break;
+        case 0x14: s = "pad->entries[2]->delta_removals"; break;
+        case 0x15: s = "pad->entries[2]->circle_pad_x/circle_pad_y"; break;
+
+        case 0x16: s = "pad->entries[3]->current_state"; break;
+        case 0x17: s = "pad->entries[3]->delta_additions"; break;
+        case 0x18: s = "pad->entries[3]->delta_removals"; break;
+        case 0x19: s = "pad->entries[3]->circle_pad_x/circle_pad_y"; break;
+
+        case 0x1A: s = "pad->entries[4]->current_state"; break;
+        case 0x1B: s = "pad->entries[4]->delta_additions"; break;
+        case 0x1C: s = "pad->entries[4]->delta_removals"; break;
+        case 0x1D: s = "pad->entries[4]->circle_pad_x/circle_pad_y"; break;
+
+
+        case 0x2A: s = "touch->index_reset_ticks low"; break;
+        case 0x2B: s = "touch->index_reset_ticks hi"; break;
+        case 0x2C: s = "touch->index_reset_ticks_previous low"; break;
+        case 0x2D: s = "touch->index_reset_ticks_previous hi"; break;
+        case 0x2E: s = "touch->index"; break;
+
+        case 0x42: s = "accelerometer->index_reset_ticks low"; break;
+        case 0x43: s = "accelerometer->index_reset_ticks hi"; break;
+        case 0x44: s = "accelerometer->index_reset_ticks_previous low"; break;
+        case 0x45: s = "accelerometer->index_reset_ticks_previous hi"; break;
+        case 0x46: s = "accelerometer->index"; break;
+
+        case 0x4A: s = "accelerometer->entries[0]->x/y"; break;
+        case 0x4B: s = "accelerometer->entries[0]->z"; break;
+
+        default:
+            s = Common::StringFromFormat("0x%02X", index);
+        }
+        LOG_WARNING(Service_HID, "Reading from HID: size=%d, pc=0x%08X, thread=%d, %s", size,
+            Core::g_app_core->GetPC(), thread->GetObjectId(), s.c_str());
+    }
+
 }
 
 void Init() {

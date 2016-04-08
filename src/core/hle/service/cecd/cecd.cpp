@@ -30,6 +30,7 @@ void GetCecInfoEventHandle(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[3] = Kernel::g_handle_table.Create(cecinfo_event).MoveFrom(); // Event handle
+    cecinfo_event->Signal();
 
     LOG_WARNING(Service_CECD, "(STUBBED) called");
 }
@@ -40,6 +41,33 @@ void GetChangeStateEventHandle(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[3] = Kernel::g_handle_table.Create(change_state_event).MoveFrom(); // Event handle
 
+    LOG_WARNING(Service_CECD, "(STUBBED) called");
+}
+
+void OpenAndReadFile(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    u32 p1 = cmd_buff[1];
+    u32 p2 = cmd_buff[2];
+    u32 p3 = cmd_buff[3];
+    u32 p4 = cmd_buff[4];
+    u32 p5 = cmd_buff[5];
+    u32 p6 = cmd_buff[6];
+    u32 p7 = cmd_buff[7];
+    u32 p8 = cmd_buff[8];
+
+    std::string name((const char*)Memory::GetPointer(p8));
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[1] = -1;
+    LOG_WARNING(Service_CECD, "(STUBBED) called");
+}
+
+void SetData(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[1] = -1;
     LOG_WARNING(Service_CECD, "(STUBBED) called");
 }
 

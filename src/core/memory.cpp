@@ -10,10 +10,14 @@
 #include "common/logging/log.h"
 #include "common/swap.h"
 
+#include "core/arm/arm_interface.h"
+#include "core/core.h"
 #include "core/hle/kernel/process.h"
 #include "core/memory.h"
 #include "core/memory_setup.h"
 #include "core/mmio.h"
+
+#include "core/hle/service/hid/hid.h"
 
 namespace Memory {
 
@@ -128,13 +132,15 @@ T Read(const VAddr vaddr) {
     if (page_pointer) {
         T value;
         std::memcpy(&value, &page_pointer[vaddr & PAGE_MASK], sizeof(T));
+        Service::HID::CheckHidRead(vaddr, sizeof(T));
         return value;
     }
 
     PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
     switch (type) {
     case PageType::Unmapped:
-        LOG_ERROR(HW_Memory, "unmapped Read%lu @ 0x%08X", sizeof(T) * 8, vaddr);
+        LOG_ERROR(HW_Memory, "unmapped Read%lu @ 0x%08X, pc: 0x%08X", sizeof(T) * 8, vaddr,
+            Core::g_app_core->GetPC());
         return 0;
     case PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ %08X", vaddr);
@@ -160,7 +166,8 @@ void Write(const VAddr vaddr, const T data) {
     PageType type = current_page_table->attributes[vaddr >> PAGE_BITS];
     switch (type) {
     case PageType::Unmapped:
-        LOG_ERROR(HW_Memory, "unmapped Write%lu 0x%08X @ 0x%08X", sizeof(data) * 8, (u32) data, vaddr);
+        LOG_ERROR(HW_Memory, "unmapped Write%lu 0x%08X @ 0x%08X, pc: 0x%08X", sizeof(data) * 8,
+            (u32) data, vaddr, Core::g_app_core->GetPC());
         return;
     case PageType::Memory:
         ASSERT_MSG(false, "Mapped memory page without a pointer @ %08X", vaddr);
@@ -179,7 +186,7 @@ u8* GetPointer(const VAddr vaddr) {
         return page_pointer + (vaddr & PAGE_MASK);
     }
 
-    LOG_ERROR(HW_Memory, "unknown GetPointer @ 0x%08x", vaddr);
+    //LOG_ERROR(HW_Memory, "unknown GetPointer @ 0x%08x, pc: 0x%08X", vaddr, Core::g_app_core->GetPC());
     return nullptr;
 }
 
@@ -289,7 +296,7 @@ PAddr VirtualToPhysicalAddress(const VAddr addr) {
         return addr - NEW_LINEAR_HEAP_VADDR + FCRAM_PADDR;
     }
 
-    LOG_ERROR(HW_Memory, "Unknown virtual address @ 0x%08X", addr);
+    LOG_ERROR(HW_Memory, "Unknown virtual address @ 0x%08X, pc: 0x%08X", addr, Core::g_app_core->GetPC());
     // To help with debugging, set bit on address so that it's obviously invalid.
     return addr | 0x80000000;
 }
@@ -307,7 +314,7 @@ VAddr PhysicalToVirtualAddress(const PAddr addr) {
         return addr - IO_AREA_PADDR + IO_AREA_VADDR;
     }
 
-    LOG_ERROR(HW_Memory, "Unknown physical address @ 0x%08X", addr);
+    LOG_ERROR(HW_Memory, "Unknown physical address @ 0x%08X, pc: 0x%08X", addr, Core::g_app_core->GetPC());
     // To help with debugging, set bit on address so that it's obviously invalid.
     return addr | 0x80000000;
 }

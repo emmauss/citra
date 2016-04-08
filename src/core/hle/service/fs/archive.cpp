@@ -265,7 +265,7 @@ static ArchiveBackend* GetArchive(ArchiveHandle handle) {
 }
 
 ResultVal<ArchiveHandle> OpenArchive(ArchiveIdCode id_code, FileSys::Path& archive_path) {
-    LOG_TRACE(Service_FS, "Opening archive with id code 0x%08X", id_code);
+    LOG_WARNING(Service_FS, "Opening archive with id code 0x%08X", id_code);
 
     auto itr = id_code_map.find(id_code);
     if (itr == id_code_map.end()) {

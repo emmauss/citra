@@ -39,7 +39,8 @@ struct PadState {
         BitField<9, 1, u32> l;
         BitField<10, 1, u32> x;
         BitField<11, 1, u32> y;
-
+        BitField<12, 1, u32> debug;
+        BitField<13, 1, u32> reserved;
         BitField<14, 1, u32> zl;
         BitField<15, 1, u32> zr;
 
@@ -101,48 +102,48 @@ struct GyroscopeDataEntry {
 struct SharedMem {
     /// Pad data, this is used for buttons and the circle pad
     struct {
-        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0
-        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`
-        u32 index; ///< Index of the last updated pad state entry
+        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0   // 000-007, 0 1
+        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`                      // 000-00F, 2 3
+        u32 index; ///< Index of the last updated pad state entry                              // 010-013, 4
 
-        INSERT_PADDING_WORDS(0x2);
+        INSERT_PADDING_WORDS(0x2);                                                             // 014-01B, 5 6
 
-        PadState current_state; ///< Current state of the pad buttons
+        PadState current_state; ///< Current state of the pad buttons                          // 01C-01F, 7
 
         // TODO(bunnei): Implement `raw_circle_pad_data` field
-        u32 raw_circle_pad_data; ///< Raw (analog) circle pad data, before being converted
+        u32 raw_circle_pad_data; ///< Raw (analog) circle pad data, before being converted     // 020-023, 8
 
-        INSERT_PADDING_WORDS(0x1);
+        INSERT_PADDING_WORDS(0x1);                                                             // 024-027, 9
 
-        std::array<PadDataEntry, 8> entries; ///< Last 8 pad entries
+        std::array<PadDataEntry, 8> entries; ///< Last 8 pad entries                           // 028-0A7, A 27
     } pad;
 
     /// Touchpad data, this is used for touchpad input
     struct {
-        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0
-        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`
-        u32 index; ///< Index of the last updated touch entry
+        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0   // A8-, 28 29
+        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`                      //      2A 2B
+        u32 index; ///< Index of the last updated touch entry                                  //      2C
 
-        INSERT_PADDING_WORDS(0x1);
+        INSERT_PADDING_WORDS(0x1);                                                             //      2D
 
         // TODO(bunnei): Implement `raw_entry` field
-        TouchDataEntry raw_entry; ///< Raw (analog) touch data, before being converted
+        TouchDataEntry raw_entry; ///< Raw (analog) touch data, before being converted         //      2E 2F
 
-        std::array<TouchDataEntry, 8> entries; ///< Last 8 touch entries, in pixel coordinates
+        std::array<TouchDataEntry, 8> entries; ///< Last 8 touch entries, in pixel coordinates //      30
     } touch;
 
     /// Accelerometer data
     struct {
-        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0
-        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`
-        u32 index; ///< Index of the last updated accelerometer entry
+        s64 index_reset_ticks; ///< CPU tick count for when HID module updated entry index 0    // 42 43
+        s64 index_reset_ticks_previous; ///< Previous `index_reset_ticks`                       // 44 45
+        u32 index; ///< Index of the last updated accelerometer entry                           // 46
 
-        INSERT_PADDING_WORDS(0x1);
+        INSERT_PADDING_WORDS(0x1);                                                              // 47
 
-        AccelerometerDataEntry raw_entry;
+        AccelerometerDataEntry raw_entry;                                                       // 48 49
         INSERT_PADDING_BYTES(2);
 
-        std::array<AccelerometerDataEntry, 8> entries;
+        std::array<AccelerometerDataEntry, 8> entries;                                          // 4A
     } accelerometer;
 
     /// Gyroscope data
@@ -160,6 +161,19 @@ struct SharedMem {
     } gyroscope;
 };
 
+static_assert(sizeof(SharedMem) == 0x8E * sizeof(u32), "SharedMem structure has incorrect size");
+static_assert(sizeof(SharedMem::pad) == 0x2A * sizeof(u32), "SharedMem::pad structure has incorrect size");
+static_assert(sizeof(SharedMem::touch) == 0x18 * sizeof(u32), "SharedMem::touch structure has incorrect size");
+static_assert(sizeof(SharedMem::accelerometer) == 0x14 * sizeof(u32), "SharedMem::accelerometer structure has incorrect size");
+static_assert(sizeof(SharedMem::gyroscope) == 0x38 * sizeof(u32), "SharedMem::gyroscope structure has incorrect size");
+
+#define ASSERT_REG_POSITION(field_name, position) static_assert(offsetof(SharedMem, field_name) == position * 4, "Field "#field_name" has invalid position")
+ASSERT_REG_POSITION(pad,           0x00);
+ASSERT_REG_POSITION(touch,         0x2A);
+ASSERT_REG_POSITION(accelerometer, 0x42);
+ASSERT_REG_POSITION(gyroscope,     0x56);
+#undef ASSERT_REG_POSITION
+
 /**
  * Structure of calibrate params that GetGyroscopeLowCalibrateParam returns
  */
@@ -172,10 +186,7 @@ struct GyroscopeCalibrateParam {
     } x, y, z;
 };
 
-// TODO: MSVC does not support using offsetof() on non-static data members even though this
-//       is technically allowed since C++11. This macro should be enabled once MSVC adds
-//       support for that.
-#ifndef _MSC_VER
+/*
 #define ASSERT_REG_POSITION(field_name, position)                  \
     static_assert(offsetof(SharedMem, field_name) == position * 4, \
                   "Field "#field_name" has invalid position")
@@ -184,7 +195,7 @@ ASSERT_REG_POSITION(pad.index_reset_ticks, 0x0);
 ASSERT_REG_POSITION(touch.index_reset_ticks, 0x2A);
 
 #undef ASSERT_REG_POSITION
-#endif // !defined(_MSC_VER)
+*/
 
 // Pre-defined PadStates for single button presses
 const PadState PAD_NONE         = {{0}};
@@ -302,6 +313,8 @@ void GetGyroscopeLowCalibrateParam(Service::Interface* self);
 
 /// Checks for user input updates
 void Update();
+
+void CheckHidRead(u32 address, u32 size);
 
 /// Initialize HID service
 void Init();

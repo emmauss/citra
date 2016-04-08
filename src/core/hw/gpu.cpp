@@ -18,6 +18,7 @@
 
 #include "core/hle/service/gsp_gpu.h"
 #include "core/hle/service/hid/hid.h"
+#include "core/hle/service/cam/cam.h"
 
 #include "core/hw/hw.h"
 #include "core/hw/gpu.h"
@@ -415,6 +416,7 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
 
     // Check for user input updates
     Service::HID::Update();
+    Service::CAM::SignalVblankInterrupt();
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);

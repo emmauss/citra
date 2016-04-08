@@ -82,8 +82,7 @@ class GGLWidgetInternal : public QGLWidget
 {
 public:
     GGLWidgetInternal(QGLFormat fmt, GRenderWindow* parent)
-                     : QGLWidget(fmt, parent), parent(parent), do_painting(false)
-                 {
+                     : QGLWidget(fmt, parent), parent(parent), do_painting(false) {
     }
 
     void paintEvent(QPaintEvent* ev) override {

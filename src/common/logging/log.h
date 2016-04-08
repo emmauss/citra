@@ -53,6 +53,7 @@ enum class Class : ClassType {
     Service_FS,                 ///< The FS (Filesystem) service implementation
     Service_ERR,                ///< The ERR (Error) port implementation
     Service_APT,                ///< The APT (Applets) service
+    Service_BOSS,               //// The BOSS (SpotPass) service
     Service_GSP,                ///< The GSP (GPU control) service
     Service_AC,                 ///< The AC (WiFi status) service
     Service_AM,                 ///< The AM (Application manager) service
@@ -61,6 +62,7 @@ enum class Class : ClassType {
     Service_NDM,                ///< The NDM (Network daemon manager) service
     Service_NIM,                ///< The NIM (Network interface manager) service
     Service_NWM,                ///< The NWM (Network wlan manager) service
+    Service_MIC,                ///< The MIC service
     Service_CAM,                ///< The CAM (Camera) service
     Service_CECD,               ///< The CECD (StreetPass) service
     Service_CFG,                ///< The CFG (Configuration) service

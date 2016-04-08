@@ -8,6 +8,7 @@
 
 #include "common/hash.h"
 #include "common/logging/log.h"
+#include "common/string_util.h"
 
 #include "core/hle/kernel/event.h"
 #include "core/hle/service/dsp_dsp.h"
@@ -145,6 +146,19 @@ static void FlushDataCache(Service::Interface* self) {
     LOG_TRACE(Service_DSP, "called address=0x%08X, size=0x%X, process=0x%08X", address, size, process);
 }
 
+static void InvalidateDCache(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+    u32 address = cmd_buff[1];
+    u32 size = cmd_buff[2];
+    u32 process = cmd_buff[4];
+
+    // TODO(purpasmart96): Verify return header on HW
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+
+    LOG_TRACE(Service_DSP, "called address=0x%08X, size=0x%X, process=0x%08X", address, size, process);
+}
+
 /**
  * DSP_DSP::RegisterInterruptEvents service function
  *  Inputs:
@@ -164,6 +178,7 @@ static void RegisterInterruptEvents(Service::Interface* self) {
     if (event_handle) {
         auto evt = Kernel::g_handle_table.Get<Kernel::Event>(cmd_buff[4]);
         if (evt) {
+            evt->name = Common::StringFromFormat("DSP_DSP-%d-%d", interrupt, channel);
             interrupt_events[std::make_pair(interrupt, channel)] = evt;
             cmd_buff[1] = RESULT_SUCCESS.raw;
             LOG_INFO(Service_DSP, "Registered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
@@ -353,7 +368,7 @@ static void GetHeadphoneStatus(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 0; // Not using headphones?
 
-    LOG_WARNING(Service_DSP, "(STUBBED) called");
+    //LOG_WARNING(Service_DSP, "(STUBBED) called");
 }
 
 /**
@@ -437,7 +452,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x001100C2, LoadComponent,                    "LoadComponent"},
     {0x00120000, nullptr,                          "UnloadComponent"},
     {0x00130082, FlushDataCache,                   "FlushDataCache"},
-    {0x00140082, nullptr,                          "InvalidateDCache"},
+    {0x00140082, InvalidateDCache,                 "InvalidateDCache"},
     {0x00150082, RegisterInterruptEvents,          "RegisterInterruptEvents"},
     {0x00160000, GetSemaphoreEventHandle,          "GetSemaphoreEventHandle"},
     {0x00170040, SetSemaphoreMask,                 "SetSemaphoreMask"},

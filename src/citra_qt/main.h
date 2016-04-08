@@ -22,6 +22,7 @@ class RegistersWidget;
 class CallstackWidget;
 class GPUCommandStreamWidget;
 class GPUCommandListWidget;
+class WaitTreeWidget;
 
 class GMainWindow : public QMainWindow
 {
@@ -128,6 +129,7 @@ private:
     CallstackWidget* callstackWidget;
     GPUCommandStreamWidget* graphicsWidget;
     GPUCommandListWidget* graphicsCommandsWidget;
+    WaitTreeWidget* waitTreeWidget;
 
     QAction* actions_recent_files[max_recent_files_item];
 };

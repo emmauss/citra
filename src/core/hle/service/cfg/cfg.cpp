@@ -250,6 +250,8 @@ ResultCode GetConfigInfoBlock(u32 block_id, u32 size, u32 flag, u8* output) {
     else
         memcpy(output, &cfg_config_file_buffer[itr->offset_or_data], itr->size);
 
+    LOG_WARNING(Service_CFG, "GetConfig block 0x%X with flags %u and size %u", block_id, flag, size);
+
     return RESULT_SUCCESS;
 }
 
@@ -349,7 +351,7 @@ ResultCode FormatConfig() {
     if (!res.IsSuccess()) return res;
 
     // 0x000A0001 - Profile birthday
-    const u8 profile_birthday[2] = {3, 25}; // March 25th, 2014
+    const u8 profile_birthday[2] = {3, 2}; // March 25th, 2014
     res = CreateConfigInfoBlk(0x000A0001, sizeof(profile_birthday), 0xE, profile_birthday);
     if (!res.IsSuccess()) return res;
 
@@ -383,11 +385,18 @@ ResultCode FormatConfig() {
     if (!res.IsSuccess()) return res;
 
     // 0x000D0000 - Accepted EULA version
-    res = CreateConfigInfoBlk(0x000D0000, 0x4, 0xE, zero_buffer);
+    u32 eula_version = 0xFFFF; // max possible EULA version
+    res = CreateConfigInfoBlk(0x000D0000, 0x4, 0xE, &eula_version);
     if (!res.IsSuccess()) return res;
 
     res = CreateConfigInfoBlk(0x000F0004, sizeof(CONSOLE_MODEL), 0xC, &CONSOLE_MODEL);
     if (!res.IsSuccess()) return res;
+
+    // 0x00130000 - Unknown Debug
+    u32 debug = -1;
+    res = CreateConfigInfoBlk(0x00130000, 0x4, 0xE, &debug);
+    if (!res.IsSuccess()) return res;
+
 
     // Save the buffer to the file
     res = UpdateConfigNANDSavegame();
