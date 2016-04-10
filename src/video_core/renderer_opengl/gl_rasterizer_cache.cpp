@@ -6,7 +6,6 @@
 
 #include "common/emu_window.h"
 #include "common/hash.h"
-#include "common/make_unique.h"
 #include "common/math_util.h"
 #include "common/microprofile.h"
 #include "common/vector_math.h"
