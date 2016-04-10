@@ -136,10 +136,12 @@ inline void Write(u32 addr, const T data) {
                         }
                     } else if (config.fill_32bit) {
                         // fill with 32-bit values
-                        u32 value = config.value_32bit;
-                        size_t len = (end - start) / sizeof(u32);
-                        for (size_t i = 0; i < len; ++i)
-                            memcpy(&start[i * sizeof(u32)], &value, sizeof(u32));
+                        if (end > start) {
+                            u32 value = config.value_32bit;
+                            size_t len = (end - start) / sizeof(u32);
+                            for (size_t i = 0; i < len; ++i)
+                                memcpy(&start[i * sizeof(u32)], &value, sizeof(u32));
+                        }
                     } else {
                         // fill with 16-bit values
                         u16 value_16bit = config.value_16bit.Value();
@@ -237,8 +239,8 @@ inline void Write(u32 addr, const T data) {
                     break;
                 }
 
-                bool horizontal_scale = config.scaling != config.NoScale;
-                bool vertical_scale = config.scaling == config.ScaleXY;
+                int horizontal_scale = config.scaling != config.NoScale ? 1 : 0;
+                int vertical_scale = config.scaling == config.ScaleXY ? 1 : 0;
 
                 u32 output_width = config.output_width >> horizontal_scale;
                 u32 output_height = config.output_height >> vertical_scale;
