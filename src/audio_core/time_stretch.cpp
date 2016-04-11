@@ -43,13 +43,15 @@ void Tick(unsigned samples_in_queue) {
     if (samples_in_queue < 4096) {
         ratio = ratio > 1.0 ? ratio * ratio : 1.0;
         ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
-    } else if (AudioCore::sink->SamplesInQueue() < 16000) {
+    } else if (AudioCore::sink->SamplesInQueue() > 16000) {
         ratio = ratio > 1.0 ? sqrt(ratio) : 0.01;
         ratio = MathUtil::Clamp<double>(ratio, 0.01, 100.0);
     }
 
-    smooth_ratio = 0.99 * smooth_ratio + 0.01 * ratio;
+    smooth_ratio = 0.993 * smooth_ratio + 0.007 * ratio;
     smooth_ratio = MathUtil::Clamp<double>(smooth_ratio, 0.01, 100.0);
+
+    //printf("%f, %f\n", ratio, smooth_ratio);
 
     soundtouch.setTempo(1.0 / smooth_ratio);
 }
