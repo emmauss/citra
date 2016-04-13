@@ -150,6 +150,17 @@ protected:
 extern const std::initializer_list<Kernel::AddressMapping> default_address_mappings;
 
 /**
+ * Get a loader for a file with a specific type
+ * @param file The file to load
+ * @param type The type of the file
+ * @param filename the file name (without path)
+ * @param filepath the file full path (with name)
+ * @return std::unique_ptr<AppLoader> a pointer to a loader object;  null pointer for unsupported type
+ */
+std::unique_ptr<AppLoader> GetLoader(FileUtil::IOFile&& file, FileType type,
+    const std::string& filename, const std::string& filepath);
+
+/**
  * Identifies and loads a bootable file
  * @param filename String filename of bootable file
  * @return ResultStatus result of function
