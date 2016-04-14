@@ -40,6 +40,10 @@ void Init() {
     ThreadFunc_quit = false;
     std::thread thread(ThreadFunc);
     thread.detach();
+
+    // Lioncash won't like this. Don't do it.
+    std::memset(&g_region0, 0, sizeof(SharedMemory));
+    std::memset(&g_region1, 0, sizeof(SharedMemory));
 }
 
 void Shutdown() {

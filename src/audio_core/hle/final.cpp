@@ -14,6 +14,7 @@ namespace HLE {
 
 struct State {
     StereoFrame16 current_frame;
+    std::array<float, 3> volumes = {1.0, 0.0, 0.0};
 };
 
 static State state;
@@ -36,8 +37,8 @@ void FinalUpdate(const DspConfiguration& config, DspStatus& status, FinalMixSamp
         for (int j = 0; j < 2; j++) {
             s32 value = 0;
             for (int k = 0; k < 3; k++) {
-                value += 0.2 * config.volume[0] * mix[k][i][j + 0];
-                value += 0.2 * config.volume[0] * mix[k][i][j + 2];
+                value += 0.2 * state.volumes[0] * mix[k][i][j + 0];
+                value += 0.2 * state.volumes[0] * mix[k][i][j + 2];
             }
 
             if (value > 0x8000 || value < -0x7FFF) {
