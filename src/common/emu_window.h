@@ -105,7 +105,7 @@ public:
      * @todo Fix this function to be thread-safe.
      * @return PadState object indicating the current pad state
      */
-    const Service::HID::PadState GetPadState() const {
+    Service::HID::PadState GetPadState() const {
         return pad_state;
     }
 
@@ -116,8 +116,56 @@ public:
      * @return std::tuple of (x, y, pressed) where `x` and `y` are the touch coordinates and
      *         `pressed` is true if the touch screen is currently being pressed
      */
-    const std::tuple<u16, u16, bool> GetTouchState() const {
+    std::tuple<u16, u16, bool> GetTouchState() const {
         return std::make_tuple(touch_x, touch_y, touch_pressed);
+    }
+
+    /**
+     * Gets the current accelerometer state (acceleration along each three axis).
+     * Axis explained:
+     *   +x is the same direction as LEFT on D-pad.
+     *   +y is normal to the touch screen, pointing outward.
+     *   +z is the same direction as UP on D-pad.
+     * Units:
+     *   1 unit of return value = 1/512 g (measured by hw test),
+     *   where g is the gravitational acceleration (9.8 m/sec2).
+     * @note This should be called by the core emu thread to get a state set by the window thread.
+     * @todo Implement accelerometer input in front-end.
+     * @return std::tuple of (x, y, z)
+     */
+    std::tuple<s16, s16, s16> GetAccelerometerState() const {
+        // stubbed
+        return std::make_tuple(0, -512, 0);
+    }
+
+    /**
+     * Gets the current gyroscope state (angular rates about each three axis).
+     * Axis explained:
+     *   +x is the same direction as LEFT on D-pad.
+     *   +y is normal to the touch screen, pointing outward.
+     *   +z is the same direction as UP on D-pad.
+     * Orientation is determined by right-hand rule.
+     * Units:
+     *   1 unit of return value = (1/coef) deg/sec,
+     *   where coef is the return value of GetGyroscopeRawToDpsCoefficient().
+     * @note This should be called by the core emu thread to get a state set by the window thread.
+     * @todo Implement gyroscope input in front-end.
+     * @return std::tuple of (x, y, z)
+     */
+    std::tuple<s16, s16, s16> GetGyroscopeState() const {
+        // stubbed
+        return std::make_tuple(0, 0, 0);
+    }
+
+    /**
+     * Gets the coefficient for units conversion of gyroscope state.
+     * The conversion formula is r = coefficient * v,
+     * where v is angular rate in deg/sec,
+     * and r is the gyroscope state.
+     * @return float-type coefficient
+     */
+    f32 GetGyroscopeRawToDpsCoefficient() const {
+        return 14.375f; // taken from hw test, and gyroscope's document
     }
 
     /**

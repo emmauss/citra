@@ -33,6 +33,11 @@ static Kernel::SharedPtr<Kernel::Event> event_debug_pad;
 
 static u32 next_pad_index;
 static u32 next_touch_index;
+static u32 next_accelerometer_index;
+static u32 next_gyroscope_index;
+
+static int enable_accelerometer_count = 0; // positive means enabled
+static int enable_gyroscope_count = 0; // positive means enabled
 
 const std::array<Service::HID::PadState, Settings::NativeInput::NUM_INPUTS> pad_mapping = {{
     Service::HID::PAD_A, Service::HID::PAD_B, Service::HID::PAD_X, Service::HID::PAD_Y,
@@ -78,17 +83,17 @@ void Update() {
     PadState changed = { { (state.hex ^ old_state.hex) } };
 
     // Get the current Pad entry
-    PadDataEntry* pad_entry = &mem->pad.entries[mem->pad.index];
+    PadDataEntry& pad_entry = mem->pad.entries[mem->pad.index];
 
     // Update entry properties
-    pad_entry->current_state.hex = state.hex;
-    pad_entry->delta_additions.hex = changed.hex & state.hex;
-    pad_entry->delta_removals.hex = changed.hex & old_state.hex;;
+    pad_entry.current_state.hex = state.hex;
+    pad_entry.delta_additions.hex = changed.hex & state.hex;
+    pad_entry.delta_removals.hex = changed.hex & old_state.hex;;
 
     // Set circle Pad
-    pad_entry->circle_pad_x = state.circle_left  ? -MAX_CIRCLEPAD_POS :
+    pad_entry.circle_pad_x = state.circle_left  ? -MAX_CIRCLEPAD_POS :
                               state.circle_right ?  MAX_CIRCLEPAD_POS : 0x0;
-    pad_entry->circle_pad_y = state.circle_down  ? -MAX_CIRCLEPAD_POS :
+    pad_entry.circle_pad_y = state.circle_down  ? -MAX_CIRCLEPAD_POS :
                               state.circle_up    ?  MAX_CIRCLEPAD_POS : 0x0;
 
     // If we just updated index 0, provide a new timestamp
@@ -101,11 +106,11 @@ void Update() {
     next_touch_index = (next_touch_index + 1) % mem->touch.entries.size();
 
     // Get the current touch entry
-    TouchDataEntry* touch_entry = &mem->touch.entries[mem->touch.index];
+    TouchDataEntry& touch_entry = mem->touch.entries[mem->touch.index];
     bool pressed = false;
 
-    std::tie(touch_entry->x, touch_entry->y, pressed) = VideoCore::g_emu_window->GetTouchState();
-    touch_entry->valid.Assign(pressed ? 1 : 0);
+    std::tie(touch_entry.x, touch_entry.y, pressed) = VideoCore::g_emu_window->GetTouchState();
+    touch_entry.valid.Assign(pressed ? 1 : 0);
 
     // TODO(bunnei): We're not doing anything with offset 0xA8 + 0x18 of HID SharedMemory, which
     // supposedly is "Touch-screen entry, which contains the raw coordinate data prior to being
@@ -120,6 +125,58 @@ void Update() {
     // Signal both handles when there's an update to Pad or touch
     event_pad_or_touch_1->Signal();
     event_pad_or_touch_2->Signal();
+
+    // Update accelerometer
+    if (enable_accelerometer_count > 0) {
+        mem->accelerometer.index = next_accelerometer_index;
+        next_accelerometer_index = (next_accelerometer_index + 1) % mem->accelerometer.entries.size();
+
+        AccelerometerDataEntry& accelerometer_entry = mem->accelerometer.entries[mem->accelerometer.index];
+        std::tie(accelerometer_entry.x, accelerometer_entry.y, accelerometer_entry.z)
+            = VideoCore::g_emu_window->GetAccelerometerState();
+
+        // Make up "raw" entry
+        // TODO(wwylele):
+        // From hardware testing, the raw_entry values are approximately,
+        // but not exactly, as twice as corresponding entries (or with a minus sign).
+        // It may caused by system calibration to the accelerometer.
+        // Figure out how it works, or, if no game reads raw_entry,
+        // the following three lines can be removed and leave raw_entry unimplemented.
+        mem->accelerometer.raw_entry.x = -2 * accelerometer_entry.x;
+        mem->accelerometer.raw_entry.z = 2 * accelerometer_entry.y;
+        mem->accelerometer.raw_entry.y = -2 * accelerometer_entry.z;
+
+        // If we just updated index 0, provide a new timestamp
+        if (mem->accelerometer.index == 0) {
+            mem->accelerometer.index_reset_ticks_previous = mem->accelerometer.index_reset_ticks;
+            mem->accelerometer.index_reset_ticks = (s64)CoreTiming::GetTicks();
+        }
+
+        event_accelerometer->Signal();
+    }
+
+    // Update gyroscope
+    if (enable_gyroscope_count > 0) {
+        mem->gyroscope.index = next_gyroscope_index;
+        next_gyroscope_index = (next_gyroscope_index + 1) % mem->gyroscope.entries.size();
+
+        GyroscopeDataEntry& gyroscope_entry = mem->gyroscope.entries[mem->gyroscope.index];
+        std::tie(gyroscope_entry.x, gyroscope_entry.y, gyroscope_entry.z)
+            = VideoCore::g_emu_window->GetGyroscopeState();
+
+        // Make up "raw" entry
+        mem->gyroscope.raw_entry.x = gyroscope_entry.x;
+        mem->gyroscope.raw_entry.z = -gyroscope_entry.y;
+        mem->gyroscope.raw_entry.y = gyroscope_entry.z;
+
+        // If we just updated index 0, provide a new timestamp
+        if (mem->gyroscope.index == 0) {
+            mem->gyroscope.index_reset_ticks_previous = mem->gyroscope.index_reset_ticks;
+            mem->gyroscope.index_reset_ticks = (s64)CoreTiming::GetTicks();
+        }
+
+        event_gyroscope->Signal();
+    }
 }
 
 void GetIPCHandles(Service::Interface* self) {
@@ -139,39 +196,68 @@ void GetIPCHandles(Service::Interface* self) {
 void EnableAccelerometer(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    ++enable_accelerometer_count;
     event_accelerometer->Signal();
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called");
 }
 
 void DisableAccelerometer(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    --enable_accelerometer_count;
     event_accelerometer->Signal();
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called");
 }
 
 void EnableGyroscopeLow(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    ++enable_gyroscope_count;
     event_gyroscope->Signal();
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-    LOG_WARNING(Service_HID, "(STUBBED) called");
+    LOG_DEBUG(Service_HID, "called");
 }
 
 void DisableGyroscopeLow(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    --enable_gyroscope_count;
     event_gyroscope->Signal();
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    LOG_DEBUG(Service_HID, "called");
+}
+
+void GetGyroscopeLowRawToDpsCoefficient(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    f32 coef = VideoCore::g_emu_window->GetGyroscopeRawToDpsCoefficient();
+    memcpy(&cmd_buff[2], &coef, 4);
+}
+
+void GetGyroscopeLowCalibrateParam(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+
+    const s16 param_unit = 6700; // an approximate value taken from hw
+    GyroscopeCalibrateParam param = {
+        { 0, param_unit, -param_unit },
+        { 0, param_unit, -param_unit },
+        { 0, param_unit, -param_unit },
+    };
+    memcpy(&cmd_buff[2], &param, sizeof(param));
 
     LOG_WARNING(Service_HID, "(STUBBED) called");
 }

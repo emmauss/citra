@@ -34,6 +34,7 @@ namespace Log {
         SUB(Kernel, SVC) \
         CLS(Service) \
         SUB(Service, SRV) \
+        SUB(Service, FRD) \
         SUB(Service, FS) \
         SUB(Service, ERR) \
         SUB(Service, APT) \
@@ -46,8 +47,10 @@ namespace Log {
         SUB(Service, NIM) \
         SUB(Service, NWM) \
         SUB(Service, CAM) \
+        SUB(Service, CECD) \
         SUB(Service, CFG) \
         SUB(Service, DSP) \
+        SUB(Service, DLP) \
         SUB(Service, HID) \
         SUB(Service, SOC) \
         SUB(Service, IR) \
