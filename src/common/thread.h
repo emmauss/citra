@@ -69,7 +69,7 @@ private:
 
 class Barrier {
 public:
-    Barrier(size_t count) : count(count), waiting(0), generation(0) {}
+    explicit Barrier(size_t count_) : count(count_), waiting(0), generation(0) {}
 
     /// Blocks until all "count" threads have called Sync()
     void Sync() {
@@ -90,7 +90,7 @@ private:
     std::mutex mutex;
     const size_t count;
     size_t waiting;
-    size_t generation; ///< Incremented once each time the barrier is used
+    size_t generation; // Incremented once each time the barrier is used
 };
 
 void SleepCurrentThread(int ms);

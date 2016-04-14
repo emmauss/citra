@@ -2,8 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <condition_variable>
-#include <mutex>
+#include <atomic>
 #include <thread>
 
 #include "audio_core/audio_core.h"
@@ -12,9 +11,10 @@
 #include "audio_core/hle/final.h"
 #include "audio_core/hle/pipe.h"
 #include "audio_core/hle/source.h"
-#include "audio_core/interpolate.h"
 #include "audio_core/sink.h"
 #include "audio_core/time_stretch.h"
+
+#include "common/thread.h"
 
 #include "core/hle/service/dsp_dsp.h"
 
@@ -24,16 +24,29 @@ namespace HLE {
 SharedMemory g_region0;
 SharedMemory g_region1;
 
+static void ThreadFunc();
+static Common::Barrier ThreadFunc_barrier(2);
+static std::atomic<bool> ThreadFunc_quit = true;
+
 void Init() {
     ResetPipes();
     SourceInit();
     EffectsInit();
     FinalInit();
     TimeStretch::Init();
+
+    ThreadFunc_quit = false;
+    std::thread thread(ThreadFunc);
+    thread.detach();
 }
 
 void Shutdown() {
     TimeStretch::Shutdown();
+
+    if (!ThreadFunc_quit) {
+        ThreadFunc_quit = true;
+        ThreadFunc_barrier.Sync();
+    }
 }
 
 static bool next_region_is_ready = true;
@@ -41,16 +54,12 @@ static bool next_region_is_ready = true;
 unsigned num_frames = 500;
 double time_for_a_frame = 0.005;
 
-static std::mutex mtx_start;
-static std::condition_variable cv_start;
-static volatile bool start = false;
-
 static void ThreadFunc() {
-    std::unique_lock<std::mutex> lck(mtx_start);
     while (true) {
-        start = false;
-        while (!start)
-            cv_start.wait(lck);
+        ThreadFunc_barrier.Sync();
+        if (ThreadFunc_quit) {
+            break;
+        }
 
         auto& region = CurrentRegion();
 
@@ -65,10 +74,6 @@ static void ThreadFunc() {
         EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
 
         FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
-
-        const double sample_scale = (double)AudioCore::sink->GetNativeSampleRate() / (double)AudioCore::native_sample_rate;
-        const double time_scale = time_for_a_frame / ((double)AudioCore::samples_per_frame / (double)AudioCore::native_sample_rate);
-        double total_scale = sample_scale * time_scale;
 
         StereoFrame16 samples = FinalFrame();
 
@@ -92,15 +97,13 @@ static void ThreadFunc() {
     }
 }
 
-static std::thread thread(ThreadFunc);
+
 
 bool Tick() {
     if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
         return false;
 
-    std::unique_lock<std::mutex> lck(mtx_start);
-    start = true;
-    cv_start.notify_all();
+    ThreadFunc_barrier.Sync();
 
     return true;
 }
