@@ -14,6 +14,8 @@
 #include "audio_core/sink.h"
 #include "audio_core/time_stretch.h"
 
+#include "common/microprofile.h"
+#include "common/profiler.h"
 #include "common/thread.h"
 
 #include "core/hle/service/dsp_dsp.h"
@@ -54,6 +56,50 @@ static bool next_region_is_ready = true;
 unsigned num_frames = 500;
 double time_for_a_frame = 0.005;
 
+static Common::Profiling::TimingCategory profile_tick("DSP::Tick");
+static Common::Profiling::TimingCategory profile_work("DSP::Work");
+MICROPROFILE_DEFINE(DSP_Tick, "DSP", "Tick", MP_RGB(204, 204, 0));
+MICROPROFILE_DEFINE(DSP_Work, "DSP", "Work", MP_RGB(153, 153, 0));
+
+static void DoWork() {
+    Common::Profiling::ScopeTimer timer_work(profile_work);
+    MICROPROFILE_SCOPE(DSP_Work);
+
+    auto& region = CurrentRegion();
+
+    for (int i = 0; i < AudioCore::num_sources; i++) {
+        auto& config = region.source_configurations.config[i];
+        auto& coeffs = region.adpcm_coefficients.coeff[i];
+        auto& status = region.source_statuses.status[i];
+
+        SourceUpdate(i, config, coeffs, status);
+    }
+
+    EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
+
+    FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
+
+    StereoFrame16 samples = FinalFrame();
+
+#if 0
+    std::vector<s16> output;
+    output.reserve(AudioCore::samples_per_frame * 2);
+    for (int i = 0; i < AudioCore::samples_per_frame; i++) {
+        output.push_back(samples[0][i]);
+        output.push_back(samples[1][i]);
+    }
+    AudioCore::sink->EnqueueSamples(output);
+#else
+    TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
+    TimeStretch::AddSamples(samples);
+    TimeStretch::OutputSamples([&](const std::vector<s16>& output) {
+        if (AudioCore::sink->SamplesInQueue() < 16000) {
+            AudioCore::sink->EnqueueSamples(output);
+        }
+    });
+#endif
+}
+
 static void ThreadFunc() {
     while (true) {
         ThreadFunc_barrier.Sync();
@@ -61,45 +107,14 @@ static void ThreadFunc() {
             break;
         }
 
-        auto& region = CurrentRegion();
-
-        for (int i = 0; i < AudioCore::num_sources; i++) {
-            auto& config = region.source_configurations.config[i];
-            auto& coeffs = region.adpcm_coefficients.coeff[i];
-            auto& status = region.source_statuses.status[i];
-
-            SourceUpdate(i, config, coeffs, status);
-        }
-
-        EffectsUpdate(region.dsp_configuration, region.intermediate_mix_samples);
-
-        FinalUpdate(region.dsp_configuration, region.dsp_status, region.final_samples);
-
-        StereoFrame16 samples = FinalFrame();
-
-#if 0
-        std::vector<s16> output;
-        output.reserve(AudioCore::samples_per_frame * 2);
-        for (int i = 0; i < AudioCore::samples_per_frame; i++) {
-            output.push_back(samples[0][i]);
-            output.push_back(samples[1][i]);
-        }
-        AudioCore::sink->EnqueueSamples(output);
-#else
-        TimeStretch::Tick(AudioCore::sink->SamplesInQueue());
-        TimeStretch::AddSamples(samples);
-        TimeStretch::OutputSamples([&](const std::vector<s16>& output) {
-            if (AudioCore::sink->SamplesInQueue() < 16000) {
-                AudioCore::sink->EnqueueSamples(output);
-            }
-        });
-#endif
+        DoWork();
     }
 }
 
-
-
 bool Tick() {
+    Common::Profiling::ScopeTimer timer_tick(profile_tick);
+    MICROPROFILE_SCOPE(DSP_Tick);
+
     if (GetDspState() != DspState::On || !DSP_DSP::SemaphoreSignalled())
         return false;
 
