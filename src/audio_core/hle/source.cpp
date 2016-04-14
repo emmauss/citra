@@ -91,7 +91,7 @@ static void ParseConfig(State& s, SourceConfiguration::Configuration& config, co
     if (config.enable_dirty) {
         config.enable_dirty.Assign(0);
         s.enabled = config.enable != 0;
-        LOG_DEBUG(Audio_DSP, "source_id=%zu enable=%d", s.source_id, s.enabled);
+        LOG_TRACE(Audio_DSP, "source_id=%zu enable=%d", s.source_id, s.enabled);
     }
 
     if (config.sync_dirty) {
