@@ -85,35 +85,6 @@ std::shared_ptr<DebugContext> g_debug_context; // TODO: Get rid of this global
 
 namespace DebugUtils {
 
-void GeometryDumper::AddTriangle(Vertex& v0, Vertex& v1, Vertex& v2) {
-    vertices.push_back(v0);
-    vertices.push_back(v1);
-    vertices.push_back(v2);
-
-    int num_vertices = (int)vertices.size();
-    faces.push_back({{ num_vertices-3, num_vertices-2, num_vertices-1 }});
-}
-
-void GeometryDumper::Dump() {
-    static int index = 0;
-    std::string filename = std::string("geometry_dump") + std::to_string(++index) + ".obj";
-
-    std::ofstream file(filename);
-
-    for (const auto& vertex : vertices) {
-        file << "v " << vertex.pos[0]
-             << " "  << vertex.pos[1]
-             << " "  << vertex.pos[2] << std::endl;
-    }
-
-    for (const Face& face : faces) {
-        file << "f " << 1+face.index[0]
-             << " "  << 1+face.index[1]
-             << " "  << 1+face.index[2] << std::endl;
-    }
-}
-
-
 void DumpShader(const std::string& filename, const Regs::ShaderConfig& config, const Shader::ShaderSetup& setup, const Regs::VSOutputAttributes* output_attributes)
 {
     struct StuffToWrite {
@@ -615,6 +586,21 @@ TextureInfo TextureInfo::FromPicaRegister(const Regs::TextureConfig& config,
     return info;
 }
 
+#ifdef HAVE_PNG
+// Adapter functions to libpng to write/flush to File::IOFile instances.
+static void WriteIOFile(png_structp png_ptr, png_bytep data, png_size_t length) {
+    auto* fp = static_cast<FileUtil::IOFile*>(png_get_io_ptr(png_ptr));
+    if (!fp->WriteBytes(data, length))
+         png_error(png_ptr, "Failed to write to output PNG file.");
+}
+
+static void FlushIOFile(png_structp png_ptr) {
+    auto* fp = static_cast<FileUtil::IOFile*>(png_get_io_ptr(png_ptr));
+    if (!fp->Flush())
+         png_error(png_ptr, "Failed to flush to output PNG file.");
+}
+#endif
+
 void DumpTexture(const Pica::Regs::TextureConfig& texture_config, u8* data) {
 #ifndef HAVE_PNG
     return;
@@ -658,7 +644,7 @@ void DumpTexture(const Pica::Regs::TextureConfig& texture_config, u8* data) {
         goto finalise;
     }
 
-    png_init_io(png_ptr, fp.GetHandle());
+    png_set_write_fn(png_ptr, static_cast<void*>(&fp), WriteIOFile, FlushIOFile);
 
     // Write header (8 bit color depth)
     png_set_IHDR(png_ptr, info_ptr, texture_config.width, texture_config.height,
