@@ -36,6 +36,7 @@ struct MiiConfig {
     u8  unk_0FF; // 1
     u32 unk_100; // 0 or 0x13DE28CF
 };
+
 static_assert(sizeof(MiiConfig) == 0x104, "MiiConfig structure has incorrect size");
 #define ASSERT_REG_POSITION(field_name, position) static_assert(offsetof(MiiConfig, field_name) == position, "Field "#field_name" has invalid position")
 ASSERT_REG_POSITION(unk_004, 0x04);
@@ -46,6 +47,22 @@ ASSERT_REG_POSITION(unk_094, 0x94);
 ASSERT_REG_POSITION(unk_0FE, 0xFE);
 #undef ASSERT_REG_POSITION
 
+struct MiiResult {
+    u32 result_code;
+    u8  unk_04;
+    INSERT_PADDING_BYTES(7);
+    u8 name_0c[0x60];
+    u8 unk_6c[0x16];
+    INSERT_PADDING_BYTES(2);
+};
+static_assert(sizeof(MiiResult) == 0x84, "MiiConfig structure has incorrect size");
+#define ASSERT_REG_POSITION(field_name, position) static_assert(offsetof(MiiResult, field_name) == position, "Field "#field_name" has invalid position")
+ASSERT_REG_POSITION(unk_04, 0x04);
+ASSERT_REG_POSITION(name_0c, 0x0c);
+ASSERT_REG_POSITION(unk_6c, 0x6C);
+
+
+#undef ASSERT_REG_POSITION
 
 class MiiSelector final : public Applet {
 public:

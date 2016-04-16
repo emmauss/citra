@@ -1,5 +1,6 @@
 # Build directory
 [Bb]uild/
+[Bb]uildQt56/
 doc-build/
 
 # Generated source files

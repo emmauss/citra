@@ -825,13 +825,13 @@ static void ControlArchive(Service::Interface* self) {
     switch (action)
     {
     case 0: // Commit save data changes. Input: none, Output: none
-        LOG_WARNING(Service_FS, "input: %u", Memory::Read8(input_buff));
+        LOG_WARNING(Service_FS, "(STUBBED) called, commit");
         Memory::Write8(output_buff, 1);
         break;
     case 1: { // Retrieve a file's last-modified timestamp. Input: utf16 path, Output: u64 Timestamp
         const std::string filename = Common::UTF16ToUTF8(std::u16string(reinterpret_cast<char16_t*>
             (Memory::GetPointer(input_buff), input_size)));
-        LOG_WARNING(Service_FS, "filename: %s", filename.c_str());
+        LOG_WARNING(Service_FS, "(STUBBED) called, datestamp filename: %s", filename.c_str());
         if (FileUtil::Exists(filename)) {
             u64 timestamp = 0;//FileUtil::GetTimeStamp(filename);
             memcpy(Memory::GetPointer(output_buff), &timestamp, output_size);
@@ -846,8 +846,6 @@ static void ControlArchive(Service::Interface* self) {
     default:
         UNIMPLEMENTED();
     }
-    LOG_WARNING(Service_FS, "called");
-
 }
 
 const Interface::FunctionInfo FunctionTable[] = {

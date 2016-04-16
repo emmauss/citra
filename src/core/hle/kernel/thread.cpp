@@ -489,6 +489,8 @@ void Reschedule() {
     if (next == cur)
         return;
 
+    //LOG_DEBUG(Kernel, "Change thread: %s", next->GetName().c_str());
+
     if (cur && next) {
         LOG_TRACE(Kernel, "context switch %u -> %u", cur->GetObjectId(), next->GetObjectId());
     } else if (cur) {

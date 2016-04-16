@@ -73,8 +73,8 @@ void RequireConnection(Interface* self) {
     connection_status = ConnectionStatus::CONNECTED;
 
     TransferMemory& t_mem = *reinterpret_cast<TransferMemory*>(transfer_shared_memory->GetPointer());
-    t_mem.connection_info.connection_status = connection_status;
-    t_mem.connection_info.unk_0E = true;
+    t_mem.connection_info.connection_status = ConnectionStatus::STOPPED; //connection_status;
+    //t_mem.connection_info.unk_0E = true;
 
     conn_status_event->Signal();
 

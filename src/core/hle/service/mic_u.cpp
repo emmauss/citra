@@ -4,8 +4,11 @@
 
 #include "common/logging/log.h"
 
+#include "core/hle/kernel/event.h""
 #include <core/hle/kernel/shared_memory.h>
+
 #include "core/hle/service/mic_u.h"
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -13,6 +16,7 @@
 
 namespace MIC_U {
 
+    static Kernel::SharedPtr<Kernel::Event> mic_event;
 static Kernel::SharedPtr<Kernel::SharedMemory> shared_memory;
 static u32 gain = 0x28;
 static bool power = false;
@@ -91,6 +95,15 @@ static void SetPower(Service::Interface* self) {
     LOG_WARNING(Service_MIC, "(STUBBED) called, power = %u", power);
 }
 
+static void GetEventHandle(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[3] = Kernel::g_handle_table.Create(mic_event).MoveFrom();
+
+    LOG_WARNING(Service_MIC, "(STUBBED) called");
+}
+
 static void IsSampling(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
@@ -107,7 +120,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00040040, nullptr,               "AdjustSampling"},
     {0x00050000, StopSampling,          "StopSampling"},
     {0x00060000, IsSampling,            "IsSampling"},
-    {0x00070000, nullptr,               "GetEventHandle"},
+    {0x00070000, GetEventHandle,        "GetEventHandle"},
     {0x00080040, SetGain,               "SetGain"},
     {0x00090000, GetGain,               "GetGain"},
     {0x000A0040, SetPower,              "SetPower"},
@@ -125,10 +138,12 @@ const Interface::FunctionInfo FunctionTable[] = {
 Interface::Interface() {
     Register(FunctionTable);
     shared_memory = nullptr;
+    mic_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "MIC_U::mic_event");
 }
 
 Interface::~Interface() {
     shared_memory = nullptr;
+    mic_event = nullptr;
 }
 
 } // namespace
