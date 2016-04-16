@@ -27,83 +27,7 @@ namespace Pica {
 
 namespace Shader {
 
-#ifdef ARCHITECTURE_x86_64
-static std::unordered_map<u64, std::unique_ptr<JitShader>> shader_map;
-static const JitShader* jit_shader;
-#endif // ARCHITECTURE_x86_64
-
-void Setup() {
-#ifdef ARCHITECTURE_x86_64
-    if (VideoCore::g_shader_jit_enabled) {
-        u64 cache_key = (Common::ComputeHash64(&g_state.vs.program_code, sizeof(g_state.vs.program_code)) ^
-            Common::ComputeHash64(&g_state.vs.swizzle_data, sizeof(g_state.vs.swizzle_data)));
-
-        auto iter = shader_map.find(cache_key);
-        if (iter != shader_map.end()) {
-            jit_shader = iter->second.get();
-        } else {
-            auto shader = std::make_unique<JitShader>();
-            shader->Compile();
-            jit_shader = shader.get();
-            shader_map[cache_key] = std::move(shader);
-        }
-    }
-#endif // ARCHITECTURE_x86_64
-}
-
-void Shutdown() {
-#ifdef ARCHITECTURE_x86_64
-    shader_map.clear();
-#endif // ARCHITECTURE_x86_64
-}
-
-static Common::Profiling::TimingCategory shader_category("Vertex Shader");
-MICROPROFILE_DEFINE(GPU_VertexShader, "GPU", "Vertex Shader", MP_RGB(50, 50, 240));
-
-OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attributes) {
-    auto& config = g_state.regs.vs;
-
-    Common::Profiling::ScopeTimer timer(shader_category);
-    MICROPROFILE_SCOPE(GPU_VertexShader);
-
-    state.program_counter = config.main_offset;
-    state.debug.max_offset = 0;
-    state.debug.max_opdesc_id = 0;
-
-    // Setup input register table
-    const auto& attribute_register_map = config.input_register_map;
-
-    // TODO: Instead of this cumbersome logic, just load the input data directly like
-    // for (int attr = 0; attr < num_attributes; ++attr) { input_attr[0] = state.registers.input[attribute_register_map.attribute0_register]; }
-    if (num_attributes > 0) state.registers.input[attribute_register_map.attribute0_register] = input.attr[0];
-    if (num_attributes > 1) state.registers.input[attribute_register_map.attribute1_register] = input.attr[1];
-    if (num_attributes > 2) state.registers.input[attribute_register_map.attribute2_register] = input.attr[2];
-    if (num_attributes > 3) state.registers.input[attribute_register_map.attribute3_register] = input.attr[3];
-    if (num_attributes > 4) state.registers.input[attribute_register_map.attribute4_register] = input.attr[4];
-    if (num_attributes > 5) state.registers.input[attribute_register_map.attribute5_register] = input.attr[5];
-    if (num_attributes > 6) state.registers.input[attribute_register_map.attribute6_register] = input.attr[6];
-    if (num_attributes > 7) state.registers.input[attribute_register_map.attribute7_register] = input.attr[7];
-    if (num_attributes > 8) state.registers.input[attribute_register_map.attribute8_register] = input.attr[8];
-    if (num_attributes > 9) state.registers.input[attribute_register_map.attribute9_register] = input.attr[9];
-    if (num_attributes > 10) state.registers.input[attribute_register_map.attribute10_register] = input.attr[10];
-    if (num_attributes > 11) state.registers.input[attribute_register_map.attribute11_register] = input.attr[11];
-    if (num_attributes > 12) state.registers.input[attribute_register_map.attribute12_register] = input.attr[12];
-    if (num_attributes > 13) state.registers.input[attribute_register_map.attribute13_register] = input.attr[13];
-    if (num_attributes > 14) state.registers.input[attribute_register_map.attribute14_register] = input.attr[14];
-    if (num_attributes > 15) state.registers.input[attribute_register_map.attribute15_register] = input.attr[15];
-
-    state.conditional_code[0] = false;
-    state.conditional_code[1] = false;
-
-#ifdef ARCHITECTURE_x86_64
-    if (VideoCore::g_shader_jit_enabled)
-        jit_shader->Run(&state.registers, g_state.regs.vs.main_offset);
-    else
-        RunInterpreter(state);
-#else
-    RunInterpreter(state);
-#endif // ARCHITECTURE_x86_64
-
+OutputVertex OutputRegisters::ToVertex(const Regs::ShaderConfig& config) {
     // Setup output data
     OutputVertex ret;
     // TODO(neobrain): Under some circumstances, up to 16 attributes may be output. We need to
@@ -114,10 +38,10 @@ OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attr
         if (index >= g_state.regs.vs_output_total)
             break;
 
-        if ((g_state.regs.vs.output_mask & (1 << i)) == 0)
+        if ((config.output_mask & (1 << i)) == 0)
             continue;
 
-        const auto& output_register_map = g_state.regs.vs_output_attributes[index]; // TODO: Don't hardcode VS here
+        const auto& output_register_map = g_state.regs.vs_output_attributes[index];
 
         u32 semantics[4] = {
             output_register_map.map_x, output_register_map.map_y,
@@ -127,7 +51,7 @@ OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attr
         for (unsigned comp = 0; comp < 4; ++comp) {
             float24* out = ((float24*)&ret) + semantics[comp];
             if (semantics[comp] != Regs::VSOutputAttributes::INVALID) {
-                *out = state.registers.output[i][comp];
+                *out = value[i][comp];
             } else {
                 // Zero output so that attributes which aren't output won't have denormals in them,
                 // which would slow us down later.
@@ -155,10 +79,71 @@ OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attr
     return ret;
 }
 
-DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config, const ShaderSetup& setup) {
+#ifdef ARCHITECTURE_x86_64
+static std::unordered_map<u64, std::shared_ptr<JitShader>> shader_map;
+#endif // ARCHITECTURE_x86_64
+
+void ShaderSetup::Setup() {
+#ifdef ARCHITECTURE_x86_64
+    if (VideoCore::g_shader_jit_enabled) {
+        u64 cache_key = (Common::ComputeHash64(&program_code, sizeof(program_code)) ^
+            Common::ComputeHash64(&swizzle_data, sizeof(swizzle_data)));
+
+        auto iter = shader_map.find(cache_key);
+        if (iter != shader_map.end()) {
+            jit_shader = iter->second;
+        } else {
+            auto shader = std::make_shared<JitShader>();
+            shader->Compile(*this);
+            jit_shader = shader;
+            shader_map[cache_key] = std::move(shader);
+        }
+    } else {
+        jit_shader.reset();
+    }
+#endif // ARCHITECTURE_x86_64
+}
+
+void ShaderSetup::Shutdown() {
+#ifdef ARCHITECTURE_x86_64
+    shader_map.clear();
+#endif // ARCHITECTURE_x86_64
+}
+
+static Common::Profiling::TimingCategory shader_category("Shader");
+MICROPROFILE_DEFINE(GPU_Shader, "GPU", "Shader", MP_RGB(50, 50, 240));
+
+void ShaderSetup::Run(UnitState<false>& state, const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config) {
+
+    Common::Profiling::ScopeTimer timer(shader_category);
+    MICROPROFILE_SCOPE(GPU_Shader);
+
+    state.debug.max_offset = 0;
+    state.debug.max_opdesc_id = 0;
+
+    // Setup input register table
+    const auto& attribute_register_map = config.input_register_map;
+
+    for (unsigned i = 0; i < num_attributes; i++)
+         state.registers.input[attribute_register_map.GetRegisterForAttribute(i)] = input.attr[i];
+
+    state.conditional_code[0] = false;
+    state.conditional_code[1] = false;
+
+#ifdef ARCHITECTURE_x86_64
+    if (auto shader = jit_shader.lock())
+        shader.get()->Run(config, *this, state);
+    else
+        RunInterpreter(config, *this, state);
+#else
+    RunInterpreter(config, *this, state);
+#endif // ARCHITECTURE_x86_64
+
+}
+
+DebugData<true> ShaderSetup::ProduceDebugInfo(const InputVertex& input, int num_attributes, const Regs::ShaderConfig& config) {
     UnitState<true> state;
 
-    state.program_counter = config.main_offset;
     state.debug.max_offset = 0;
     state.debug.max_opdesc_id = 0;
 
@@ -167,29 +152,217 @@ DebugData<true> ProduceDebugInfo(const InputVertex& input, int num_attributes, c
     float24 dummy_register;
     boost::fill(state.registers.input, &dummy_register);
 
-    if (num_attributes > 0) state.registers.input[attribute_register_map.attribute0_register] = &input.attr[0].x;
-    if (num_attributes > 1) state.registers.input[attribute_register_map.attribute1_register] = &input.attr[1].x;
-    if (num_attributes > 2) state.registers.input[attribute_register_map.attribute2_register] = &input.attr[2].x;
-    if (num_attributes > 3) state.registers.input[attribute_register_map.attribute3_register] = &input.attr[3].x;
-    if (num_attributes > 4) state.registers.input[attribute_register_map.attribute4_register] = &input.attr[4].x;
-    if (num_attributes > 5) state.registers.input[attribute_register_map.attribute5_register] = &input.attr[5].x;
-    if (num_attributes > 6) state.registers.input[attribute_register_map.attribute6_register] = &input.attr[6].x;
-    if (num_attributes > 7) state.registers.input[attribute_register_map.attribute7_register] = &input.attr[7].x;
-    if (num_attributes > 8) state.registers.input[attribute_register_map.attribute8_register] = &input.attr[8].x;
-    if (num_attributes > 9) state.registers.input[attribute_register_map.attribute9_register] = &input.attr[9].x;
-    if (num_attributes > 10) state.registers.input[attribute_register_map.attribute10_register] = &input.attr[10].x;
-    if (num_attributes > 11) state.registers.input[attribute_register_map.attribute11_register] = &input.attr[11].x;
-    if (num_attributes > 12) state.registers.input[attribute_register_map.attribute12_register] = &input.attr[12].x;
-    if (num_attributes > 13) state.registers.input[attribute_register_map.attribute13_register] = &input.attr[13].x;
-    if (num_attributes > 14) state.registers.input[attribute_register_map.attribute14_register] = &input.attr[14].x;
-    if (num_attributes > 15) state.registers.input[attribute_register_map.attribute15_register] = &input.attr[15].x;
+    for (unsigned i = 0; i < num_attributes; i++)
+         state.registers.input[attribute_register_map.GetRegisterForAttribute(i)] = input.attr[i];
 
     state.conditional_code[0] = false;
     state.conditional_code[1] = false;
 
-    RunInterpreter(state);
+    RunInterpreter(config, *this, state);
     return state.debug;
 }
+
+bool SharedGS() {
+    return g_state.regs.vs_com_mode == Pica::Regs::VSComMode::Shared;
+}
+
+bool UseGS() {
+    // TODO(ds84182): This would be more accurate if it looked at induvidual shader units for the geoshader bit
+    // gs_regs.input_buffer_config.use_geometry_shader == 0x08
+    ASSERT((g_state.regs.using_geometry_shader == 0) || (g_state.regs.using_geometry_shader == 2));
+    return g_state.regs.using_geometry_shader == 2;
+}
+
+UnitState<false>& GetShaderUnit(bool gs) {
+
+    // GS are always run on shader unit 3
+    if (gs) {
+        return g_state.shader_units[3];
+    }
+
+    // The worst scheduler you'll ever see!
+    //TODO: How does PICA shader scheduling work?
+    static unsigned shader_unit_scheduler = 0;
+    shader_unit_scheduler++;
+    shader_unit_scheduler %= 3; // TODO: When does it also allow use of unit 3?!
+    return g_state.shader_units[shader_unit_scheduler];
+}
+
+void WriteUniformBoolReg(bool gs, u32 value) {
+    auto& setup = gs ? g_state.gs : g_state.vs;
+
+    ASSERT(setup.uniforms.b.size() == 16);
+    for (unsigned i = 0; i < 16; ++i)
+        setup.uniforms.b[i] = (value & (1 << i)) != 0;
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteUniformBoolReg(true, value);
+    }
+}
+
+void WriteUniformIntReg(bool gs, unsigned index, const Math::Vec4<u8>& values) {
+    const char* shader_type = gs ? "GS" : "VS";
+    auto& setup = gs ? g_state.gs : g_state.vs;
+
+    ASSERT(index < setup.uniforms.i.size());
+    setup.uniforms.i[index] = values;
+    LOG_TRACE(HW_GPU, "Set %s integer uniform %d to %02x %02x %02x %02x",
+              shader_type, index, values.x.Value(), values.y.Value(), values.z.Value(), values.w.Value());
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteUniformIntReg(true, index, values);
+    }
+}
+
+void WriteUniformFloatSetupReg(bool gs, u32 value) {
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+
+    config.uniform_setup.setup = value;
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteUniformFloatSetupReg(true, value);
+    }
+}
+
+void WriteUniformFloatReg(bool gs, u32 value) {
+    const char* shader_type = gs ? "GS" : "VS";
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+    auto& setup = gs ? g_state.gs : g_state.vs;
+
+    auto& uniform_setup = config.uniform_setup;
+    auto& uniform_write_buffer = setup.uniform_write_buffer;
+    auto& float_regs_counter = setup.float_regs_counter;
+
+    // TODO: Does actual hardware indeed keep an intermediate buffer or does
+    //       it directly write the values?
+    uniform_write_buffer[float_regs_counter++] = value;
+
+    // Uniforms are written in a packed format such that four float24 values are encoded in
+    // three 32-bit numbers. We write to internal memory once a full such vector is
+    // written.
+    if ((float_regs_counter >= 4 && uniform_setup.IsFloat32()) ||
+        (float_regs_counter >= 3 && !uniform_setup.IsFloat32())) {
+        float_regs_counter = 0;
+
+        auto& uniform = setup.uniforms.f[uniform_setup.index];
+
+        if (uniform_setup.index >= 96) {
+            LOG_ERROR(HW_GPU, "Invalid %s float uniform index %d", shader_type, (int)uniform_setup.index);
+        } else {
+
+            // NOTE: The destination component order indeed is "backwards"
+            if (uniform_setup.IsFloat32()) {
+                for (auto i : {0,1,2,3})
+                    uniform[3 - i] = float24::FromFloat32(*(float*)(&uniform_write_buffer[i]));
+            } else {
+                // TODO: Untested
+                uniform.w = float24::FromRaw(uniform_write_buffer[0] >> 8);
+                uniform.z = float24::FromRaw(((uniform_write_buffer[0] & 0xFF) << 16) | ((uniform_write_buffer[1] >> 16) & 0xFFFF));
+                uniform.y = float24::FromRaw(((uniform_write_buffer[1] & 0xFFFF) << 8) | ((uniform_write_buffer[2] >> 24) & 0xFF));
+                uniform.x = float24::FromRaw(uniform_write_buffer[2] & 0xFFFFFF);
+            }
+
+            LOG_TRACE(HW_GPU, "Set %s float uniform %x to (%f %f %f %f)", shader_type, (int)uniform_setup.index,
+                      uniform.x.ToFloat32(), uniform.y.ToFloat32(), uniform.z.ToFloat32(),
+                      uniform.w.ToFloat32());
+
+            // TODO: Verify that this actually modifies the register!
+            uniform_setup.index.Assign(uniform_setup.index + 1);
+        }
+
+    }
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteUniformFloatReg(true, value);
+    }
+}
+
+void WriteProgramCodeOffset(bool gs, u32 value) {
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+    config.program.offset = value;
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteProgramCodeOffset(true, value);
+    }
+}
+
+void WriteProgramCode(bool gs, u32 value) {
+    const char* shader_type = gs ? "GS" : "VS";
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+    auto& setup = gs ? g_state.gs : g_state.vs;
+
+    if (config.program.offset >= setup.program_code.size()) {
+        LOG_ERROR(HW_GPU, "Invalid %s program offset %d", shader_type, (int)config.program.offset);
+    } else {
+        setup.program_code[config.program.offset] = value;
+        config.program.offset++;
+    }
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteProgramCode(true, value);
+    }
+}
+
+void WriteSwizzlePatternsOffset(bool gs, u32 value) {
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+    config.swizzle_patterns.offset = value;
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteSwizzlePatternsOffset(true, value);
+    }
+}
+
+void WriteSwizzlePatterns(bool gs, u32 value) {
+    const char* shader_type = gs ? "GS" : "VS";
+    auto& config = gs ? g_state.regs.gs : g_state.regs.vs;
+    auto& setup = gs ? g_state.gs : g_state.vs;
+
+    if (config.swizzle_patterns.offset >= setup.swizzle_data.size()) {
+        LOG_ERROR(HW_GPU, "Invalid %s swizzle pattern offset %d", shader_type, (int)config.swizzle_patterns.offset);
+    } else {
+        setup.swizzle_data[config.swizzle_patterns.offset] = value;
+        config.swizzle_patterns.offset++;
+    }
+
+    // Copy for GS in shared mode
+    if (!gs && SharedGS()) {
+        WriteSwizzlePatterns(true, value);
+    }
+}
+
+template<bool Debug>
+void HandleEMIT(UnitState<Debug>& state) {
+    auto &config = g_state.regs.gs;
+    auto &emit_params = state.emit_params;
+    auto &emit_buffers = state.emit_buffers;
+
+    ASSERT(emit_params.vertex_id < 3);
+
+    emit_buffers[emit_params.vertex_id] = state.output_registers;
+
+    if (emit_params.primitive_emit) {
+        ASSERT_MSG(state.emit_triangle_callback, "EMIT invoked but no handler set!");
+        OutputVertex v0 = emit_buffers[0].ToVertex(config);
+        OutputVertex v1 = emit_buffers[1].ToVertex(config);
+        OutputVertex v2 = emit_buffers[2].ToVertex(config);
+        if (emit_params.winding) {
+            state.emit_triangle_callback(v2, v1, v0);
+        } else {
+            state.emit_triangle_callback(v0, v1, v2);
+        }
+    }
+}
+
+// Explicit instantiation
+template void HandleEMIT(UnitState<false>& state);
+template void HandleEMIT(UnitState<true>& state);
 
 } // namespace Shader
 

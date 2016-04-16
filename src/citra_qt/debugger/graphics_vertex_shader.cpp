@@ -365,7 +365,7 @@ GraphicsVertexShaderWidget::GraphicsVertexShaderWidget(std::shared_ptr< Pica::De
         input_data[i]->setValidator(new QDoubleValidator(input_data[i]));
     }
 
-    breakpoint_warning = new QLabel(tr("(data only available at VertexLoaded breakpoints)"));
+    breakpoint_warning = new QLabel(tr("(data only available at vertex shader invocation breakpoints)"));
 
     // TODO: Add some button for jumping to the shader entry point
 
@@ -454,7 +454,7 @@ GraphicsVertexShaderWidget::GraphicsVertexShaderWidget(std::shared_ptr< Pica::De
 
 void GraphicsVertexShaderWidget::OnBreakPointHit(Pica::DebugContext::Event event, void* data) {
     auto input = static_cast<Pica::Shader::InputVertex*>(data);
-    if (event == Pica::DebugContext::Event::VertexLoaded) {
+    if (event == Pica::DebugContext::Event::RunVS) {
         Reload(true, data);
     } else {
         // No vertex data is retrievable => invalidate currently stored vertex data
@@ -501,7 +501,7 @@ void GraphicsVertexShaderWidget::Reload(bool replace_vertex_data, void* vertex_d
     info.labels.insert({ entry_point, "main" });
 
     // Generate debug information
-    debug_data = Pica::Shader::ProduceDebugInfo(input_vertex, num_attributes, shader_config, shader_setup);
+    debug_data = Pica::g_state.vs.ProduceDebugInfo(input_vertex, num_attributes, shader_config);
 
     // Reload widget state
     for (int attr = 0; attr < num_attributes; ++attr) {

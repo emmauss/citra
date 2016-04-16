@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "video_core/pica.h"
 #include "video_core/shader/shader.h"
 
 namespace Pica {
@@ -11,7 +12,7 @@ namespace Pica {
 namespace Shader {
 
 template<bool Debug>
-void RunInterpreter(UnitState<Debug>& state);
+void RunInterpreter(const Pica::Regs::ShaderConfig& config, const ShaderSetup& setup, UnitState<Debug>& state);
 
 } // namespace
 

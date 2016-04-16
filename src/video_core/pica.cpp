@@ -497,7 +497,7 @@ void Init() {
 }
 
 void Shutdown() {
-    Shader::Shutdown();
+    Shader::ShaderSetup::Shutdown();
 }
 
 template <typename T>
