@@ -8,12 +8,26 @@
 #include "core/hle/service/frd/frd.h"
 #include "core/hle/service/frd/frd_a.h"
 #include "core/hle/service/frd/frd_u.h"
+#include <core/hle/kernel/event.h>
 
 namespace Service {
 namespace FRD {
 
 static FriendKey my_friend_key = {0, 0, 0ull};
 static MyPresence my_presence = {};
+static Profile my_profile = {};
+static Mii my_mii = {};
+
+static Kernel::SharedPtr<Kernel::Event> event;
+
+void GetMyProfile(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    memcpy(&cmd_buff[2], &my_profile, sizeof(Profile));
+
+    LOG_WARNING(Service_FRD, "(STUBBED) called");
+}
 
 void GetMyPresence(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
@@ -88,7 +102,7 @@ void GetMyFriendKey(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    Memory::WriteBlock(cmd_buff[2], reinterpret_cast<const u8*>(&my_friend_key), sizeof(FriendKey));
+    memcpy(&cmd_buff[2], &my_friend_key, sizeof(FriendKey));
     LOG_WARNING(Service_FRD, "(STUBBED) called");
 }
 
@@ -101,7 +115,42 @@ void GetMyScreenName(Service::Interface* self) {
     LOG_WARNING(Service_FRD, "(STUBBED) called");
 }
 
+void GetMyMii(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    memcpy(&cmd_buff[2], &my_mii, sizeof(Mii));
+
+    LOG_WARNING(Service_FRD, "(STUBBED) called");
+}
+
 void UpdateGameModeDescription(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+
+    LOG_WARNING(Service_AC, "(STUBBED) called");
+}
+
+void AttachToEventNotification(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    u32 event_handle = cmd_buff[2];
+
+    if (event_handle) {
+        event = Kernel::g_handle_table.Get<Kernel::Event>(event_handle);
+        if (event) {
+            event->name = "FRD_U:event";
+            //event->Signal();
+        }
+    }
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+
+    LOG_WARNING(Service_AC, "(STUBBED) called");
+}
+
+void GetEventNotification(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error

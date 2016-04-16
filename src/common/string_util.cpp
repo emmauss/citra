@@ -37,14 +37,14 @@ void Dump(u32 addr, u32 size) {
             text << '.';
         }
         if (++hex_count == 0x10) {
-            LOG_WARNING(Service_IR, "%s: %s", oss.str().c_str(), text.str().c_str());
+            LOG_WARNING(Common, "%s: %s", oss.str().c_str(), text.str().c_str());
             hex_count = 0;
             oss.str("");
             text.str("");
         }
     }
     if (oss.str().length())
-        LOG_WARNING(Service_IR, "%s: %s", oss.str().c_str(), text.str().c_str());
+        LOG_WARNING(Common, "%s: %s", oss.str().c_str(), text.str().c_str());
 }
 
 /// Make a string lowercase

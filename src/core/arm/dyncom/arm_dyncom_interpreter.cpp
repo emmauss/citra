@@ -25,6 +25,31 @@
 
 #include "core/gdbstub/gdbstub.h"
 
+class Buf {
+    static const int size = 0x1000;
+    unsigned int buffer[size] = {};
+    bool jump[size] = {};
+    unsigned int pos = 0;
+public:
+    void add(unsigned int addr, bool jmp = false) {
+        jump[pos] = jmp;
+        buffer[pos++] = addr;
+        pos %= size;
+    }
+    void print(std::ostream& oss) {
+        for (unsigned int i = pos; i < size; ++i) {
+            oss << "0x" << std::hex << buffer[i] << (jump[i] ? " b" : "") << std::endl;
+        }
+        for (unsigned int i = 0; i < pos; ++i) {
+            oss << "0x" << std::hex << buffer[i] << (jump[i] ? " b" : "") << std::endl;
+        }
+    }
+} buffer;
+
+void WriteBuffer(std::ostream& oss) {
+    buffer.print(oss);
+}
+
 Common::Profiling::TimingCategory profile_execute("DynCom::Execute");
 Common::Profiling::TimingCategory profile_decode("DynCom::Decode");
 
@@ -3589,7 +3614,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     #define SHIFTER_OPERAND inst_cream->shtop_func(cpu, inst_cream->shifter_operand)
 
     #define FETCH_INST if (inst_base->br != NON_BRANCH) goto DISPATCH; \
-                       inst_base = (arm_inst *)&inst_buf[ptr]
+                          { /*buffer.add(cpu->Reg[15]);*/ inst_base = (arm_inst *)&inst_buf[ptr]; }
 
     #define INC_PC(l)   ptr += sizeof(arm_inst) + l
     #define INC_PC_STUB ptr += sizeof(arm_inst)
@@ -3898,7 +3923,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
         if(cpu->Reg[15] == 0x3521AC) {
             cpu->Reg[15] = 0x3521AC;
         }
-
+        buffer.add(cpu->Reg[15], true);
         // Find the cached instruction cream, otherwise translate it...
         auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
         if (itr != cpu->instruction_cache.end()) {

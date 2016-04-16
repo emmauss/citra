@@ -28,6 +28,8 @@
 #include "core/hle/function_wrappers.h"
 #include "core/hle/result.h"
 #include "core/hle/service/service.h"
+#include "core/arm/dyncom/arm_dyncom_interpreter.h"
+#include <fstream>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Namespace SVC
@@ -409,7 +411,9 @@ static ResultCode ArbitrateAddress(Handle handle, u32 address, u32 type, u32 val
 }
 
 static void Break(u8 break_reason) {
-    LOG_CRITICAL(Debug_Emulated, "Emulated program broke execution!");
+    //std::ofstream ofs("break.txt");
+    //WriteBuffer(ofs);
+    LOG_CRITICAL(Debug_Emulated, "Emulated program broke execution! lr=0x%08X", Core::g_app_core->GetReg(14));
     std::string reason_str;
     switch (break_reason) {
     case 0: reason_str = "PANIC"; break;
@@ -508,8 +512,8 @@ static ResultCode CreateThread(Handle* out_handle, s32 priority, u32 entry_point
             name, entry_point, priority, arg, processor_id, stack_top));
     CASCADE_RESULT(*out_handle, Kernel::g_handle_table.Create(std::move(thread)));
 
-    LOG_TRACE(Kernel_SVC, "called entrypoint=0x%08X (%s), arg=0x%08X, stacktop=0x%08X, "
-        "threadpriority=0x%08X, processorid=0x%08X : created handle=0x%08X", entry_point,
+    LOG_DEBUG(Kernel_SVC, "called entrypoint=0x%08X (%s), arg=0x%08X, stacktop=0x%08X, "
+        "threadpriority=%d, processorid=0x%08X : created handle=0x%08X", entry_point,
         name.c_str(), arg, stack_top, priority, processor_id, *out_handle);
 
     return RESULT_SUCCESS;
@@ -539,6 +543,9 @@ static ResultCode SetThreadPriority(Handle handle, s32 priority) {
         return ERR_INVALID_HANDLE;
 
     thread->SetPriority(priority);
+
+    LOG_DEBUG(Kernel_SVC, "called prio=%d, name=%s", priority, thread->GetName().c_str());
+
     return RESULT_SUCCESS;
 }
 
@@ -619,7 +626,7 @@ static ResultCode CreateSemaphore(Handle* out_handle, s32 initial_count, s32 max
     semaphore->name = Common::StringFromFormat("semaphore-%08x", Core::g_app_core->GetReg(14));
     CASCADE_RESULT(*out_handle, Kernel::g_handle_table.Create(std::move(semaphore)));
 
-    LOG_TRACE(Kernel_SVC, "called initial_count=%d, max_count=%d, created handle=0x%08X",
+    LOG_DEBUG(Kernel_SVC, "called initial_count=%d, max_count=%d, created handle=0x%08X",
         initial_count, max_count, *out_handle);
     return RESULT_SUCCESS;
 }
@@ -628,13 +635,13 @@ static ResultCode CreateSemaphore(Handle* out_handle, s32 initial_count, s32 max
 static ResultCode ReleaseSemaphore(s32* count, Handle handle, s32 release_count) {
     using Kernel::Semaphore;
 
-    LOG_TRACE(Kernel_SVC, "called release_count=%d, handle=0x%08X", release_count, handle);
-
     SharedPtr<Semaphore> semaphore = Kernel::g_handle_table.Get<Semaphore>(handle);
     if (semaphore == nullptr)
         return ERR_INVALID_HANDLE;
 
     CASCADE_RESULT(*count, semaphore->Release(release_count));
+
+    LOG_DEBUG(Kernel_SVC, "called release_count=%d, handle=0x%08X", release_count, handle);
 
     return RESULT_SUCCESS;
 }
