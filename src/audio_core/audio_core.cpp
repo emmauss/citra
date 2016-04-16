@@ -4,6 +4,7 @@
 
 #include "audio_core/audio_core.h"
 #include "audio_core/hle/dsp.h"
+#include "audio_core/sdl2_sink.h"
 
 #include "core/core_timing.h"
 #include "core/hle/kernel/vm_manager.h"

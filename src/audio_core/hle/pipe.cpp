@@ -17,7 +17,7 @@ namespace HLE {
 
 static DspState dsp_state = DspState::Off;
 
-static std::array<std::vector<u8>, static_cast<size_t>(DspPipe::DspPipe_MAX)> pipe_data;
+static std::array<std::vector<u8>, DspPipe_MAX> pipe_data;
 
 void ResetPipes() {
     for (auto& data : pipe_data) {

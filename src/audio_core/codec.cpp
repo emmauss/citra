@@ -77,9 +77,7 @@ StereoBuffer16 DecodeADPCM(const u8* const data, const size_t sample_count, cons
 }
 
 static s16 SignExtendS8(u8 x) {
-    // The data is actually signed PCM8.
-    // We sign extend this to signed PCM16.
-    return static_cast<s16>(static_cast<s8>(x));
+    return s16(u16(x) << 8);
 }
 
 StereoBuffer16 DecodePCM8(const unsigned num_channels, const u8* const data, const size_t sample_count) {

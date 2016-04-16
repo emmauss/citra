@@ -2,8 +2,14 @@ set(SRCS
             audio_core.cpp
             codec.cpp
             hle/dsp.cpp
+            hle/effects.cpp
             hle/filter.cpp
+            hle/final.cpp
             hle/pipe.cpp
+            hle/source.cpp
+            interpolate.cpp
+            null_sink.cpp
+            time_stretch.cpp
             )
 
 set(HEADERS
@@ -11,11 +17,31 @@ set(HEADERS
             codec.h
             hle/common.h
             hle/dsp.h
+            hle/effects.h
             hle/filter.h
+            hle/final.h
             hle/pipe.h
+            hle/source.h
+            interpolate.h
+            null_sink.h
             sink.h
+            time_stretch.h
             )
+
+if(SDL2_FOUND)
+    set(SRCS ${SRCS} sdl2_sink.cpp)
+    set(HEADERS ${HEADERS} sdl2_sink.h)
+    include_directories(${SDL2_INCLUDE_DIR})
+endif()
+
+include_directories(../../externals/soundtouch)
+include_directories(../../externals/rubberband/rubberband/rubberband)
 
 create_directory_groups(${SRCS} ${HEADERS})
 
 add_library(audio_core STATIC ${SRCS} ${HEADERS})
+target_link_libraries(audio_core SoundTouch rubberband)
+
+if(SDL2_FOUND)
+    target_link_libraries(audio_core ${SDL2_LIBRARY})
+endif()

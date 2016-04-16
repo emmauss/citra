@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "common/common_types.h"
@@ -30,5 +31,7 @@ public:
     /// Samples enqueued that have not been played yet.
     virtual std::size_t SamplesInQueue() const = 0;
 };
+
+extern std::unique_ptr<Sink> sink;
 
 } // namespace

@@ -7,3 +7,6 @@
 [submodule "nihstro"]
 	path = externals/nihstro
 	url = https://github.com/neobrain/nihstro.git
+[submodule "rubberband"]
+	path = externals/rubberband/rubberband
+	url = https://github.com/breakfastquay/rubberband.git

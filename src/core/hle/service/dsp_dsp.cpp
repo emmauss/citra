@@ -20,29 +20,55 @@ namespace DSP_DSP {
 static u32 read_pipe_count;
 static Kernel::SharedPtr<Kernel::Event> semaphore_event;
 
-struct PairHash {
-    template <typename T, typename U>
-    std::size_t operator()(const std::pair<T, U> &x) const {
-        // TODO(yuriks): Replace with better hash combining function.
-        return std::hash<T>()(x.first) ^ std::hash<U>()(x.second);
-    }
+enum class InterruptType {
+    Zero = 0, // Unknown purpose. Channel is always zero.
+    One = 1,  // Unknown purpose. Channel is always zero.
+    Pipe = 2, // Related to a pipe
+    MAX
 };
+constexpr size_t InterruptType_MAX = static_cast<size_t>(InterruptType::MAX);
 
-/// Map of (audio interrupt number, channel number) to Kernel::Events. See: RegisterInterruptEvents
-static std::unordered_map<std::pair<u32, u32>, Kernel::SharedPtr<Kernel::Event>, PairHash> interrupt_events;
+/// Map of (interrupt number, channel number) to Kernel::Events. See: RegisterInterruptEvents
+static std::array<std::unordered_map<u32, Kernel::SharedPtr<Kernel::Event>>, InterruptType_MAX> interrupt_events;
+constexpr size_t max_number_of_interrupt_events = 6;
+
+size_t GetNumberOfRegisteredEvents() {
+    size_t number = 0;
+    for (const auto& events : interrupt_events) {
+        number += events.size();
+    }
+    return number;
+}
 
 // DSP Interrupts:
-// Interrupt #2 occurs every frame tick. Userland programs normally have a thread that's waiting
+// Interrupt (2, 2) occurs every frame tick. Userland programs normally have a thread that's waiting
 // for an interrupt event. Immediately after this interrupt event, userland normally updates the
 // state in the next region and increments the relevant frame counter by two.
 void SignalAllInterrupts() {
     // HACK: The other interrupts have currently unknown purpose, we trigger them each tick in any case.
-    for (auto& interrupt_event : interrupt_events)
-        interrupt_event.second->Signal();
+    for (auto& events : interrupt_events)
+        for (auto& event : events)
+            event.second->Signal();
 }
 
 void SignalInterrupt(u32 interrupt, u32 channel) {
-    interrupt_events[std::make_pair(interrupt, channel)]->Signal();
+    ASSERT(interrupt < interrupt_events.size());
+    if (interrupt == 0 || interrupt == 1)
+        ASSERT(channel == 0);
+
+    auto& events = interrupt_events[interrupt];
+    if (events.find(channel) != events.end()) {
+        events[channel]->Signal();
+    }
+}
+
+bool SemaphoreSignalled() {
+    if (semaphore_event->signaled) {
+        semaphore_event->Clear();
+        return true;
+    } else {
+        return false;
+    }
 }
 
 /**
@@ -58,6 +84,7 @@ static void ConvertProcessAddressFromDspDram(Service::Interface* self) {
 
     u32 addr = cmd_buff[1];
 
+    cmd_buff[0] = 0xC0080;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = (addr << 1) + (Memory::DSP_RAM_VADDR + 0x40000);
 
@@ -113,8 +140,10 @@ static void LoadComponent(Service::Interface* self) {
 static void GetSemaphoreEventHandle(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    cmd_buff[0] = 0x160042;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[3] = Kernel::g_handle_table.Create(semaphore_event).MoveFrom(); // Event handle
+
 
     LOG_WARNING(Service_DSP, "(STUBBED) called");
 }
@@ -157,23 +186,47 @@ static void FlushDataCache(Service::Interface* self) {
 static void RegisterInterruptEvents(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    u32 interrupt = cmd_buff[1];
+    u32 type_num = cmd_buff[1];
     u32 channel = cmd_buff[2];
     u32 event_handle = cmd_buff[4];
 
+    if (cmd_buff[3] != 0) {
+        cmd_buff[0] = 0x40;
+        cmd_buff[1] = 0xD9001830;
+        return;
+    }
+
+    InterruptType type = static_cast<InterruptType>(type_num);
+    if (type == InterruptType::Zero || type == InterruptType::One) {
+        channel = 0;
+    } else if (type == InterruptType::Pipe) {
+        if (channel >= DSP::HLE::DspPipe_MAX) {
+            LOG_ERROR(Service_DSP, "Invalid (type, channel) combination (%u, %u)", type, channel);
+        }
+    } else {
+        // I suspect that interrupt values greater than two are invalid.
+        LOG_ERROR(Service_DSP, "Unimplemented (type, channel) combination (%u, %u)", type, channel);
+        UNIMPLEMENTED();
+    }
+
+    cmd_buff[0] = 0x150040;
     if (event_handle) {
         auto evt = Kernel::g_handle_table.Get<Kernel::Event>(cmd_buff[4]);
         if (evt) {
-            interrupt_events[std::make_pair(interrupt, channel)] = evt;
-            cmd_buff[1] = RESULT_SUCCESS.raw;
-            LOG_INFO(Service_DSP, "Registered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+            if (GetNumberOfRegisteredEvents() < max_number_of_interrupt_events) {
+                interrupt_events[type_num][channel] = evt;
+                LOG_INFO(Service_DSP, "Registered type=%u, channel=%u, event_handle=0x%08X", type, channel, event_handle);
+            } else {
+                cmd_buff[1] = 0xC860A7FF;
+                LOG_ERROR(Service_DSP, "Ran out of space to register interrupts");
+            }
         } else {
-            LOG_CRITICAL(Service_DSP, "Invalid event handle! interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+            LOG_CRITICAL(Service_DSP, "Invalid event handle! type=%u, channel=%u, event_handle=0x%08X", type, channel, event_handle);
             ASSERT(false); // This should really be handled at a IPC translation layer.
         }
     } else {
-        interrupt_events.erase(std::make_pair(interrupt, channel));
-        LOG_INFO(Service_DSP, "Unregistered interrupt=%u, channel=%u, event_handle=0x%08X", interrupt, channel, event_handle);
+        interrupt_events[type_num].erase(channel);
+        LOG_INFO(Service_DSP, "Unregistered type=%u, channel=%u, event_handle=0x%08X", type, channel, event_handle);
     }
 }
 
@@ -187,7 +240,12 @@ static void RegisterInterruptEvents(Service::Interface* self) {
 static void SetSemaphore(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    cmd_buff[0] = 0x70040;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+
+    // Observed Behaviour: Waits for DSP_PSEM to be clear then sets DSP_PSEM.
+
+    SignalAllInterrupts(); // This is a HACK
 
     LOG_WARNING(Service_DSP, "(STUBBED) called");
 }
@@ -210,7 +268,13 @@ static void WriteProcessPipe(Service::Interface* self) {
     u32 size = cmd_buff[2];
     u32 buffer = cmd_buff[4];
 
-    ASSERT_MSG(IPC::StaticBufferDesc(size, 1) == cmd_buff[3], "IPC static buffer descriptor failed validation (0x%X). pipe=%u, size=0x%X, buffer=0x%08X", cmd_buff[3], pipe, size, buffer);
+    if (IPC::StaticBufferDesc(size, 1) != cmd_buff[3]) {
+        LOG_ERROR(Service_DSP, "IPC static buffer descriptor failed validation (0x%X). pipe=%u, size=0x%X, buffer=0x%08X", cmd_buff[3], pipe, size, buffer);
+        cmd_buff[0] = 0x40;
+        cmd_buff[1] = 0xD9001830;
+        return;
+    }
+
     ASSERT_MSG(Memory::GetPointer(buffer) != nullptr, "Invalid Buffer: pipe=%u, size=0x%X, buffer=0x%08X", pipe, size, buffer);
 
     std::vector<u8> message(size);
@@ -221,6 +285,7 @@ static void WriteProcessPipe(Service::Interface* self) {
 
     DSP::HLE::PipeWrite(pipe, message);
 
+    cmd_buff[0] = 0xD0040;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
     LOG_DEBUG(Service_DSP, "pipe=%u, size=0x%X, buffer=0x%08X", pipe, size, buffer);
@@ -250,16 +315,14 @@ static void ReadPipeIfPossible(Service::Interface* self) {
 
     ASSERT_MSG(Memory::GetPointer(addr) != nullptr, "Invalid addr: pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X", pipe, unknown, size, addr);
 
+    cmd_buff[0] = 0x100082;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    if (DSP::HLE::GetPipeReadableSize(pipe) >= size) {
-        std::vector<u8> response = DSP::HLE::PipeRead(pipe, size);
 
-        Memory::WriteBlock(addr, response.data(), response.size());
+    std::vector<u8> response = DSP::HLE::PipeRead(pipe, size);
 
-        cmd_buff[2] = static_cast<u32>(response.size());
-    } else {
-        cmd_buff[2] = 0; // Return no data
-    }
+    Memory::WriteBlock(addr, response.data(), response.size());
+
+    cmd_buff[2] = static_cast<u32>(response.size());
 
     LOG_DEBUG(Service_DSP, "pipe=0x%08X, unknown=0x%08X, size=0x%X, buffer=0x%08X, return cmd_buff[2]=0x%08X", pipe, unknown, size, addr, cmd_buff[2]);
 }
@@ -333,6 +396,7 @@ static void SetSemaphoreMask(Service::Interface* self) {
 
     u32 mask = cmd_buff[1];
 
+    cmd_buff[0] = 0x170040;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
     LOG_WARNING(Service_DSP, "(STUBBED) called mask=0x%08X", mask);
@@ -350,10 +414,11 @@ static void SetSemaphoreMask(Service::Interface* self) {
 static void GetHeadphoneStatus(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    cmd_buff[0] = 0x1F0080;
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[2] = 0; // Not using headphones?
 
-    LOG_WARNING(Service_DSP, "(STUBBED) called");
+    LOG_TRACE(Service_DSP, "called");
 }
 
 /**
@@ -376,6 +441,7 @@ static void RecvData(Service::Interface* self) {
 
     // Application reads this after requesting DSP shutdown, to verify the DSP has indeed shutdown or slept.
 
+    cmd_buff[0] = 0x10080;
     cmd_buff[1] = RESULT_SUCCESS.raw;
     switch (DSP::HLE::GetDspState()) {
     case DSP::HLE::DspState::On:
@@ -411,6 +477,7 @@ static void RecvDataIsReady(Service::Interface* self) {
 
     ASSERT_MSG(register_number == 0, "Unknown register_number %u", register_number);
 
+    cmd_buff[0] = 0x20080;
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = 1; // Ready to read
 
@@ -465,7 +532,8 @@ Interface::Interface() {
 
 Interface::~Interface() {
     semaphore_event = nullptr;
-    interrupt_events.clear();
+    for (auto& events : interrupt_events)
+        events.clear();
 }
 
 } // namespace

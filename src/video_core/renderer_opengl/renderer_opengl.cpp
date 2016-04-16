@@ -440,8 +440,7 @@ static void DebugHandler(GLenum source, GLenum type, GLuint id, GLenum severity,
         level = Log::Level::Debug;
         break;
     }
-    LOG_GENERIC(Log::Class::Render_OpenGL, level, "%s %s %d: %s",
-                GetSource(source), GetType(type), id, message);
+    //LOG_GENERIC(Log::Class::Render_OpenGL, level, "%s %s %d: %s", GetSource(source), GetType(type), id, message);
 }
 
 /// Initialize the renderer
