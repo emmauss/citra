@@ -3,7 +3,6 @@
 // Refer to the license.txt file included.
 
 #include <algorithm>
-#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -691,7 +690,7 @@ static void Connect(Service::Interface* self) {
 
     sockaddr input_addr = CTRSockAddr::ToPlatform(*ctr_input_addr);
     int ret = ::connect(socket_handle, &input_addr, sizeof(input_addr));
-    int result = 0;
+    int result = RESULT_SUCCESS.raw;
     if (ret != 0)
         result = TranslateError(GET_ERRNO);
 
@@ -721,7 +720,38 @@ static void ShutdownSockets(Service::Interface* self) {
 #endif
 
     u32* cmd_buffer = Kernel::GetCommandBuffer();
-    cmd_buffer[1] = 0;
+    cmd_buffer[1] = RESULT_SUCCESS.raw;
+}
+
+void GetNetworkOpt(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    u32 level = cmd_buff[1];
+    u32 opt = cmd_buff[2];
+    u32 size = cmd_buff[3];
+
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = 0;
+    cmd_buff[3] = size;
+}
+
+struct DnsServerInfo {
+    struct {
+        int af;
+        u8 addr[16];
+    } entry[4] = { {AF_INET, {8,8,8,8,0}}, {AF_INET, {8,8,4,4,0}}, };
+    char domain[256] = {};
+};
+
+void GetResolverInfo(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    DnsServerInfo info;
+    Memory::WriteBlock(cmd_buff[0x41], (u8*)&info, sizeof(info));
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = 0;
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
@@ -750,12 +780,12 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00170082, GetSockName,                   "GetSockName"},
     {0x00180082, GetPeerName,                   "GetPeerName"},
     {0x00190000, ShutdownSockets,               "ShutdownSockets"},
-    {0x001A00C0, nullptr,                       "GetNetworkOpt"},
+    {0x001A00C0, GetNetworkOpt,                 "GetNetworkOpt"},
     {0x001B0040, nullptr,                       "ICMPSocket"},
     {0x001C0104, nullptr,                       "ICMPPing"},
     {0x001D0040, nullptr,                       "ICMPCancel"},
     {0x001E0040, nullptr,                       "ICMPClose"},
-    {0x001F0040, nullptr,                       "GetResolverInfo"},
+    {0x001F0040, GetResolverInfo,               "GetResolverInfo"},
     {0x00210002, nullptr,                       "CloseSockets"},
     {0x00230040, nullptr,                       "AddGlobalSocket"},
 };
