@@ -33,7 +33,8 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x00500040, GetAppCpuTimeLimit,           "GetAppCpuTimeLimit"},
     {0x00510080, GetStartupArgument,           "GetStartupArgument"},
     {0x00550040, nullptr,                      "WriteInputToNsState?"},
-    {0x01010000, nullptr,                         "CheckNew3DSApp"},
+    {0x00580002, nullptr,                      "GetProgramID"},
+    {0x01010000, nullptr,                      "CheckNew3DSApp"},
 };
 
 APT_A_Interface::APT_A_Interface() {

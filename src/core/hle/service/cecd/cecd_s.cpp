@@ -18,6 +18,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x000F0000, GetCecInfoEventHandle,     "GetCecInfoEventHandle"},
     {0x00100000, GetChangeStateEventHandle, "GetChangeStateEventHandle"},
     {0x00120104, OpenAndReadFile,           "OpenAndReadFile"},
+    {0x04020002, GetCecInfoEventHandleSys,  "GetCecInfoEventHandleSys"},
 };
 
 CECD_S_Interface::CECD_S_Interface() {
