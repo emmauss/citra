@@ -32,7 +32,7 @@ enum class AcApType {
 };
 
 static AcApType ap_type = AcApType::AC_AP_TYPE_NONE;
-static bool ac_connected = false;
+static bool ac_connected = true;
 
 static Kernel::SharedPtr<Kernel::Event> close_event = nullptr;
 static Kernel::SharedPtr<Kernel::Event> connect_event = nullptr;

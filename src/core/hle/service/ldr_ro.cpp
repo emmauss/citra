@@ -6,13 +6,14 @@
 
 #include "core/core.h"
 #include "core/arm/arm_interface.h"
+#include "core/hle/hle.h"
 #include "core/hle/service/ldr_ro.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/vm_manager.h"
+#include "common/file_util.h"
 
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Namespace LDR_RO
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Namespace LDR_RO
 
 namespace LDR_RO {
 
@@ -30,16 +31,16 @@ struct Patch {
     u8 unk3;
     u32 x;
 
-    u8 GetTargetSegment() const { return offset & 0xF; }
-    u32 GetSegmentOffset() const { return offset >> 4; }
+    u8 GetTargetSegment() { return offset & 0xF; }
+    u32 GetSegmentOffset() { return offset >> 4; }
 };
 
 struct Unk3Patch {
     u32 segment_offset;
     u32 patches_offset;
 
-    u8 GetTargetSegment() const { return segment_offset & 0xF; }
-    u32 GetSegmentOffset() const { return segment_offset >> 4; }
+    u8 GetTargetSegment() { return segment_offset & 0xF; }
+    u32 GetSegmentOffset() { return segment_offset >> 4; }
 };
 
 struct Unk2TableEntry {
@@ -54,15 +55,15 @@ struct Unk2Patch {
     u32 table2_offset;
     u32 table2_num;
 
-    Unk2TableEntry* GetTable1Entry(u32 index) const;
-    Unk2TableEntry* GetTable2Entry(u32 index) const;
+    Unk2TableEntry* GetTable1Entry(u32 index);
+    Unk2TableEntry* GetTable2Entry(u32 index);
 };
 
-Unk2TableEntry* Unk2Patch::GetTable1Entry(u32 index) const {
+Unk2TableEntry* Unk2Patch::GetTable1Entry(u32 index) {
     return reinterpret_cast<Unk2TableEntry*>(Memory::GetPointer(table1_offset) + sizeof(Unk2TableEntry) * index);
 }
 
-Unk2TableEntry* Unk2Patch::GetTable2Entry(u32 index) const {
+Unk2TableEntry* Unk2Patch::GetTable2Entry(u32 index) {
     return reinterpret_cast<Unk2TableEntry*>(Memory::GetPointer(table2_offset) + sizeof(Unk2TableEntry) * index);
 }
 
@@ -70,8 +71,8 @@ struct ExportTableEntry {
     u32 name_offset;
     u32 segment_offset;
 
-    u8 GetTargetSegment() const { return segment_offset & 0xF; }
-    u32 GetSegmentOffset() const { return segment_offset >> 4; }
+    u8 GetTargetSegment() { return segment_offset & 0xF; }
+    u32 GetSegmentOffset() { return segment_offset >> 4; }
 };
 
 struct ImportTableEntry {
@@ -85,8 +86,8 @@ struct ExportTreeEntry {
     u16 next_level;
     u16 export_table_id;
 
-    u8 GetTargetSegment() const { return segment_offset & 0x7; }
-    u32 GetSegmentOffset() const { return segment_offset >> 3; }
+    u8 GetTargetSegment() { return segment_offset & 0x7; }
+    u32 GetSegmentOffset() { return segment_offset >> 3; }
 };
 
 struct ExportedSymbol {
@@ -94,21 +95,17 @@ struct ExportedSymbol {
     u32 cro_base;
     u32 cro_offset;
 };
-              // ObjectHeader
+
 struct CROHeader {
     u8 sha2_hash[0x80];
-    char magic[4];    // signature
-    u32 name_offset;  // moduleName
-    u32 next_cro;     // LinkListNode.next
-    u32 previous_cro; // LinkListNode.prev
-    u32 file_size;    // size
-    u32 unk_size1;    // bufferSize
-    u32 unk_address;  // reserved0
-    u32 reserved1;
-    u32 control;      // SectionTypeOffsetPair
-    u32 prolog;       // SectionTypeOffsetPair
-    u32 epilog;       // SectionTypeOffsetPair
-    u32 unresolved;   // SectionTypeOffsetPair
+    char magic[4];
+    u32 name_offset;
+    u32 next_cro;
+    u32 previous_cro;
+    u32 file_size;
+    u32 unk_size1;
+    u32 unk_address;
+    INSERT_PADDING_WORDS(0x4);
     u32 segment_offset;
     u32 code_offset;
     u32 code_size;
@@ -203,9 +200,11 @@ ResultCode CROHeader::RelocateSegmentsTable(u32 base, u32 size, u32 data_section
         if (entry.segment_id == 2) {
             prev_data_section0 = entry.segment_offset;
             entry.segment_offset = data_section0;
-        } else if (entry.segment_id == 3) {
+        }
+        else if (entry.segment_id == 3) {
             entry.segment_offset = data_section1;
-        } else if (entry.segment_offset) {
+        }
+        else if (entry.segment_offset) {
             entry.segment_offset += base;
             if (entry.segment_offset > cro_end)
                 return ResultCode(0xD9012C19);
@@ -506,7 +505,7 @@ bool CROHeader::VerifyAndRelocateOffsets(u32 base, u32 size) {
         unk3_offset + sizeof(Unk3Patch) * unk3_num > end ||
         relocation_patches_offset + sizeof(Patch) * relocation_patches_num > end ||
         unk4_offset + 12 * unk4_num > end) {
-            return false;
+        return false;
     }
 
     return true;
@@ -520,14 +519,14 @@ static void ApplyPatch(Patch* patch, u32 patch_base, u32 patch_address, u32* pat
         __debugbreak();
 
     switch (patch->type) {
-        case 2:
-            Memory::Write32(patch_address, patch_base + patch->x);
-            break;
-        case 3:
-            Memory::Write32(patch_address, patch_base + patch->x - *patch_address1);
-            break;
-        default:
-            LOG_CRITICAL(Service_APT, "Unknown patch type %u", patch->type);
+    case 2:
+        Memory::Write32(patch_address, patch_base + patch->x);
+        break;
+    case 3:
+        Memory::Write32(patch_address, patch_base + patch->x - *patch_address1);
+        break;
+    default:
+        LOG_CRITICAL(Service_APT, "Unknown patch type %u", patch->type);
     }
 }
 
@@ -780,7 +779,8 @@ static void LinkCROs(CROHeader* crs, CROHeader& new_cro, u32 base) {
         new_cro.previous_cro = v3->previous_cro;
         new_cro.next_cro = 0;
         v3->previous_cro = base;
-    } else {
+    }
+    else {
         new_cro.next_cro = 0;
         new_cro.previous_cro = base;
     }
@@ -886,31 +886,31 @@ static ResultCode LoadCRO(u32 base, u32 size, CROHeader& header, u32 data_sectio
 }
 
 /**
- * LDR_RO::Initialize service function
- *  Inputs:
- *      1 : CRS buffer pointer
- *      2 : CRS Size
- *      3 : Process memory address where the CRS will be mapped
- *      4 : Value, must be zero
- *      5 : KProcess handle
- *  Outputs:
- *      0 : Return header
- *      1 : Result of function, 0 on success, otherwise error code
- */
+* LDR_RO::Initialize service function
+*  Inputs:
+*      1 : CRS buffer pointer
+*      2 : CRS Size
+*      3 : Process memory address where the CRS will be mapped
+*      4 : Value, must be zero
+*      5 : KProcess handle
+*  Outputs:
+*      0 : Return header
+*      1 : Result of function, 0 on success, otherwise error code
+*/
 static void Initialize(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u8* crs_buffer_ptr = Memory::GetPointer(cmd_buff[1]);
-    u32 crs_size       = cmd_buff[2];
-    u32 address        = cmd_buff[3];
-    u32 value          = cmd_buff[4];
-    u32 process        = cmd_buff[5];
+    u32 crs_size = cmd_buff[2];
+    u32 address = cmd_buff[3];
+    u32 value = cmd_buff[4];
+    u32 process = cmd_buff[5];
 
     if (value != 0) {
         LOG_WARNING(Service_LDR, "This value should be zero, but is actually %u!", value);
     }
 
     LOG_WARNING(Service_LDR, "(STUBBED) called. crs_buffer_ptr=0x%08X, crs_size=0x%08X, address=0x%08X, value=0x%08X, process=0x%08X",
-                crs_buffer_ptr, crs_size, address, value, process);
+        crs_buffer_ptr, crs_size, address, value, process);
 
     loaded_exports.clear();
     loaded_cros.clear();
@@ -944,22 +944,22 @@ static void Initialize(Service::Interface* self) {
 }
 
 /**
- * LDR_RO::LoadCRR service function
- *  Inputs:
- *      1 : CRR buffer pointer
- *      2 : CRR Size
- *      3 : Value, must be zero
- *      4 : KProcess handle
- *  Outputs:
- *      0 : Return header
- *      1 : Result of function, 0 on success, otherwise error code
- */
+* LDR_RO::LoadCRR service function
+*  Inputs:
+*      1 : CRR buffer pointer
+*      2 : CRR Size
+*      3 : Value, must be zero
+*      4 : KProcess handle
+*  Outputs:
+*      0 : Return header
+*      1 : Result of function, 0 on success, otherwise error code
+*/
 static void LoadCRR(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 crs_buffer_ptr = cmd_buff[1];
-    u32 crs_size       = cmd_buff[2];
-    u32 value          = cmd_buff[3];
-    u32 process        = cmd_buff[4];
+    u32 crs_size = cmd_buff[2];
+    u32 value = cmd_buff[3];
+    u32 process = cmd_buff[4];
 
     if (value != 0) {
         LOG_WARNING(Service_LDR, "This value should be zero, but is actually %u!", value);
@@ -969,7 +969,7 @@ static void LoadCRR(Service::Interface* self) {
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
     LOG_WARNING(Service_LDR, "(STUBBED) called. crs_buffer_ptr=0x%08X, crs_size=0x%08X, value=0x%08X, process=0x%08X",
-                crs_buffer_ptr, crs_size, value, process);
+        crs_buffer_ptr, crs_size, value, process);
 }
 
 struct UnknownStructure {
@@ -1132,7 +1132,8 @@ static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
             v7->previous_cro = v5->previous_cro;
         }
         crs->previous_cro = v7_base;
-    } else {
+    }
+    else {
         auto v8_base = crs->next_cro;
         auto v8 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v8_base));
         if (v8_base == address) {
@@ -1143,7 +1144,8 @@ static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
                 v9->previous_cro = v8->previous_cro;
             }
             crs->next_cro = v9_base;
-        } else {
+        }
+        else {
             auto v10_base = cro->next_cro;
             if (v10_base) {
                 auto v11_base = cro->previous_cro;
@@ -1151,12 +1153,14 @@ static void UnlinkCRO(CROHeader* crs, CROHeader* cro, u32 address) {
                 auto v10 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v10_base));
                 v11->next_cro = v10_base;
                 v10->previous_cro = v11_base;
-            } else {
+            }
+            else {
                 auto v16_base = cro->previous_cro;
                 auto v16 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v16_base));
                 if (v8_base && v8->previous_cro == address) {
                     v8->previous_cro = v16_base;
-                } else {
+                }
+                else {
                     auto v5 = reinterpret_cast<CROHeader*>(Memory::GetPointer(v5_base));
                     v5->previous_cro = v16_base;
                 }
@@ -1441,15 +1445,15 @@ static void UnloadCRO(Service::Interface* self) {
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
-    {0x000100C2, Initialize,            "Initialize"},
-    {0x00020082, LoadCRR,               "LoadCRR"},
-    {0x00030042, nullptr,               "UnloadCCR"},
-    {0x000402C2, LoadExeCRO,            "LoadExeCRO"},
-    {0x000500C2, UnloadCRO,             "UnloadCRO"},
-    {0x00060042, nullptr,               "CRO_Load?"},
-    {0x00070042, nullptr,               "LoadCROSymbols"},
-    {0x00080042, nullptr,               "Shutdown"},
-    {0x000902C2, nullptr,               "LoadExeCRO_New?"},
+    { 0x000100C2, Initialize,            "Initialize" },
+    { 0x00020082, LoadCRR,               "LoadCRR" },
+    { 0x00030042, nullptr,               "UnloadCCR" },
+    { 0x000402C2, LoadExeCRO,            "LoadExeCRO" },
+    { 0x000500C2, UnloadCRO,             "UnloadCRO" },
+    { 0x00060042, nullptr,               "CRO_Load?" },
+    { 0x00070042, nullptr,               "LoadCROSymbols" },
+    { 0x00080042, nullptr,               "Shutdown" },
+    { 0x000902C2, nullptr,               "LoadExeCRO_New?" },
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
