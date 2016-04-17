@@ -267,7 +267,7 @@ ResultStatus AppLoader_NCCH::Load() {
 
     if (exheader_header.arm11_system_local_caps.program_id != ncch_header.program_id) {
         LOG_ERROR(Loader, "ExHeader Program ID mismatch: the ROM is probably encrypted.");
-        return ResultStatus::ErrorEncrypted;
+        //return ResultStatus::ErrorEncrypted;
     }
 
     // Read ExeFS...
