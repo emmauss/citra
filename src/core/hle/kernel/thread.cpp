@@ -456,6 +456,8 @@ void Thread::SetPriority(s32 priority) {
         ready_queue.prepare(priority);
 
     nominal_priority = current_priority = priority;
+
+    HLE::Reschedule(__func__);
 }
 
 void Thread::BoostPriority(s32 priority) {
