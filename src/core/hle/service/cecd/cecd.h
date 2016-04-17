@@ -38,6 +38,7 @@ void GetCecStateAbbreviated(Service::Interface* self);
  */
 void GetCecInfoEventHandle(Service::Interface* self);
 
+void GetCecInfoEventHandleSys(Service::Interface* self);
 /**
  * GetChangeStateEventHandle service function
  *  Inputs:

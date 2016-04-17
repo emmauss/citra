@@ -14,6 +14,7 @@ namespace Service {
 namespace CECD {
 
 static Kernel::SharedPtr<Kernel::Event> cecinfo_event;
+static Kernel::SharedPtr<Kernel::Event> cecinfo_event_sys;
 static Kernel::SharedPtr<Kernel::Event> change_state_event;
 
 void GetCecStateAbbreviated(Service::Interface* self) {
@@ -40,6 +41,16 @@ void GetChangeStateEventHandle(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     cmd_buff[3] = Kernel::g_handle_table.Create(change_state_event).MoveFrom(); // Event handle
+
+    LOG_WARNING(Service_CECD, "(STUBBED) called");
+}
+
+void GetCecInfoEventHandleSys(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[3] = Kernel::g_handle_table.Create(cecinfo_event_sys).MoveFrom(); // Event handle
+    cecinfo_event_sys->Signal();
 
     LOG_WARNING(Service_CECD, "(STUBBED) called");
 }
@@ -76,11 +87,13 @@ void Init() {
     AddService(new CECD_U_Interface);
 
     cecinfo_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "CECD_U::cecinfo_event");
+    cecinfo_event_sys = Kernel::Event::Create(Kernel::ResetType::OneShot, "CECD_U::cecinfo_event_sys");
     change_state_event = Kernel::Event::Create(Kernel::ResetType::OneShot, "CECD_U::change_state_event");
 }
 
 void Shutdown() {
     cecinfo_event = nullptr;
+    cecinfo_event_sys = nullptr;
     change_state_event = nullptr;
 }
 
