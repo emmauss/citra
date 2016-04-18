@@ -41,9 +41,8 @@ static Kernel::SharedPtr<Kernel::Mutex> mutex = nullptr;
 void Initialize(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    shared_memory = Kernel::SharedMemory::Create(cmd_buff[1],
-            Kernel::MemoryPermission::ReadWrite,
-            Kernel::MemoryPermission::ReadWrite, "CSNDSharedMem");
+    shared_memory = Kernel::SharedMemory::Create(nullptr, cmd_buff[1],
+            Kernel::MemoryPermission::ReadWrite, Kernel::MemoryPermission::ReadWrite, 0, Kernel::MemoryRegion::BASE, "CSNDSharedMem");
 
     mutex = Kernel::Mutex::Create(false);
 
