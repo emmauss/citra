@@ -12,6 +12,7 @@
 #include "core/hle/service/apt/apt_a.h"
 #include "core/hle/service/apt/apt_s.h"
 #include "core/hle/service/apt/apt_u.h"
+#include "core/hle/service/apt/bcfnt/bcfnt.h"
 #include "core/hle/service/fs/archive.h"
 
 #include "core/hle/kernel/event.h"
@@ -21,70 +22,6 @@
 
 namespace Service {
 namespace APT {
-
-/// BCFNT Shared Font file structures
-namespace BCFNT {
-struct CFNT {
-    u8 magic[4];
-    u16_le endianness;
-    u16_le header_size;
-    u32_le version;
-    u32_le file_size;
-    u32_le num_blocks;
-};
-
-struct FINF {
-    u8 magic[4];
-    u32_le section_size;
-    u8 font_type;
-    u8 line_feed;
-    u16_le alter_char_index;
-    u8 default_width[3];
-    u8 encoding;
-    u32_le tglp_offset;
-    u32_le cwdh_offset;
-    u32_le cmap_offset;
-    u8 height;
-    u8 width;
-    u8 ascent;
-    u8 reserved;
-};
-
-struct TGLP {
-    u8 magic[4];
-    u32_le section_size;
-    u8 cell_width;
-    u8 cell_height;
-    u8 baseline_position;
-    u8 max_character_width;
-    u32_le sheet_size;
-    u16_le num_sheets;
-    u16_le sheet_image_format;
-    u16_le num_columns;
-    u16_le num_rows;
-    u16_le sheet_width;
-    u16_le sheet_height;
-    u32_le sheet_data_offset;
-};
-
-struct CMAP {
-    u8 magic[4];
-    u32_le section_size;
-    u16_le code_begin;
-    u16_le code_end;
-    u16_le mapping_method;
-    u16_le reserved;
-    u32_le next_cmap_offset;
-};
-
-struct CWDH {
-    u8 magic[4];
-    u32_le section_size;
-    u16_le start_index;
-    u16_le end_index;
-    u32_le next_cwdh_offset;
-};
-}
 
 /// Handle to shared memory region designated to for shared system font
 static Kernel::SharedPtr<Kernel::SharedMemory> shared_font_mem;
@@ -126,69 +63,7 @@ void Initialize(Service::Interface* self) {
     LOG_DEBUG(Service_APT, "called app_id=0x%08X, flags=0x%08X", app_id, flags);
 }
 
-/**
- * Relocates the internal addresses of the BCFNT Shared Font to the new base.
- * @param previous_address Previous address at which the offsets in the structure were based.
- * @param new_address New base for the offsets in the structure.
- */
-void RelocateSharedFont(VAddr previous_address, VAddr new_address) {
-    static const u32 SharedFontStartOffset = 0x80;
-    u8* data = shared_font_mem->GetPointer(SharedFontStartOffset);
 
-    BCFNT::CFNT cfnt;
-    memcpy(&cfnt, data, sizeof(cfnt));
-
-    // Advance past the header
-    data = shared_font_mem->GetPointer(SharedFontStartOffset + cfnt.header_size);
-
-    for (unsigned block = 0; block < cfnt.num_blocks; ++block) {
-
-        u32 section_size = 0;
-        if (memcmp(data, "FINF", 4) == 0) {
-            BCFNT::FINF finf;
-            memcpy(&finf, data, sizeof(finf));
-            section_size = finf.section_size;
-
-            // Relocate the offsets in the FINF section
-            finf.cmap_offset += new_address - previous_address;
-            finf.cwdh_offset += new_address - previous_address;
-            finf.tglp_offset += new_address - previous_address;
-
-            memcpy(data, &finf, sizeof(finf));
-        } else if (memcmp(data, "CMAP", 4) == 0) {
-            BCFNT::CMAP cmap;
-            memcpy(&cmap, data, sizeof(cmap));
-            section_size = cmap.section_size;
-
-            // Relocate the offsets in the CMAP section
-            cmap.next_cmap_offset += new_address - previous_address;
-
-            memcpy(data, &cmap, sizeof(cmap));
-        } else if (memcmp(data, "CWDH", 4) == 0) {
-            BCFNT::CWDH cwdh;
-            memcpy(&cwdh, data, sizeof(cwdh));
-            section_size = cwdh.section_size;
-
-            // Relocate the offsets in the CWDH section
-            cwdh.next_cwdh_offset += new_address - previous_address;
-
-            memcpy(data, &cwdh, sizeof(cwdh));
-        } else if (memcmp(data, "TGLP", 4) == 0) {
-            BCFNT::TGLP tglp;
-            memcpy(&tglp, data, sizeof(tglp));
-            section_size = tglp.section_size;
-
-            // Relocate the offsets in the TGLP section
-            tglp.sheet_data_offset += new_address - previous_address;
-
-            memcpy(data, &tglp, sizeof(tglp));
-        }
-
-        data += section_size;
-    }
-
-    shared_font_relocated = true;
-}
 
 void GetSharedFont(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
@@ -197,9 +72,13 @@ void GetSharedFont(Service::Interface* self) {
     VAddr target_address = Memory::PhysicalToVirtualAddress(shared_font_mem->linear_heap_phys_address);
     // The shared font dumped by 3dsutils (https://github.com/citra-emu/3dsutils) uses this address as base,
     // so we relocate it from there to our real address.
+    // TODO(Subv): This address is wrong if the shared font is dumped from a n3DS,
+    // we need a way to automatically calculate the original address of the font from the file.
     static const VAddr SHARED_FONT_VADDR = 0x18000000;
-    if (!shared_font_relocated)
-        RelocateSharedFont(SHARED_FONT_VADDR, target_address);
+    if (!shared_font_relocated) {
+        BCFNT::RelocateSharedFont(shared_font_mem, SHARED_FONT_VADDR, target_address);
+        shared_font_relocated = true;
+    }
     cmd_buff[0] = IPC::MakeHeader(0x44, 2, 2);
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
     // Since the SharedMemory interface doesn't provide the address at which the memory was allocated,
