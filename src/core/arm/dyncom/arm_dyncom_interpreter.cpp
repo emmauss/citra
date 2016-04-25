@@ -14,6 +14,7 @@
 
 #include "core/memory.h"
 #include "core/hle/svc.h"
+#include "core/arm/cache/cache.h"
 #include "core/arm/disassembler/arm_disasm.h"
 #include "core/arm/dyncom/arm_dyncom_dec.h"
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
@@ -1143,6 +1144,8 @@ static inline void *AllocBuffer(unsigned int size) {
     }
     return (void *)&inst_buf[start];
 }
+
+Cache::PtrCache<u8*> instr_cache([]() {top = 0;});
 
 static shtop_fp_t get_shtop(unsigned int inst) {
     if (BIT(inst, 25)) {
@@ -3495,7 +3498,7 @@ static unsigned int InterpreterTranslateInstruction(const ARMul_State* cpu, cons
     return inst_size;
 }
 
-static int InterpreterTranslateBlock(ARMul_State* cpu, int& bb_start, u32 addr) {
+static int InterpreterTranslateBlock(ARMul_State* cpu, u32 addr) {
     Common::Profiling::ScopeTimer timer_decode(profile_decode);
     MICROPROFILE_SCOPE(DynCom_Decode);
 
@@ -3506,7 +3509,6 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, int& bb_start, u32 addr) 
     ARM_INST_PTR inst_base = nullptr;
     int ret = NON_BRANCH;
     int size = 0; // instruction size of basic block
-    bb_start = top;
 
     u32 phys_addr = addr;
     u32 pc_start = cpu->Reg[15];
@@ -3524,17 +3526,14 @@ static int InterpreterTranslateBlock(ARMul_State* cpu, int& bb_start, u32 addr) 
         ret = inst_base->br;
     };
 
-    cpu->instruction_cache[pc_start] = bb_start;
-
     return KEEP_GOING;
 }
 
-static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr) {
+static int InterpreterTranslateSingle(ARMul_State* cpu, u32 addr) {
     Common::Profiling::ScopeTimer timer_decode(profile_decode);
     MICROPROFILE_SCOPE(DynCom_Decode);
 
     ARM_INST_PTR inst_base = nullptr;
-    bb_start = top;
 
     u32 phys_addr = addr;
     u32 pc_start = cpu->Reg[15];
@@ -3544,8 +3543,6 @@ static int InterpreterTranslateSingle(ARMul_State* cpu, int& bb_start, u32 addr)
     if (inst_base->br == NON_BRANCH) {
         inst_base->br = SINGLE_STEP;
     }
-
-    cpu->instruction_cache[pc_start] = bb_start;
 
     return KEEP_GOING;
 }
@@ -3589,7 +3586,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     #define SHIFTER_OPERAND inst_cream->shtop_func(cpu, inst_cream->shifter_operand)
 
     #define FETCH_INST if (inst_base->br != NON_BRANCH) goto DISPATCH; \
-                       inst_base = (arm_inst *)&inst_buf[ptr]
+                       inst_base = reinterpret_cast<arm_inst*>(ptr)
 
     #define INC_PC(l)   ptr += sizeof(arm_inst) + l
     #define INC_PC_STUB ptr += sizeof(arm_inst)
@@ -3879,7 +3876,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     unsigned int addr;
     unsigned int num_instrs = 0;
 
-    int ptr;
+    u8* ptr;
 
     LOAD_NZCVT;
     DISPATCH:
@@ -3895,16 +3892,21 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
         else
             cpu->Reg[15] &= 0xfffffffc;
 
+        //clear cache if we dont have more than 10kb of buffer remaining
+        if ((top + (10 * 1024)) >= CACHE_BUFFER_SIZE) instr_cache.Clear();
+
         // Find the cached instruction cream, otherwise translate it...
-        auto itr = cpu->instruction_cache.find(cpu->Reg[15]);
-        if (itr != cpu->instruction_cache.end()) {
-            ptr = itr->second;
-        } else if (cpu->NumInstrsToExecute != 1) {
-            if (InterpreterTranslateBlock(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
-                goto END;
-        } else {
-            if (InterpreterTranslateSingle(cpu, ptr, cpu->Reg[15]) == FETCH_EXCEPTION)
-                goto END;
+        ptr = instr_cache.FindPtr(cpu->Reg[15]);
+        if (ptr == nullptr) {
+            ptr = instr_cache.GetNewPtr(cpu->Reg[15]) = reinterpret_cast<u8*>(&inst_buf[top]);
+            if (cpu->NumInstrsToExecute != 1) {
+                if (InterpreterTranslateBlock(cpu, cpu->Reg[15]) == FETCH_EXCEPTION)
+                    goto END;
+            }
+            else {
+                if (InterpreterTranslateSingle(cpu, cpu->Reg[15]) == FETCH_EXCEPTION)
+                    goto END;
+            }
         }
 
         // Find breakpoint if one exists within the block
@@ -3912,7 +3914,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             breakpoint_data = GDBStub::GetNextBreakpointFromAddress(cpu->Reg[15], GDBStub::BreakpointType::Execute);
         }
 
-        inst_base = (arm_inst *)&inst_buf[ptr];
+        inst_base = reinterpret_cast<arm_inst*>(ptr);
         GOTO_NEXT_INST;
     }
     ADC_INST:

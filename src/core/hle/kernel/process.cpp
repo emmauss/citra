@@ -8,6 +8,7 @@
 #include "common/common_funcs.h"
 #include "common/logging/log.h"
 
+#include "core/arm/cache/cache.h"
 #include "core/hle/kernel/memory.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/resource_limit.h"
@@ -119,6 +120,10 @@ void Process::Run(s32 main_thread_priority, u32 stack_size) {
     MapSegment(codeset->code,   VMAPermission::ReadExecute, MemoryState::Code);
     MapSegment(codeset->rodata, VMAPermission::Read,        MemoryState::Code);
     MapSegment(codeset->data,   VMAPermission::ReadWrite,   MemoryState::Private);
+
+    // Map cache
+    Cache::g_cachemanager.UnregisterCode(0, 0xFFFFFFFF);
+    Cache::g_cachemanager.RegisterCode(codeset->code.addr, codeset->code.size);
 
     // Allocate and map stack
     vm_manager.MapMemoryBlock(Memory::HEAP_VADDR_END - stack_size,

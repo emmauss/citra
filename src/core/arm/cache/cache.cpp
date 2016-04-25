@@ -1,0 +1,155 @@
+// Copyright 2016 Citra Emulator Project
+// Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
+
+#include "common/assert.h"
+#include "core/arm/cache/cache.h"
+
+namespace Cache {
+
+CacheBase::CacheBase(bool index_mode, OnClearCb clearcb) : index_mode(index_mode) {
+    page_pointers.fill(nullptr);
+    Clear();
+    SetClearCallback(clearcb);
+    g_cachemanager.RegisterCache(this);
+}
+
+CacheBase::~CacheBase() {
+    g_cachemanager.UnregisterCache(this);
+}
+
+void CacheBase::Clear() {
+    if (OnClearCallback != nullptr) OnClearCallback();
+
+    for (auto& cache : ptr_caches) cache.data.assign(cache.data.size(), nullptr);
+
+    if (index_mode) {
+        blocks_pc.assign(MAX_BLOCKS, INVALID_BLOCK);
+        next_block = num_blocks = 0;
+    }
+}
+
+bool CacheBase::RemoveBlock(u32 pc) {
+    u8** ptr = page_pointers[pc >> Memory::PAGE_BITS];
+    if (ptr != nullptr) {
+        ptr = &ptr[pc & Memory::PAGE_MASK];
+        if (*ptr == nullptr) return false;
+
+        if (index_mode) {
+            const u32 id = pointer_to_id(*ptr);
+            ASSERT(blocks_pc[id] == pc);
+
+            blocks_pc[id] = INVALID_BLOCK;
+            if (id < next_block) next_block = id;
+            while (num_blocks > 0 && blocks_pc[num_blocks - 1] == INVALID_BLOCK) --num_blocks;
+        }
+        *ptr = nullptr;
+        return true;
+    }
+    return false;
+}
+
+bool CacheBase::RemoveRange(u32 start, u32 end) {
+    bool result = false;
+    for (auto& cache : ptr_caches) {
+        for (int i = std::max(start, cache.addr); i < std::min(end, cache.addr_end); ++i) {
+            u8** ptr = &cache.data[i - cache.addr];
+            if (*ptr == nullptr) continue;
+
+            if (index_mode) {
+                const u32 id = pointer_to_id(*ptr);
+                ASSERT(blocks_pc[id] == i);
+
+                blocks_pc[id] = INVALID_BLOCK;
+                if (id < next_block) next_block = id;
+                while (num_blocks > 0 && blocks_pc[num_blocks - 1] == INVALID_BLOCK) --num_blocks;
+            }
+            *ptr = nullptr;
+            result = true;
+        }
+    }
+    return result;
+}
+
+void CacheBase::OnCodeLoad(u32 address, u32 size) {
+    const u32 end = address + size;
+
+    // Check there is no overlapping
+    for (auto const& cache : ptr_caches) ASSERT((address >= cache.addr_end) || (end <= cache.addr));
+
+    ASSERT((address & Memory::PAGE_MASK) == 0 && (size & Memory::PAGE_MASK) == 0);
+
+    BlockPtrCache cache{ address, address + size };
+    cache.data.assign(size, nullptr);
+
+    for (u32 i = address; i < end; i += Memory::PAGE_SIZE) { page_pointers[i >> Memory::PAGE_BITS] = &cache.data[i - address]; }
+    ptr_caches.emplace_back(std::move(cache));
+}
+
+void CacheBase::OnCodeUnload(u32 address, u32 size) {
+    const u32 end = address + size;
+
+    ptr_caches.erase(std::remove_if(ptr_caches.begin(), ptr_caches.end(),
+        [&](auto const& cache) {
+            if ((address < cache.addr_end) && (end > cache.addr)) {
+                RemoveRange(cache.addr, cache.addr_end);
+                for (u32 i = cache.addr; i < cache.addr_end; i += Memory::PAGE_SIZE) { page_pointers[i >> Memory::PAGE_BITS] = nullptr; }
+                return true;
+            }
+            return false;
+        }),
+        ptr_caches.cend());
+}
+
+u8*& CacheBase::GetNewPtr(u32 pc) {
+    DEBUG_ASSERT(!index_mode || next_block == MAX_BLOCKS || ((next_block < MAX_BLOCKS) && blocks_pc[next_block] == INVALID_BLOCK));
+    DEBUG_ASSERT(GetPtr(pc) == nullptr);
+
+    u8** page_ptr = page_pointers[pc >> Memory::PAGE_BITS];
+    if (page_ptr == nullptr) {
+        // pc isnt within mapped code
+        OnCodeLoad(pc & ~Memory::PAGE_MASK, Memory::PAGE_SIZE);
+        page_ptr = page_pointers[pc >> Memory::PAGE_BITS];
+    }
+
+    u8** block_ptr = &page_ptr[pc & Memory::PAGE_MASK];
+
+    DEBUG_ASSERT(*block_ptr == nullptr);
+
+    if (index_mode) {
+        if (next_block == MAX_BLOCKS) Clear();
+
+        blocks_pc[next_block] = pc;
+        *block_ptr = id_to_pointer(next_block);
+
+        do ++next_block; while (next_block <= num_blocks && blocks_pc[next_block] != INVALID_BLOCK);
+        if (next_block > num_blocks) num_blocks++;
+    }
+
+    return *block_ptr;
+}
+
+
+void CacheManager::RegisterCode(u32 address, u32 size) const {
+    for (auto const& cache : caches) cache->OnCodeLoad(address, size);
+}
+
+void CacheManager::UnregisterCode(u32 address, u32 size) const {
+    for (auto const& cache : caches) cache->OnCodeUnload(address, size);
+}
+
+void CacheManager::ClearCache() const {
+    for (auto const& cache : caches) cache->Clear();
+}
+
+void CacheManager::RegisterCache(CacheBase* cache) {
+    caches.push_back(cache);
+}
+
+void CacheManager::UnregisterCache(CacheBase* cache) {
+    caches.erase(std::remove(caches.begin(), caches.end(), cache), caches.end());
+}
+
+CacheManager g_cachemanager;
+
+}

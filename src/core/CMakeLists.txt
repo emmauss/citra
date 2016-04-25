@@ -1,4 +1,5 @@
 set(SRCS
+            arm/cache/cache.cpp
             arm/disassembler/arm_disasm.cpp
             arm/disassembler/load_symbol_map.cpp
             arm/dyncom/arm_dyncom.cpp
@@ -127,6 +128,7 @@ set(SRCS
 
 set(HEADERS
             arm/arm_interface.h
+            arm/cache/cache.h
             arm/disassembler/arm_disasm.h
             arm/disassembler/load_symbol_map.h
             arm/dyncom/arm_dyncom.h
