@@ -87,11 +87,9 @@ void CacheBase::OnCodeLoad(u32 address, u32 size) {
 }
 
 void CacheBase::OnCodeUnload(u32 address, u32 size) {
-    const u32 end = address + size;
-
     ptr_caches.erase(std::remove_if(ptr_caches.begin(), ptr_caches.end(),
         [&](auto const& cache) {
-            if ((address < cache.addr_end) && (end > cache.addr)) {
+            if ((address < cache.addr_end) && (address + size > cache.addr)) {
                 RemoveRange(cache.addr, cache.addr_end);
                 for (u32 i = cache.addr; i < cache.addr_end; i += Memory::PAGE_SIZE) { page_pointers[i >> Memory::PAGE_BITS] = nullptr; }
                 return true;
