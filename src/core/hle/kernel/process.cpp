@@ -122,8 +122,8 @@ void Process::Run(s32 main_thread_priority, u32 stack_size) {
     MapSegment(codeset->data,   VMAPermission::ReadWrite,   MemoryState::Private);
 
     // Map cache
-    Cache::g_cachemanager.UnregisterCode(0, 0xFFFFFFFF);
-    Cache::g_cachemanager.RegisterCode(codeset->code.addr, codeset->code.size);
+    Cache::UnregisterCode(0, 0xFFFFFFFF);
+    Cache::RegisterCode(codeset->code.addr, codeset->code.size);
 
     // Allocate and map stack
     vm_manager.MapMemoryBlock(Memory::HEAP_VADDR_END - stack_size,

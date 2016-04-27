@@ -17,6 +17,14 @@
 
 namespace Cache {
 
+/// Loaders call these when mapping/unmapping code
+void RegisterCode(u32 address, u32 size);
+void UnregisterCode(u32 address, u32 size = 1);
+
+/// Clear every cache
+void ClearCache();
+
+
 using OnClearCb = std::function<void()>;
 
 const u32 MAX_BLOCKS = 0x40000;
@@ -25,7 +33,7 @@ const u32 INVALID_BLOCK = 0xFFFFFFFF;
 struct BlockPtrCache {
     u32 addr;
     u32 addr_end;
-    std::vector<u8*> data;
+    std::vector<void*> data;
 };
 
 class CacheBase {
@@ -35,7 +43,9 @@ protected:
 
 public:
     /// Called when the cache needs to reset or Clear() is called
-    void SetClearCallback(OnClearCb cb) { OnClearCallback = cb; }
+    void SetClearCallback(OnClearCb cb) {
+        OnClearCallback = cb;
+    }
 
     /// Clear and call clear callback
     void Clear();
@@ -47,25 +57,25 @@ public:
     void OnCodeUnload(u32 address, u32 size);
 
 protected:
-    u8* GetPtr(u32 pc) const {
-        u8** ptr = page_pointers[pc >> Memory::PAGE_BITS];
+    void* GetPtr(u32 pc) const {
+        void** ptr = page_pointers[pc >> Memory::PAGE_BITS];
         if (ptr != nullptr) {
             DEBUG_ASSERT(!index_mode || blocks_pc[pointer_to_id(ptr[pc & Memory::PAGE_MASK])] == pc);
             return ptr[pc & Memory::PAGE_MASK];
         }
         return nullptr;
     }
-    u8*& GetNewPtr(u32 pc);
+    void*& GetNewPtr(u32 pc);
 
-    std::function<u8*(u32)> id_to_pointer;
-    std::function<u32(u8*)> pointer_to_id;
+    std::function<void*(u32)> id_to_pointer;
+    std::function<u32(void*)> pointer_to_id;
 
 private:
     bool index_mode;
     OnClearCb OnClearCallback = nullptr;
 
     std::vector<BlockPtrCache> ptr_caches;
-    std::array<u8**, (1 << (32 - Memory::PAGE_BITS))> page_pointers;
+    std::array<void**, (1 << (32 - Memory::PAGE_BITS))> page_pointers;
 
     std::vector<u32> blocks_pc;
     u32 next_block = 0;
@@ -82,10 +92,14 @@ public:
     ~PtrCache() {}
 
     /// Get cached pointer for PC
-    T FindPtr(u32 pc) { return reinterpret_cast<T>(GetPtr(pc)); }
+    T GetPtr(u32 pc) {
+        return reinterpret_cast<T>(CacheBase::GetPtr(pc));
+    }
 
     /// Get reference of pointer for PC
-    T& GetNewPtr(u32 pc) { return reinterpret_cast<T&>(CacheBase::GetNewPtr(pc)); }
+    T& GetNewPtr(u32 pc) {
+        return reinterpret_cast<T&>(CacheBase::GetNewPtr(pc));
+    }
 };
 
 /// Index based cache
@@ -93,45 +107,30 @@ template <typename T>
 class Cache final : public CacheBase {
 public:
     explicit Cache(OnClearCb clearcb = nullptr) : CacheBase(true, clearcb) {
-        id_to_pointer = [this](u32 id) -> u8* {
-            return reinterpret_cast<u8*>(&blocks[id]);
+        id_to_pointer = [this](u32 id) -> void* {
+            return &blocks[id];
         };
-        pointer_to_id = [this](u8* ptr) -> u32 {
-            return static_cast<u32>(reinterpret_cast<T*>(ptr) - &blocks[0]);
+        pointer_to_id = [this](void* ptr) -> u32 {
+            return static_cast<u32>(std::distance(blocks.begin(),
+                std::find_if(blocks.begin(), blocks.end(), [&](auto const& block) {
+                return (reinterpret_cast<T*>(ptr) == &block) ? true : false;
+            })));
         };
     }
     ~Cache() {}
 
     /// Get block cached for PC
-    T* FindBlock(u32 pc) { return reinterpret_cast<T*>(GetPtr(pc)); }
+    T* GetBlock(u32 pc) {
+        return reinterpret_cast<T*>(GetPtr(pc));
+    }
 
     /// Allocate block for PC
-    T& GetNewBlock(u32 pc) { return *reinterpret_cast<T*&>(GetNewPtr(pc)); }
+    T& GetNewBlock(u32 pc) {
+        return *reinterpret_cast<T*&>(GetNewPtr(pc));
+    }
 
 private:
     std::array<T, MAX_BLOCKS> blocks;
 };
-
-class CacheManager {
-public:
-    CacheManager() {}
-    ~CacheManager() {}
-
-    /// Loaders call these when mapping/unmapping code
-    void RegisterCode(u32 address, u32 size) const;
-    void UnregisterCode(u32 address, u32 size = 1) const;
-
-    /// Clear every cache
-    void ClearCache() const;
-
-private:
-    std::list<CacheBase*> caches;
-
-public:
-    void RegisterCache(CacheBase* cache);
-    void UnregisterCache(CacheBase* cache);
-};
-
-extern CacheManager g_cachemanager;
 
 }

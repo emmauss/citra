@@ -3893,10 +3893,12 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
             cpu->Reg[15] &= 0xfffffffc;
 
         //clear cache if we dont have more than 10kb of buffer remaining
-        if ((top + (10 * 1024)) >= CACHE_BUFFER_SIZE) instr_cache.Clear();
+        if ((top + (10 * 1024)) >= CACHE_BUFFER_SIZE) {
+            instr_cache.Clear();
+        }
 
         // Find the cached instruction cream, otherwise translate it...
-        ptr = instr_cache.FindPtr(cpu->Reg[15]);
+        ptr = instr_cache.GetPtr(cpu->Reg[15]);
         if (ptr == nullptr) {
             ptr = instr_cache.GetNewPtr(cpu->Reg[15]) = reinterpret_cast<u8*>(&inst_buf[top]);
             if (cpu->NumInstrsToExecute != 1) {
