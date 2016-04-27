@@ -13,6 +13,7 @@
 #include "audio_core/time_stretch.h"
 
 #include "core/hle/service/dsp_dsp.h"
+#include <audio_core/null_sink.h>
 
 namespace DSP {
 namespace HLE {
@@ -86,8 +87,14 @@ static StereoFrame16 GenerateCurrentFrame() {
 
 // Audio output
 
+static AudioCore::TimeStretcher time_stretcher;
 static std::unique_ptr<AudioCore::Sink> sink;
 static AudioCore::TimeStretcher time_stretcher;
+
+void OutputCurrentFrame(const StereoFrame16& current_frame) {
+    time_stretcher.AddSamples(&current_frame[0][0], current_frame.size());
+    sink->EnqueueSamples(time_stretcher.Process(sink->SamplesInQueue()));
+}
 
 // Public Interface
 
@@ -125,6 +132,8 @@ bool Tick() {
 
         current_frame = GenerateCurrentFrame();
     }
+
+    OutputCurrentFrame(current_frame);
 
     return true;
 }
