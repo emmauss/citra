@@ -7,6 +7,7 @@
 #include "audio_core/hle/dsp.h"
 #include "audio_core/hle/pipe.h"
 #include "audio_core/sink.h"
+#include "audio_core/time_stretch.h"
 
 namespace DSP {
 namespace HLE {
@@ -39,12 +40,20 @@ static SharedMemory& WriteRegion() {
 }
 
 static std::unique_ptr<AudioCore::Sink> sink;
+static AudioCore::TimeStretcher time_stretcher;
 
 void Init() {
     DSP::HLE::ResetPipes();
 }
 
 void Shutdown() {
+    time_stretcher.Flush();
+    while (true) {
+        std::vector<s16> residual_audio = time_stretcher.Process(sink->SamplesInQueue());
+        if (residual_audio.empty())
+            break;
+        sink->EnqueueSamples(residual_audio);
+    }
 }
 
 bool Tick() {
