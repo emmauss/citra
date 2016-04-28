@@ -1133,7 +1133,7 @@ struct pkh_inst {
 typedef arm_inst * ARM_INST_PTR;
 
 #define CACHE_BUFFER_SIZE    (64 * 1024 * 2000)
-static char inst_buf[CACHE_BUFFER_SIZE];
+static u8 inst_buf[CACHE_BUFFER_SIZE];
 static int top = 0;
 static inline void *AllocBuffer(unsigned int size) {
     int start = top;
@@ -3900,7 +3900,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
         // Find the cached instruction cream, otherwise translate it...
         ptr = instr_cache.GetPtr(cpu->Reg[15]);
         if (ptr == nullptr) {
-            ptr = instr_cache.GetNewPtr(cpu->Reg[15]) = reinterpret_cast<u8*>(&inst_buf[top]);
+            ptr = instr_cache.SetPtr(cpu->Reg[15], &inst_buf[top]);
             if (cpu->NumInstrsToExecute != 1) {
                 if (InterpreterTranslateBlock(cpu, cpu->Reg[15]) == FETCH_EXCEPTION)
                     goto END;
