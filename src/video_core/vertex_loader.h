@@ -1,11 +1,11 @@
 #pragma once
 
-#include <iterator>
 #include <algorithm>
+#include <iterator>
 
 #include "video_core/pica.h"
-#include "video_core/shader/shader.h"
 #include "video_core/debug_utils/debug_utils.h"
+#include "video_core/shader/shader.h"
 
 namespace Pica {
 
