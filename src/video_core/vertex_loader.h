@@ -12,6 +12,11 @@ namespace Pica {
 
 class VertexLoader {
 public:
+    VertexLoader() = default;
+    explicit VertexLoader(const Pica::Regs& regs) {
+        Setup(regs);
+    }
+
     void Setup(const Pica::Regs& regs);
     void LoadVertex(u32 base_address, int index, int vertex, Shader::InputVertex& input, DebugUtils::MemoryAccessTracker& memory_accesses);
 
