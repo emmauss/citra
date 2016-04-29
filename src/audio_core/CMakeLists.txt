@@ -4,6 +4,7 @@ set(SRCS
             hle/dsp.cpp
             hle/filter.cpp
             hle/pipe.cpp
+            interpolate.cpp
             )
 
 set(HEADERS
@@ -13,9 +14,13 @@ set(HEADERS
             hle/dsp.h
             hle/filter.h
             hle/pipe.h
+            interpolate.h
             sink.h
             )
+
+include_directories(../../externals/soundtouch/include)
 
 create_directory_groups(${SRCS} ${HEADERS})
 
 add_library(audio_core STATIC ${SRCS} ${HEADERS})
+target_link_libraries(audio_core SoundTouch)
