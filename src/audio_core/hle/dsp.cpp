@@ -62,6 +62,7 @@ bool Tick() {
 
 void SetSink(std::unique_ptr<AudioCore::Sink> sink_) {
     sink = std::move(sink_);
+    time_stretcher.SetOutputSampleRate(sink->GetNativeSampleRate());
 }
 
 } // namespace HLE
