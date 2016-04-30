@@ -4,7 +4,9 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <memory>
 #include <type_traits>
 
 #include "audio_core/hle/common.h"
@@ -13,6 +15,10 @@
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 #include "common/swap.h"
+
+namespace AudioCore {
+class Sink;
+}
 
 namespace DSP {
 namespace HLE {
@@ -30,10 +36,9 @@ namespace HLE {
 struct SharedMemory;
 
 constexpr VAddr region0_base = 0x1FF50000;
-extern SharedMemory g_region0;
-
 constexpr VAddr region1_base = 0x1FF70000;
-extern SharedMemory g_region1;
+
+extern std::array<SharedMemory, 2> g_regions;
 
 /**
  * The DSP is native 16-bit. The DSP also appears to be big-endian. When reading 32-bit numbers from
@@ -535,8 +540,11 @@ void Shutdown();
  */
 bool Tick();
 
-/// Returns a mutable reference to the current region. Current region is selected based on the frame counter.
-SharedMemory& CurrentRegion();
+/**
+ * Set the output sink. This must be called before calling Tick().
+ * @param sink The sink to which audio will be output to.
+ */
+void SetSink(std::unique_ptr<AudioCore::Sink> sink);
 
 } // namespace HLE
 } // namespace DSP
