@@ -124,6 +124,7 @@ void Shutdown() {
 }
 
 bool Tick() {
+    bool fire_interrupt = false;
     StereoFrame16 current_frame = {{}};
 
     if (DSP_DSP::IsSemaphoreSignalled() && GetDspState() == DspState::On) {
@@ -131,11 +132,13 @@ bool Tick() {
         DSP_DSP::ResetSemaphore();
 
         current_frame = GenerateCurrentFrame();
+
+        fire_interrupt = true;
     }
 
     OutputCurrentFrame(current_frame);
 
-    return true;
+    return fire_interrupt;
 }
 
 void SetSink(std::unique_ptr<AudioCore::Sink> sink_) {
