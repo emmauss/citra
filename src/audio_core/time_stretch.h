@@ -45,9 +45,13 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 
+    /// INTERNAL: Clamp ratio within limits.
     static double ClampRatio(double ratio);
+    /// INTERNAL: ratio = wallclock time / emulated time
     double CalculateCurrentRatio();
+    /// INTERNAL: If we have too many or too few samples downstream, nudge ratio in the appropriate direction.
     double CorrectForUnderAndOverflow(double ratio, size_t sample_delay) const;
+    /// INTERNAL: Gets the time-stretched samples from SoundTouch.
     std::vector<s16> GetSamples();
 };
 

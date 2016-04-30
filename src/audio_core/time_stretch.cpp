@@ -32,10 +32,9 @@ struct TimeStretcher::Impl {
     soundtouch::SoundTouch soundtouch;
 
     steady_clock::time_point frame_timer = steady_clock::now();
+    size_t samples_queued = 0;
 
     double smoothed_ratio = 1.0;
-
-    size_t samples_queued = 0;
 
     double sample_rate = static_cast<double>(native_sample_rate);
 };
