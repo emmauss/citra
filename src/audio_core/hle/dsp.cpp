@@ -47,8 +47,6 @@ static SharedMemory& WriteRegion() {
     return g_regions[1 - CurrentRegionIndex()];
 }
 
-static std::unique_ptr<AudioCore::Sink> sink;
-
 // Audio processing and mixing
 
 static std::array<Source, num_sources> sources = {
