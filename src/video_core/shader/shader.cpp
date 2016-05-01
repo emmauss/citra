@@ -34,8 +34,14 @@ static const JitShader* jit_shader;
 void Setup() {
 #ifdef ARCHITECTURE_x86_64
     if (VideoCore::g_shader_jit_enabled) {
-        u64 cache_key = (Common::ComputeHash64(&g_state.vs.program_code, sizeof(g_state.vs.program_code)) ^
-            Common::ComputeHash64(&g_state.vs.swizzle_data, sizeof(g_state.vs.swizzle_data)));
+        auto& config = g_state.regs.vs;
+        const auto& attribute_register_map = config.input_register_map;
+
+        u64 cache_key =
+            Common::ComputeHash64(&g_state.vs.program_code, sizeof(g_state.vs.program_code)) ^
+            Common::ComputeHash64(&g_state.vs.swizzle_data, sizeof(g_state.vs.swizzle_data)) ^
+            Common::ComputeHash64(&attribute_register_map, sizeof(attribute_register_map)) ^
+            Common::ComputeHash64(&g_state.regs.vs_output_attributes, sizeof(g_state.regs.vs_output_attributes));
 
         auto iter = shader_map.find(cache_key);
         if (iter != shader_map.end()) {
@@ -59,86 +65,83 @@ void Shutdown() {
 MICROPROFILE_DEFINE(GPU_VertexShader, "GPU", "Vertex Shader", MP_RGB(50, 50, 240));
 
 OutputVertex Run(UnitState<false>& state, const InputVertex& input, int num_attributes) {
-    auto& config = g_state.regs.vs;
-
     MICROPROFILE_SCOPE(GPU_VertexShader);
-
-    state.program_counter = config.main_offset;
-    state.debug.max_offset = 0;
-    state.debug.max_opdesc_id = 0;
-
-    // Setup input register table
-    const auto& attribute_register_map = config.input_register_map;
-
-    // TODO: Instead of this cumbersome logic, just load the input data directly like
-    // for (int attr = 0; attr < num_attributes; ++attr) { input_attr[0] = state.registers.input[attribute_register_map.attribute0_register]; }
-    if (num_attributes > 0) state.registers.input[attribute_register_map.attribute0_register] = input.attr[0];
-    if (num_attributes > 1) state.registers.input[attribute_register_map.attribute1_register] = input.attr[1];
-    if (num_attributes > 2) state.registers.input[attribute_register_map.attribute2_register] = input.attr[2];
-    if (num_attributes > 3) state.registers.input[attribute_register_map.attribute3_register] = input.attr[3];
-    if (num_attributes > 4) state.registers.input[attribute_register_map.attribute4_register] = input.attr[4];
-    if (num_attributes > 5) state.registers.input[attribute_register_map.attribute5_register] = input.attr[5];
-    if (num_attributes > 6) state.registers.input[attribute_register_map.attribute6_register] = input.attr[6];
-    if (num_attributes > 7) state.registers.input[attribute_register_map.attribute7_register] = input.attr[7];
-    if (num_attributes > 8) state.registers.input[attribute_register_map.attribute8_register] = input.attr[8];
-    if (num_attributes > 9) state.registers.input[attribute_register_map.attribute9_register] = input.attr[9];
-    if (num_attributes > 10) state.registers.input[attribute_register_map.attribute10_register] = input.attr[10];
-    if (num_attributes > 11) state.registers.input[attribute_register_map.attribute11_register] = input.attr[11];
-    if (num_attributes > 12) state.registers.input[attribute_register_map.attribute12_register] = input.attr[12];
-    if (num_attributes > 13) state.registers.input[attribute_register_map.attribute13_register] = input.attr[13];
-    if (num_attributes > 14) state.registers.input[attribute_register_map.attribute14_register] = input.attr[14];
-    if (num_attributes > 15) state.registers.input[attribute_register_map.attribute15_register] = input.attr[15];
-
-    state.conditional_code[0] = false;
-    state.conditional_code[1] = false;
-
-#ifdef ARCHITECTURE_x86_64
-    if (VideoCore::g_shader_jit_enabled)
-        jit_shader->Run(&state.registers, g_state.regs.vs.main_offset);
-    else
-        RunInterpreter(state);
-#else
-    RunInterpreter(state);
-#endif // ARCHITECTURE_x86_64
 
     // Setup output data
     OutputVertex ret;
-    // TODO(neobrain): Under some circumstances, up to 16 attributes may be output. We need to
-    // figure out what those circumstances are and enable the remaining outputs then.
-    unsigned index = 0;
-    for (unsigned i = 0; i < 7; ++i) {
 
-        if (index >= g_state.regs.vs_output_total)
-            break;
+#ifdef ARCHITECTURE_x86_64
+    if (VideoCore::g_shader_jit_enabled) {
+        jit_shader->Run(&state.registers, &input.attr[0], g_state.regs.vs.main_offset, &ret);
+    } else
+#endif // ARCHITECTURE_x86_64
+    {
+        state.debug.max_offset = 0;
+        state.debug.max_opdesc_id = 0;
 
-        if ((g_state.regs.vs.output_mask & (1 << i)) == 0)
-            continue;
+        auto& config = g_state.regs.vs;
+        // Setup input register table
+        state.program_counter = config.main_offset;
+        state.conditional_code[0] = false;
+        state.conditional_code[1] = false;
+        const auto& attribute_register_map = config.input_register_map;
+        // TODO: Instead of this cumbersome logic, just load the input data directly like
+        // for (int attr = 0; attr < num_attributes; ++attr) { input_attr[0] = state.registers.input[attribute_register_map.attribute0_register]; }
+        if (num_attributes > 0) state.registers.input[attribute_register_map.attribute0_register] = input.attr[0];
+        if (num_attributes > 1) state.registers.input[attribute_register_map.attribute1_register] = input.attr[1];
+        if (num_attributes > 2) state.registers.input[attribute_register_map.attribute2_register] = input.attr[2];
+        if (num_attributes > 3) state.registers.input[attribute_register_map.attribute3_register] = input.attr[3];
+        if (num_attributes > 4) state.registers.input[attribute_register_map.attribute4_register] = input.attr[4];
+        if (num_attributes > 5) state.registers.input[attribute_register_map.attribute5_register] = input.attr[5];
+        if (num_attributes > 6) state.registers.input[attribute_register_map.attribute6_register] = input.attr[6];
+        if (num_attributes > 7) state.registers.input[attribute_register_map.attribute7_register] = input.attr[7];
+        if (num_attributes > 8) state.registers.input[attribute_register_map.attribute8_register] = input.attr[8];
+        if (num_attributes > 9) state.registers.input[attribute_register_map.attribute9_register] = input.attr[9];
+        if (num_attributes > 10) state.registers.input[attribute_register_map.attribute10_register] = input.attr[10];
+        if (num_attributes > 11) state.registers.input[attribute_register_map.attribute11_register] = input.attr[11];
+        if (num_attributes > 12) state.registers.input[attribute_register_map.attribute12_register] = input.attr[12];
+        if (num_attributes > 13) state.registers.input[attribute_register_map.attribute13_register] = input.attr[13];
+        if (num_attributes > 14) state.registers.input[attribute_register_map.attribute14_register] = input.attr[14];
+        if (num_attributes > 15) state.registers.input[attribute_register_map.attribute15_register] = input.attr[15];
 
-        const auto& output_register_map = g_state.regs.vs_output_attributes[index]; // TODO: Don't hardcode VS here
+        RunInterpreter(state);
 
-        u32 semantics[4] = {
-            output_register_map.map_x, output_register_map.map_y,
-            output_register_map.map_z, output_register_map.map_w
-        };
+        // TODO(neobrain): Under some circumstances, up to 16 attributes may be output. We need to
+        // figure out what those circumstances are and enable the remaining outputs then.
+        unsigned index = 0;
+        for (unsigned i = 0; i < 7; ++i) {
+            if (index >= g_state.regs.vs_output_total)
+                break;
 
-        for (unsigned comp = 0; comp < 4; ++comp) {
-            float24* out = ((float24*)&ret) + semantics[comp];
-            if (semantics[comp] != Regs::VSOutputAttributes::INVALID) {
-                *out = state.registers.output[i][comp];
-            } else {
-                // Zero output so that attributes which aren't output won't have denormals in them,
-                // which would slow us down later.
-                memset(out, 0, sizeof(*out));
+            if ((g_state.regs.vs.output_mask & (1 << i)) == 0)
+                continue;
+
+            const auto& output_register_map = g_state.regs.vs_output_attributes[index]; // TODO: Don't hardcode VS here
+
+            u32 semantics[4] = {
+                output_register_map.map_x, output_register_map.map_y,
+                output_register_map.map_z, output_register_map.map_w
+            };
+
+            for (unsigned comp = 0; comp < 4; ++comp) {
+                float24* out = ((float24*)&ret) + semantics[comp];
+                if (semantics[comp] != Regs::VSOutputAttributes::INVALID) {
+                    *out = state.registers.output[i][comp];
+                } else {
+                    // Zero output so that attributes which aren't output won't have denormals in them,
+                    // which would slow us down later.
+                    memset(out, 0, sizeof(*out));
+                }
             }
+
+            index++;
         }
 
-        index++;
-    }
-
-    // The hardware takes the absolute and saturates vertex colors like this, *before* doing interpolation
-    for (unsigned i = 0; i < 4; ++i) {
-        ret.color[i] = float24::FromFloat32(
-            std::fmin(std::fabs(ret.color[i].ToFloat32()), 1.0f));
+        // The hardware takes the absolute and saturates vertex colors like this, *before* doing interpolation
+        for (unsigned i = 0; i < 4; ++i) {
+            ret.color[i] = float24::FromFloat32(
+                std::fmin(std::fabs(ret.color[i].ToFloat32()), 1.0f));
+        }
     }
 
     LOG_TRACE(HW_GPU, "Output vertex: pos(%.2f, %.2f, %.2f, %.2f), quat(%.2f, %.2f, %.2f, %.2f), "
