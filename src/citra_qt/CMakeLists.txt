@@ -57,6 +57,7 @@ set(HEADERS
             configure_dialog.h
             configure_general.h
             game_list.h
+            game_list_p.h
             hotkeys.h
             main.h
             ui_settings.h
