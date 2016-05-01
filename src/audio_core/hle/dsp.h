@@ -169,9 +169,9 @@ struct SourceConfiguration {
         float_le rate_multiplier;
 
         enum class InterpolationMode : u8 {
-            None = 0,
+            Polyphase = 0,
             Linear = 1,
-            Polyphase = 2
+            None = 2
         };
 
         InterpolationMode interpolation_mode;
@@ -318,10 +318,10 @@ ASSERT_DSP_STRUCT(SourceConfiguration::Configuration::Buffer, 20);
 struct SourceStatus {
     struct Status {
         u8 is_enabled;               ///< Is this channel enabled? (Doesn't have to be playing anything.)
-        u8 previous_buffer_id_dirty; ///< Non-zero when previous_buffer_id changes
+        u8 current_buffer_id_dirty;  ///< Non-zero when next_buffer_id changes
         u16_le sync;                 ///< Is set by the DSP to the value of SourceConfiguration::sync
         u32_dsp buffer_position;     ///< Number of samples into the current buffer
-        u16_le previous_buffer_id;   ///< Updated when a buffer finishes playing
+        u16_le current_buffer_id;    ///< Updated when a buffer finishes playing
         INSERT_PADDING_DSPWORDS(1);
     };
 
@@ -432,7 +432,7 @@ ASSERT_DSP_STRUCT(DspStatus, 32);
 /// Final mixed output in PCM16 stereo format, what you hear out of the speakers.
 /// When the application writes to this region it has no effect.
 struct FinalMixSamples {
-    s16_le pcm16[2 * samples_per_frame];
+    std::array<std::array<s16_le, 2>, samples_per_frame> pcm16;
 };
 ASSERT_DSP_STRUCT(FinalMixSamples, 640);
 
