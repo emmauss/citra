@@ -9,6 +9,62 @@
 
 class OpenGLState {
 public:
+    OpenGLState();
+    ~OpenGLState();
+
+    /// Get a pointer to the currently bound state tracker object
+    static OpenGLState* GetCurrentState();
+
+    /// Apply this state as the current OpenGL state
+    void MakeCurrent();
+
+    /// Setter functions for OpenGL state
+    void SetCullEnabled(bool n_enabled);
+    void SetCullMode(GLenum n_mode);
+    void SetCullFrontFace(GLenum n_front_face);
+
+    void SetDepthTestEnabled(bool n_test_enabled);
+    void SetDepthFunc(GLenum n_test_func);
+    void SetDepthWriteMask(GLboolean n_write_mask);
+
+    void SetColorMask(GLboolean n_red_enabled, GLboolean n_green_enabled, GLboolean n_blue_enabled, GLboolean n_alpha_enabled);
+
+    void SetStencilTestEnabled(bool n_test_enabled);
+    void SetStencilFunc(GLenum n_test_func, GLint n_test_ref, GLuint n_test_mask);
+    void SetStencilOp(GLenum n_action_stencil_fail, GLenum n_action_depth_fail, GLenum n_action_depth_pass);
+    void SetStencilWriteMask(GLuint n_write_mask);
+
+    void SetBlendEnabled(bool n_enabled);
+    void SetBlendFunc(GLenum n_src_rgb_func, GLenum n_dst_rgb_func, GLenum n_src_a_func, GLenum n_dst_a_func);
+    void SetBlendColor(GLclampf n_red, GLclampf n_green, GLclampf n_blue, GLclampf n_alpha);
+
+    void SetLogicOp(GLenum n_logic_op);
+
+    void SetTexture1D(GLuint n_texture_1d);
+    void SetTexture2D(GLuint n_texture_2d);
+    void SetSampler(GLuint n_sampler);
+
+    void SetActiveTextureUnit(GLenum n_active_texture_unit);
+
+    void SetReadFramebuffer(GLuint n_read_framebuffer);
+    void SetDrawFramebuffer(GLuint n_draw_framebuffer);
+    void SetVertexArray(GLuint n_vertex_array);
+    void SetVertexBuffer(GLuint n_vertex_buffer);
+    void SetUniformBuffer(GLuint n_uniform_buffer);
+    void SetShaderProgram(GLuint n_shader_program);
+
+    /// Resets and unbinds any references to the given resource across all existing states
+    static void ResetTexture(GLuint handle);
+    static void ResetSampler(GLuint handle);
+    static void ResetProgram(GLuint handle);
+    static void ResetBuffer(GLuint handle);
+    static void ResetVertexArray(GLuint handle);
+    static void ResetFramebuffer(GLuint handle);
+
+    /// Check the status of the currently bound OpenGL read or draw framebuffer configuration
+    static GLenum CheckBoundFBStatus(GLenum target);
+
+private:
     struct {
         bool enabled; // GL_CULL_FACE
         GLenum mode; // GL_CULL_FACE_MODE
@@ -33,10 +89,10 @@ public:
         GLenum test_func; // GL_STENCIL_FUNC
         GLint test_ref; // GL_STENCIL_REF
         GLuint test_mask; // GL_STENCIL_VALUE_MASK
-        GLuint write_mask; // GL_STENCIL_WRITEMASK
         GLenum action_stencil_fail; // GL_STENCIL_FAIL
         GLenum action_depth_fail; // GL_STENCIL_PASS_DEPTH_FAIL
         GLenum action_depth_pass; // GL_STENCIL_PASS_DEPTH_PASS
+        GLuint write_mask; // GL_STENCIL_WRITEMASK
     } stencil;
 
     struct {
@@ -58,13 +114,12 @@ public:
 
     // 3 texture units - one for each that is used in PICA fragment shader emulation
     struct {
+        GLuint texture_1d; // GL_TEXTURE_BINDING_1D
         GLuint texture_2d; // GL_TEXTURE_BINDING_2D
         GLuint sampler; // GL_SAMPLER_BINDING
-    } texture_units[3];
+    } texture_units[9];
 
-    struct {
-        GLuint texture_1d; // GL_TEXTURE_BINDING_1D
-    } lighting_luts[6];
+    GLenum active_texture_unit; // GL_ACTIVE_TEXTURE
 
     struct {
         GLuint read_framebuffer; // GL_READ_FRAMEBUFFER_BINDING
@@ -74,28 +129,4 @@ public:
         GLuint uniform_buffer; // GL_UNIFORM_BUFFER_BINDING
         GLuint shader_program; // GL_CURRENT_PROGRAM
     } draw;
-
-    OpenGLState();
-
-    /// Get the currently active OpenGL state
-    static const OpenGLState& GetCurState() {
-        return cur_state;
-    }
-
-    /// Apply this state as the current OpenGL state
-    void Apply() const;
-
-    /// Check the status of the current OpenGL read or draw framebuffer configuration
-    static GLenum CheckFBStatus(GLenum target);
-
-    /// Resets and unbinds any references to the given resource in the current OpenGL state
-    static void ResetTexture(GLuint handle);
-    static void ResetSampler(GLuint handle);
-    static void ResetProgram(GLuint handle);
-    static void ResetBuffer(GLuint handle);
-    static void ResetVertexArray(GLuint handle);
-    static void ResetFramebuffer(GLuint handle);
-
-private:
-    static OpenGLState cur_state;
 };
