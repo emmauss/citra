@@ -94,7 +94,7 @@ const JitFunction instr_table[64] = {
 // purposes, as documented below:
 
 /// Pointer to the uniform memory
-static const X64Reg UNIFORMS = R15;
+static const X64Reg UNIFORMS = R9;
 /// The two 32-bit VS address offset registers set by the MOVA instruction
 static const X64Reg ADDROFFS_REG_0 = R10;
 static const X64Reg ADDROFFS_REG_1 = R11;
@@ -109,14 +109,7 @@ static const X64Reg COND0 = R13;
 /// Result of the previous CMP instruction for the Y-component comparison
 static const X64Reg COND1 = R14;
 /// Pointer to the UnitState instance for the current VS unit
-static const X64Reg REGISTERS = ABI_PARAM1;
-
-// Clashes with others, but only used in epilogue.
-static const X64Reg ISCRATCH1 = RSI;
-static const X64Reg ISCRATCH2 = RDI;
-
-/// Pointer to the input data. Aliased over LOOPCOUNT as this is before any loops execute.
-static const X64Reg INPUT = RSI;
+static const X64Reg REGISTERS = R15;
 /// SIMD scratch register
 static const X64Reg SCRATCH = XMM0;
 /// Loaded with the first swizzled source register, otherwise can be used as a scratch register
@@ -586,6 +579,7 @@ void JitShader::Compile_NOP(Instruction instr) {
 }
 
 void JitShader::Compile_END(Instruction instr) {
+    ABI_PopRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8);
     RET();
 }
 
@@ -811,11 +805,6 @@ void JitShader::FindReturnOffsets() {
 }
 
 void JitShader::Compile() {
-    auto& config = g_state.regs.vs;
-    const auto& attribute_register_map = config.input_register_map;
-    const auto& attribute_config = g_state.regs.vertex_attributes;
-    int num_attributes = attribute_config.GetNumTotalAttributes();
-
     // Reset flow control state
     program = (CompiledShader*)GetCodePtr();
     program_counter = 0;
@@ -829,14 +818,7 @@ void JitShader::Compile() {
     // The stack pointer is 8 modulo 16 at the entry of a procedure
     ABI_PushRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8);
 
-    // Prologue: Scatter inputs into registers according to map
-    // MOV(PTRBITS, R(REGISTERS), R(ABI_PARAM1));
-    MOV(PTRBITS, R(INPUT), R(ABI_PARAM2));
-    for (int i = 0; i < num_attributes; i++) {
-        MOVAPS(SCRATCH, MDisp(INPUT, i * 16));
-        MOVAPS(MDisp(REGISTERS, attribute_register_map.GetRegisterForAttribute(i) * 16), SCRATCH);
-    }
-
+    MOV(PTRBITS, R(REGISTERS), R(ABI_PARAM1));
     MOV(PTRBITS, R(UNIFORMS), ImmPtr(&g_state.vs.uniforms));
 
     // Zero address/loop  registers
@@ -853,55 +835,9 @@ void JitShader::Compile() {
     static const __m128 neg = { -0.f, -0.f, -0.f, -0.f };
     MOV(PTRBITS, R(RAX), ImmPtr(&neg));
     MOVAPS(NEGBIT, MatR(RAX));
-    // Call the start of the shader program.
-    CALLptr(R(ABI_PARAM3));
 
-    // Alright, back from the program. Now we can do the epilogue.
-    X64Reg OUTPUT = ABI_PARAM4;
-    // TODO(neobrain): Under some circumstances, up to 16 attributes may be output. We need to
-    // figure out what those circumstances are and enable the remaining outputs then.
-    unsigned index = 0;
-    for (unsigned i = 0; i < 7; ++i) {
-        if (index >= g_state.regs.vs_output_total)
-            break;
-
-        if ((g_state.regs.vs.output_mask & (1 << i)) == 0)
-            continue;
-
-        const auto& output_register_map = g_state.regs.vs_output_attributes[index];
-        u32 semantics[4] = {
-            output_register_map.map_x, output_register_map.map_y,
-            output_register_map.map_z, output_register_map.map_w
-        };
-        if (semantics[1] == semantics[0] + 1 && semantics[2] == semantics[1] + 1 && semantics[3] == semantics[2] + 1) {
-            MOVAPS(SCRATCH, MDisp(REGISTERS, UnitState<false>::OutputOffset(i)));
-            MOVAPS(MDisp(OUTPUT, semantics[0] * 4), SCRATCH);
-        } else {
-            for (unsigned comp = 0; comp < 4; ++comp) {
-                int outOffset = semantics[comp] * 4;
-                if (semantics[comp] != Regs::VSOutputAttributes::INVALID) {
-                    MOV(32, R(ISCRATCH1), MDisp(REGISTERS, UnitState<false>::OutputOffset(i) + comp * 4));
-                    MOV(32, MDisp(OUTPUT, outOffset), R(ISCRATCH1));
-                } else {
-                    // Zero output so that attributes which aren't output won't have denormals in them,
-                    // which would slow us down later.
-                    MOV(32, MDisp(OUTPUT, outOffset), Imm32(0));
-                }
-            }
-        }
-        index++;
-    }
-
-    // Saturate/Clamp color, specifically.
-
-    // These effectively do an ABS.
-    MOVAPS(SCRATCH, R(NEGBIT));
-    ANDNPS(SCRATCH, MDisp(OUTPUT, Regs::VSOutputAttributes::Semantic::COLOR_R * 4));
-    // Clamp to 1.0.
-    MINPS(SCRATCH, R(ONE));
-
-    ABI_PopRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8);
-    RET();
+    // Jump to start of the shader program
+    JMPptr(R(ABI_PARAM2));
 
     // Compile entire program
     Compile_Block(static_cast<unsigned>(g_state.vs.program_code.size()));
