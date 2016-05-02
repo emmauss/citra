@@ -22,6 +22,10 @@ namespace AudioCore {
 constexpr double MIN_RATIO = 0.1;
 constexpr double MAX_RATIO = 100.0;
 
+static double ClampRatio(double ratio) {
+    return MathUtil::Clamp(ratio, MIN_RATIO, MAX_RATIO);
+}
+
 constexpr double MIN_DELAY_TIME = 0.05; // Units: seconds
 constexpr double MAX_DELAY_TIME = 0.25; // Units: seconds
 constexpr size_t DROP_FRAMES_SAMPLE_DELAY = 16000; // Units: samples
@@ -58,7 +62,7 @@ std::vector<s16> TimeStretcher::Process(size_t samples_in_queue) {
     return samples;
 }
 
-TimeStretcher::TimeStretcher() : impl(new Impl) {
+TimeStretcher::TimeStretcher() : impl(std::make_unique<Impl>()) {
     impl->soundtouch.setTempo(1.0);
     impl->soundtouch.setPitch(1.0);
     impl->soundtouch.setRate(1.0);
@@ -84,10 +88,6 @@ void TimeStretcher::Flush() {
     impl->soundtouch.flush();
 }
 
-double TimeStretcher::ClampRatio(double ratio) {
-    return MathUtil::Clamp<double>(ratio, MIN_RATIO, MAX_RATIO);
-}
-
 double TimeStretcher::CalculateCurrentRatio() {
     const steady_clock::time_point now = steady_clock::now();
     const std::chrono::duration<double> duration = now - impl->frame_timer;
@@ -99,7 +99,7 @@ double TimeStretcher::CalculateCurrentRatio() {
     if (expected_time != 0) {
         ratio = ClampRatio(actual_time / expected_time);
     } else {
-        ratio = 1.0;
+        ratio = impl->smoothed_ratio;
     }
 
     impl->frame_timer = now;
@@ -133,4 +133,4 @@ std::vector<short> TimeStretcher::GetSamples() {
     return output;
 }
 
-}
+} // namespace AudioCore
