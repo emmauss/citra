@@ -19,6 +19,7 @@ enum class ErrorDescription : u32 {
     Success = 0,
     OS_InvalidBufferDescriptor = 48,
     WrongAddress = 53,
+    FS_ArchiveNotMounted = 101,
     FS_NotFound = 120,
     FS_AlreadyExists = 190,
     FS_InvalidOpenFlags = 230,

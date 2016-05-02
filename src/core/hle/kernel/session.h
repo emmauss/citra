@@ -46,7 +46,15 @@ constexpr u32 MappedBufferDesc(u32 size, MappedBufferPermissions perms) {
     return 0x8 | (size << 4) | (u32)perms;
 }
 
-}
+enum BufferMappingType {
+    InputBuffer     = 1,
+    OutputBuffer    = 2,
+    ReadWriteBuffer = InputBuffer| OutputBuffer
+};
+
+bool CheckBufferMappingTranslation(BufferMappingType mapping_type, u32 size, u32 translation);
+
+} // namespace IPC
 
 namespace Kernel {
 
