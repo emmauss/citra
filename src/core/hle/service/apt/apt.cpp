@@ -63,8 +63,6 @@ void Initialize(Service::Interface* self) {
     LOG_DEBUG(Service_APT, "called app_id=0x%08X, flags=0x%08X", app_id, flags);
 }
 
-
-
 void GetSharedFont(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
