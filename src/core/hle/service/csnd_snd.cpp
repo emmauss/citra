@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <cstring>
+#include "common/alignment.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/mutex.h"
 #include "core/hle/kernel/shared_memory.h"
@@ -41,7 +42,8 @@ static Kernel::SharedPtr<Kernel::Mutex> mutex = nullptr;
 void Initialize(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    shared_memory = Kernel::SharedMemory::Create(nullptr, cmd_buff[1],
+    u32 size = Common::AlignUp(cmd_buff[1], Memory::PAGE_SIZE);
+    shared_memory = Kernel::SharedMemory::Create(nullptr, size,
             Kernel::MemoryPermission::ReadWrite, Kernel::MemoryPermission::ReadWrite, 0, Kernel::MemoryRegion::BASE, "CSNDSharedMem");
 
     mutex = Kernel::Mutex::Create(false);
