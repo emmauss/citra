@@ -2,26 +2,32 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <cmath>
-#include <boost/range/algorithm/fill.hpp>
+#include <array>
+#include <cstddef>
+#include <memory>
+#include <utility>
 
-#include "common/alignment.h"
+#include "common/assert.h"
+#include "common/logging/log.h"
 #include "common/microprofile.h"
+#include "common/vector_math.h"
 
-#include "core/settings.h"
 #include "core/hle/service/gsp_gpu.h"
 #include "core/hw/gpu.h"
+#include "core/memory.h"
+#include "core/tracer/recorder.h"
 
-#include "video_core/clipper.h"
 #include "video_core/command_processor.h"
+#include "video_core/debug_utils/debug_utils.h"
 #include "video_core/pica.h"
 #include "video_core/pica_state.h"
+#include "video_core/pica_types.h"
 #include "video_core/primitive_assembly.h"
+#include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_base.h"
-#include "video_core/video_core.h"
-#include "video_core/debug_utils/debug_utils.h"
-#include "video_core/shader/shader_interpreter.h"
+#include "video_core/shader/shader.h"
 #include "video_core/vertex_loader.h"
+#include "video_core/video_core.h"
 
 namespace Pica {
 
@@ -140,10 +146,9 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                         Shader::UnitState<false> shader_unit;
                         Shader::Setup();
 
-                        if (g_debug_context)
-                            g_debug_context->OnEvent(DebugContext::Event::VertexLoaded, static_cast<void*>(&immediate_input));
-
                         // Send to vertex shader
+                        if (g_debug_context)
+                            g_debug_context->OnEvent(DebugContext::Event::VertexShaderInvocation, static_cast<void*>(&immediate_input));
                         Shader::OutputVertex output = Shader::Run(shader_unit, immediate_input, regs.vs.num_input_attributes+1);
 
                         // Send to renderer
@@ -266,10 +271,9 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                     Shader::InputVertex input;
                     loader.LoadVertex(base_address, index, vertex, input, memory_accesses);
 
-                    if (g_debug_context)
-                        g_debug_context->OnEvent(DebugContext::Event::VertexLoaded, (void*)&input);
-
                     // Send to vertex shader
+                    if (g_debug_context)
+                        g_debug_context->OnEvent(DebugContext::Event::VertexShaderInvocation, (void*)&input);
                     output = Shader::Run(shader_unit, input, loader.GetNumTotalAttributes());
 
                     if (is_indexed) {

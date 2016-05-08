@@ -4,6 +4,11 @@
 
 #pragma once
 
+#include <array>
+
+#include "common/bit_field.h"
+#include "common/common_types.h"
+
 #include "video_core/pica.h"
 #include "video_core/primitive_assembly.h"
 #include "video_core/shader/shader.h"
@@ -51,7 +56,7 @@ struct State {
         // Used to buffer partial vertices for immediate-mode rendering.
         Shader::InputVertex input_vertex;
         // Index of the next attribute to be loaded into `input_vertex`.
-        int current_attribute = 0;
+        u32 current_attribute = 0;
     } immediate;
 
     // This is constructed with a dummy triangle topology

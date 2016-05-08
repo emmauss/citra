@@ -33,12 +33,8 @@ namespace HLE {
 // double-buffer. The frame counter is located as the very last u16 of each region and is incremented
 // each audio tick.
 
-struct SharedMemory;
-
 constexpr VAddr region0_base = 0x1FF50000;
 constexpr VAddr region1_base = 0x1FF70000;
-
-extern std::array<SharedMemory, 2> g_regions;
 
 /**
  * The DSP is native 16-bit. The DSP also appears to be big-endian. When reading 32-bit numbers from
@@ -169,9 +165,9 @@ struct SourceConfiguration {
         float_le rate_multiplier;
 
         enum class InterpolationMode : u8 {
-            None = 0,
+            Polyphase = 0,
             Linear = 1,
-            Polyphase = 2
+            None = 2
         };
 
         InterpolationMode interpolation_mode;
@@ -318,10 +314,10 @@ ASSERT_DSP_STRUCT(SourceConfiguration::Configuration::Buffer, 20);
 struct SourceStatus {
     struct Status {
         u8 is_enabled;               ///< Is this channel enabled? (Doesn't have to be playing anything.)
-        u8 previous_buffer_id_dirty; ///< Non-zero when previous_buffer_id changes
+        u8 current_buffer_id_dirty;  ///< Non-zero when current_buffer_id changes
         u16_le sync;                 ///< Is set by the DSP to the value of SourceConfiguration::sync
         u32_dsp buffer_position;     ///< Number of samples into the current buffer
-        u16_le previous_buffer_id;   ///< Updated when a buffer finishes playing
+        u16_le current_buffer_id;    ///< Updated when a buffer finishes playing
         INSERT_PADDING_DSPWORDS(1);
     };
 
@@ -506,6 +502,8 @@ struct SharedMemory {
     u16_le frame_counter;
 };
 ASSERT_DSP_STRUCT(SharedMemory, 0x8000);
+
+extern std::array<SharedMemory, 2> g_regions;
 
 // Structures must have an offset that is a multiple of two.
 static_assert(offsetof(SharedMemory, frame_counter) % 2 == 0, "Structures in DSP::HLE::SharedMemory must be 2-byte aligned");

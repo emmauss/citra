@@ -2,27 +2,28 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <cstring>
 #include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
 
 #include <glad/glad.h>
 
+#include "common/assert.h"
 #include "common/color.h"
-#include "common/file_util.h"
+#include "common/logging/log.h"
 #include "common/math_util.h"
-#include "common/microprofile.h"
+#include "common/vector_math.h"
 
-#include "core/memory.h"
-#include "core/settings.h"
 #include "core/hw/gpu.h"
 
 #include "video_core/pica.h"
 #include "video_core/pica_state.h"
-#include "video_core/utils.h"
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_gen.h"
 #include "video_core/renderer_opengl/gl_shader_util.h"
 #include "video_core/renderer_opengl/pica_to_gl.h"
+#include "video_core/renderer_opengl/renderer_opengl.h"
 
 static bool IsPassThroughTevStage(const Pica::Regs::TevStageConfig& stage) {
     return (stage.color_op == Pica::Regs::TevStageConfig::Operation::Replace &&
@@ -92,7 +93,7 @@ RasterizerOpenGL::RasterizerOpenGL() : shader_dirty(true) {
     state.Apply();
 
     for (size_t i = 0; i < lighting_luts.size(); ++i) {
-        glActiveTexture(GL_TEXTURE3 + i);
+        glActiveTexture(static_cast<GLenum>(GL_TEXTURE3 + i));
         glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA32F, 256, 0, GL_RGBA, GL_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

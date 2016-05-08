@@ -4,23 +4,33 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <memory>
 #include <vector>
 #include <unordered_map>
 
+#include <glad/glad.h>
+
+#include "common/bit_field.h"
 #include "common/common_types.h"
 #include "common/hash.h"
+#include "common/vector_math.h"
+
+#include "core/hw/gpu.h"
 
 #include "video_core/pica.h"
 #include "video_core/pica_state.h"
+#include "video_core/pica_types.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_opengl/gl_rasterizer_cache.h"
+#include "video_core/renderer_opengl/gl_resource_manager.h"
 #include "video_core/renderer_opengl/gl_state.h"
 #include "video_core/renderer_opengl/pica_to_gl.h"
-#include "video_core/renderer_opengl/renderer_opengl.h"
-#include "video_core/shader/shader_interpreter.h"
+#include "video_core/shader/shader.h"
+
+struct ScreenInfo;
 
 /**
  * This struct contains all state used to generate the GLSL shader program that emulates the current
@@ -39,36 +49,18 @@ struct PicaShaderConfig {
         res.alpha_test_func = regs.output_merger.alpha_test.enable ?
             regs.output_merger.alpha_test.func.Value() : Pica::Regs::CompareFunc::Always;
 
-        // Copy relevant TevStageConfig fields only. We're doing this manually (instead of calling
-        // the GetTevStages() function) because BitField explicitly disables copies.
-
-        res.tev_stages[0].sources_raw = regs.tev_stage0.sources_raw;
-        res.tev_stages[1].sources_raw = regs.tev_stage1.sources_raw;
-        res.tev_stages[2].sources_raw = regs.tev_stage2.sources_raw;
-        res.tev_stages[3].sources_raw = regs.tev_stage3.sources_raw;
-        res.tev_stages[4].sources_raw = regs.tev_stage4.sources_raw;
-        res.tev_stages[5].sources_raw = regs.tev_stage5.sources_raw;
-
-        res.tev_stages[0].modifiers_raw = regs.tev_stage0.modifiers_raw;
-        res.tev_stages[1].modifiers_raw = regs.tev_stage1.modifiers_raw;
-        res.tev_stages[2].modifiers_raw = regs.tev_stage2.modifiers_raw;
-        res.tev_stages[3].modifiers_raw = regs.tev_stage3.modifiers_raw;
-        res.tev_stages[4].modifiers_raw = regs.tev_stage4.modifiers_raw;
-        res.tev_stages[5].modifiers_raw = regs.tev_stage5.modifiers_raw;
-
-        res.tev_stages[0].ops_raw = regs.tev_stage0.ops_raw;
-        res.tev_stages[1].ops_raw = regs.tev_stage1.ops_raw;
-        res.tev_stages[2].ops_raw = regs.tev_stage2.ops_raw;
-        res.tev_stages[3].ops_raw = regs.tev_stage3.ops_raw;
-        res.tev_stages[4].ops_raw = regs.tev_stage4.ops_raw;
-        res.tev_stages[5].ops_raw = regs.tev_stage5.ops_raw;
-
-        res.tev_stages[0].scales_raw = regs.tev_stage0.scales_raw;
-        res.tev_stages[1].scales_raw = regs.tev_stage1.scales_raw;
-        res.tev_stages[2].scales_raw = regs.tev_stage2.scales_raw;
-        res.tev_stages[3].scales_raw = regs.tev_stage3.scales_raw;
-        res.tev_stages[4].scales_raw = regs.tev_stage4.scales_raw;
-        res.tev_stages[5].scales_raw = regs.tev_stage5.scales_raw;
+        // Copy relevant tev stages fields.
+        // We don't sync const_color here because of the high variance, it is a
+        // shader uniform instead.
+        const auto& tev_stages = regs.GetTevStages();
+        DEBUG_ASSERT(res.tev_stages.size() == tev_stages.size());
+        for (size_t i = 0; i < tev_stages.size(); i++) {
+            const auto& tev_stage = tev_stages[i];
+            res.tev_stages[i].sources_raw = tev_stage.sources_raw;
+            res.tev_stages[i].modifiers_raw = tev_stage.modifiers_raw;
+            res.tev_stages[i].ops_raw = tev_stage.ops_raw;
+            res.tev_stages[i].scales_raw = tev_stage.scales_raw;
+        }
 
         res.combiner_buffer_input =
             regs.tev_combiner_buffer_input.update_mask_rgb.Value() |

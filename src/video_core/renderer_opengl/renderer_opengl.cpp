@@ -5,23 +5,28 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <memory>
+
+#include <glad/glad.h>
 
 #include "common/assert.h"
+#include "common/bit_field.h"
 #include "common/emu_window.h"
 #include "common/logging/log.h"
 #include "common/profiler_reporting.h"
+#include "common/synchronized_wrapper.h"
 
-#include "core/memory.h"
-#include "core/settings.h"
 #include "core/hw/gpu.h"
 #include "core/hw/hw.h"
 #include "core/hw/lcd.h"
+#include "core/memory.h"
+#include "core/settings.h"
+#include "core/tracer/recorder.h"
 
-#include "video_core/video_core.h"
 #include "video_core/debug_utils/debug_utils.h"
-#include "video_core/renderer_opengl/gl_rasterizer.h"
-#include "video_core/renderer_opengl/gl_shader_util.h"
+#include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_opengl/renderer_opengl.h"
+#include "video_core/video_core.h"
 
 static const char vertex_shader[] = R"(
 #version 150 core
@@ -187,7 +192,7 @@ void RendererOpenGL::LoadFBToScreenInfo(const GPU::Regs::FramebufferConfig& fram
     // only allows rows to have a memory alignement of 4.
     ASSERT(pixel_stride % 4 == 0);
 
-    if (!Rasterizer()->AccelerateDisplay(framebuffer, framebuffer_addr, pixel_stride, screen_info)) {
+    if (!Rasterizer()->AccelerateDisplay(framebuffer, framebuffer_addr, static_cast<u32>(pixel_stride), screen_info)) {
         // Reset the screen info's display texture to its own permanent texture
         screen_info.display_texture = screen_info.texture.resource.handle;
         screen_info.display_texcoords = MathUtil::Rectangle<float>(0.f, 0.f, 1.f, 1.f);
@@ -467,12 +472,6 @@ static void DebugHandler(GLenum source, GLenum type, GLuint id, GLenum severity,
 /// Initialize the renderer
 bool RendererOpenGL::Init() {
     render_window->MakeCurrent();
-
-    // TODO: Make frontends initialize this, so they can use gladLoadGLLoader with their own loaders
-    if (!gladLoadGL()) {
-        LOG_CRITICAL(Render_OpenGL, "Failed to initialize GL functions! Exiting...");
-        exit(-1);
-    }
 
     if (GLAD_GL_KHR_debug) {
         glEnable(GL_DEBUG_OUTPUT);
