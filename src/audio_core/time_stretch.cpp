@@ -76,7 +76,7 @@ TimeStretcher::~TimeStretcher() {
 
 void TimeStretcher::SetOutputSampleRate(unsigned int sample_rate) {
     impl->sample_rate = static_cast<double>(sample_rate);
-    impl->soundtouch.setRate(impl->sample_rate / static_cast<double>(native_sample_rate));
+    impl->soundtouch.setRate(static_cast<double>(native_sample_rate) / impl->sample_rate);
 }
 
 void TimeStretcher::AddSamples(const s16* buffer, size_t num_samples) {
