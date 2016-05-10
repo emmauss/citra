@@ -100,13 +100,45 @@ public:
     void TouchMoved(unsigned framebuffer_x, unsigned framebuffer_y);
 
     /**
-     * Gets the current pad state (which buttons are pressed and the circle pad direction).
+     * Gets the current pad state (which buttons are pressed).
      * @note This should be called by the core emu thread to get a state set by the window thread.
+     * @note The circle pad fields of the returned state are cleared.
+     *         Circle pad should be handled from GetCirclePadState().
      * @todo Fix this function to be thread-safe.
      * @return PadState object indicating the current pad state
      */
     Service::HID::PadState GetPadState() const {
-        return pad_state;
+        auto cleared_pad_state = pad_state;
+        cleared_pad_state.circle_right.Assign(0);
+        cleared_pad_state.circle_left.Assign(0);
+        cleared_pad_state.circle_up.Assign(0);
+        cleared_pad_state.circle_down.Assign(0);
+        return cleared_pad_state;
+    }
+
+    /**
+     * Gets the current cirle pad state.
+     * @note This should be called by the core emu thread to get a state set by the window thread.
+     * @todo Fix this function to be thread-safe.
+     * @return std::tuple of (x, y), where `x` and `y` are the circle pad coordinates
+     */
+    std::tuple<s16, s16> GetCirclePadState() const {
+        const int MAX_CIRCLEPAD_POS = 0x9C; // Max radius for a circle pad position
+        const float SQRT_HALF = 0.707106781;
+        int x = 0, y = 0;
+        if (pad_state.circle_right.ToBool())
+            x += MAX_CIRCLEPAD_POS;
+        if (pad_state.circle_left.ToBool())
+            x -= MAX_CIRCLEPAD_POS;
+        if (pad_state.circle_up.ToBool())
+            y += MAX_CIRCLEPAD_POS;
+        if (pad_state.circle_down.ToBool())
+            y -= MAX_CIRCLEPAD_POS;
+        if (x != 0)
+            y *= SQRT_HALF;
+        if (y != 0)
+            x *= SQRT_HALF;
+        return std::make_tuple<s16, s16>(x, y);
     }
 
     /**
