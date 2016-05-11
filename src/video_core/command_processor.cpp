@@ -419,6 +419,22 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
             break;
         }
 
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[0], 0xe8):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[1], 0xe9):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[2], 0xea):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[3], 0xeb):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[4], 0xec):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[5], 0xed):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[6], 0xee):
+        case PICA_REG_INDEX_WORKAROUND(fog_lut_data[7], 0xef):
+        {
+            ASSERT_MSG(regs.fog_lut_offset < 128, "fog_lut_offset exceeded maximum value of 127!");
+
+            g_state.fog.lut[regs.fog_lut_offset].raw = value;
+            regs.fog_lut_offset.Assign(regs.fog_lut_offset + 1);
+            break;
+        }
+
         default:
             break;
     }
