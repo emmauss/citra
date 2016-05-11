@@ -43,7 +43,8 @@ const std::array<Service::HID::PadState, Settings::NativeInput::NUM_INPUTS> pad_
     Service::HID::PAD_START, Service::HID::PAD_SELECT, Service::HID::PAD_NONE,
     Service::HID::PAD_UP, Service::HID::PAD_DOWN, Service::HID::PAD_LEFT, Service::HID::PAD_RIGHT,
     Service::HID::PAD_CIRCLE_UP, Service::HID::PAD_CIRCLE_DOWN, Service::HID::PAD_CIRCLE_LEFT, Service::HID::PAD_CIRCLE_RIGHT,
-    Service::HID::PAD_C_UP, Service::HID::PAD_C_DOWN, Service::HID::PAD_C_LEFT, Service::HID::PAD_C_RIGHT
+    Service::HID::PAD_C_UP, Service::HID::PAD_C_DOWN, Service::HID::PAD_C_LEFT, Service::HID::PAD_C_RIGHT,
+    Service::HID::PAD_C_MODIFIER , // place holder for circle pad modifier
 }};
 
 void Update() {

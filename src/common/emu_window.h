@@ -138,7 +138,11 @@ public:
             y *= SQRT_HALF;
         if (y != 0)
             x *= SQRT_HALF;
-        return std::make_tuple<s16, s16>(x, y);
+        if (circle_pad_modifier) {
+            x *= Settings::values.circle_pad_modifier_scale;
+            y *= Settings::values.circle_pad_modifier_scale;
+        }
+        return std::make_tuple(x, y);
     }
 
     /**
@@ -233,6 +237,7 @@ protected:
         touch_x = 0;
         touch_y = 0;
         touch_pressed = false;
+        circle_pad_modifier = false;
     }
     virtual ~EmuWindow() {}
 
@@ -298,4 +303,6 @@ private:
     std::tuple<unsigned,unsigned> ClipToTouchScreen(unsigned new_x, unsigned new_y);
 
     Service::HID::PadState pad_state;
+
+    bool circle_pad_modifier;  ///< True if circle pad modifier is currently pressed, otherwise false
 };
