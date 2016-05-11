@@ -24,6 +24,7 @@
 #include "video_core/renderer_opengl/gl_shader_util.h"
 #include "video_core/renderer_opengl/pica_to_gl.h"
 #include "video_core/renderer_opengl/renderer_opengl.h"
+#include "video_core/video_core.h"
 
 static bool IsPassThroughTevStage(const Pica::Regs::TevStageConfig& stage) {
     return (stage.color_op == Pica::Regs::TevStageConfig::Operation::Replace &&
@@ -218,7 +219,7 @@ void RasterizerOpenGL::DrawTriangles() {
     // NOTE: There is probably no easy way to implement fog on logic-op with OpenGL 3.3 without
     //       doing blending / logic-ops in shaders
     bool logic_op_enabled = regs.output_merger.alphablend_enable == 0;
-    if (regs.fog_mode != Pica::Regs::FogMode::None && logic_op_enabled) {
+    if (VideoCore::g_fog_enabled && regs.fog_mode != Pica::Regs::FogMode::None && logic_op_enabled) {
         LOG_ERROR(Render_OpenGL, "Fog on LogicOp not implemented in hardware renderer");
         UNIMPLEMENTED();
     }
@@ -1001,12 +1002,14 @@ void RasterizerOpenGL::SyncBlendFuncs() {
 
     auto DualSourceBlendFunc = [](auto factor) {
         auto result = PicaToGL::BlendFunc(factor);
-        // In case of fog blending we use dual source blending and we must use another blend factor source (pre-fog)
-        // However: We don't have to test for the fog mode here. If the shader has turned fog off: SRC0 = SRC1.
-        if (result == GL_SRC_COLOR) {
-            result = GL_SRC1_COLOR;
-        } else if (result == GL_ONE_MINUS_SRC_COLOR) {
-            result = GL_ONE_MINUS_SRC1_COLOR;
+        if (VideoCore::g_fog_enabled) {
+            // In case of fog blending we use dual source blending and we must use another blend factor source (pre-fog)
+            // However: We don't have to test for the fog mode here. If the shader has turned fog off: SRC0 = SRC1.
+            if (result == GL_SRC_COLOR) {
+                result = GL_SRC1_COLOR;
+            } else if (result == GL_ONE_MINUS_SRC_COLOR) {
+                result = GL_ONE_MINUS_SRC1_COLOR;
+            }
         }
         return result;
     };

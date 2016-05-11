@@ -23,8 +23,9 @@
 #include "video_core/pica_state.h"
 #include "video_core/pica_types.h"
 #include "video_core/rasterizer.h"
-#include "video_core/utils.h"
 #include "video_core/shader/shader.h"
+#include "video_core/utils.h"
+#include "video_core/video_core.h"
 
 namespace Pica {
 
@@ -1168,7 +1169,7 @@ static void ProcessTriangleInternal(const Shader::OutputVertex& v0,
             };
 
             // Apply fog blend
-            if (regs.fog_mode == Regs::FogMode::Fog) {
+            if (VideoCore::g_fog_enabled && regs.fog_mode == Regs::FogMode::Fog) {
                 //FIXME: Use z before or after scale/offset?
                 float fog_index;
                 if (g_state.regs.fog_flip) {

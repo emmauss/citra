@@ -22,6 +22,7 @@ void Apply() {
     VideoCore::g_hw_renderer_enabled = values.use_hw_renderer;
     VideoCore::g_shader_jit_enabled = values.use_shader_jit;
     VideoCore::g_scaled_resolution_enabled = values.use_scaled_resolution;
+    VideoCore::g_fog_enabled = true;
 
     AudioCore::SelectSink(values.sink_id);
 

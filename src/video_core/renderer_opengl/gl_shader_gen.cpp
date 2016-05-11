@@ -13,6 +13,7 @@
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_gen.h"
 #include "video_core/renderer_opengl/gl_shader_util.h"
+#include "video_core/video_core.h"
 
 using Pica::Regs;
 using TevStageConfig = Regs::TevStageConfig;
@@ -543,9 +544,13 @@ in vec3 view;
 
 )";
 
-    // Declare color output + blending source factor output
-    out += "layout(location = 0, index = 0) out vec4 color;\n";
-    out += "layout(location = 0, index = 1) out vec4 blend_factor;\n";
+    if (VideoCore::g_fog_enabled) {
+        // Declare an output which can be used as blending source factor
+        out += "layout(location = 0, index = 0) out vec4 color;\n";
+        out += "layout(location = 0, index = 1) out vec4 blend_factor;\n";
+    } else {
+        out += "out vec4 color;\n";
+    }
 
     out += R"(
 
@@ -612,10 +617,12 @@ vec4 secondary_fragment_color = vec4(0.0);
     out += "gl_FragDepth = depth;\n";
 
     // Prepare dual source blending
-    out += "blend_factor = last_tex_env_out;\n";
+    if (VideoCore::g_fog_enabled) {
+        out += "blend_factor = last_tex_env_out;\n";
+    }
 
     // Append fog blending
-    if (state.fog_mode == Regs::FogMode::Fog) {
+    if (VideoCore::g_fog_enabled && state.fog_mode == Regs::FogMode::Fog) {
         if (state.fog_flip) {
             out += "float fog_index = (1.0 + z_over_w) * 128.0;\n";
         } else {
