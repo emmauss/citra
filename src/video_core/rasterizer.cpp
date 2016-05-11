@@ -1160,12 +1160,35 @@ static void ProcessTriangleInternal(const Shader::OutputVertex& v0,
                     LogicOp(combiner_output.a(), dest.a(), output_merger.logic_op));
             }
 
-            const Math::Vec4<u8> result = {
+            Math::Vec4<u8> result = {
                 output_merger.red_enable   ? blend_output.r() : dest.r(),
                 output_merger.green_enable ? blend_output.g() : dest.g(),
                 output_merger.blue_enable  ? blend_output.b() : dest.b(),
                 output_merger.alpha_enable ? blend_output.a() : dest.a()
             };
+
+            // Apply fog blend
+            if (regs.fog_mode == Regs::FogMode::Fog) {
+                //FIXME: Use z before or after scale/offset?
+                float fog_index;
+                if (g_state.regs.fog_flip) {
+                    fog_index = (1.0f + interpolated_z_over_w) * 128.0f;
+                } else {
+                    fog_index = -interpolated_z_over_w * 128.0f;
+                }
+                float fog_i = MathUtil::Clamp(floorf(fog_index), 0.0f, 127.0f);
+                float fog_f = fog_index - fog_i;
+                auto& fog_value = g_state.fog.lut[static_cast<unsigned int>(fog_i)];
+                float fog_factor = (fog_value.value + fog_value.difference * fog_f) / 2047.0f; // This is signed fixed point 1.11
+                const Math::Vec3<u8> fog_color = {
+                    static_cast<u8>(regs.fog_color.r.Value()),
+                    static_cast<u8>(regs.fog_color.g.Value()),
+                    static_cast<u8>(regs.fog_color.b.Value()),
+                };
+                for (unsigned i = 0; i < 3; i++) {
+                    result[i] = fog_factor * result[i] + (1.0f - fog_factor) * fog_color[i];
+                }
+            }
 
             if (regs.framebuffer.allow_color_write != 0)
                 DrawPixel(x >> 4, y >> 4, result);
