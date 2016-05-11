@@ -62,6 +62,8 @@ RasterizerOpenGL::RasterizerOpenGL() : shader_dirty(true) {
         uniform_block_data.lut_dirty[index] = true;
     }
 
+    uniform_block_data.fog_lut_dirty = true;
+
     // Set vertex attributes
     glVertexAttribPointer(GLShader::ATTRIBUTE_POSITION, 4, GL_FLOAT, GL_FALSE, sizeof(HardwareVertex), (GLvoid*)offsetof(HardwareVertex, position));
     glEnableVertexAttribArray(GLShader::ATTRIBUTE_POSITION);
@@ -101,6 +103,18 @@ RasterizerOpenGL::RasterizerOpenGL() : shader_dirty(true) {
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
+
+    // Setup the LUT for the fog
+    {
+        fog_lut.Create();
+        state.fog_lut.texture_1d = fog_lut.handle;
+    }
+    state.Apply();
+
+    glActiveTexture(GL_TEXTURE9);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_R32UI, 128, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     // Sync fixed function OpenGL state
     SyncCullMode();
@@ -201,6 +215,14 @@ void RasterizerOpenGL::DrawTriangles() {
         }
     }
 
+    // NOTE: There is probably no easy way to implement fog on logic-op with OpenGL 3.3 without
+    //       doing blending / logic-ops in shaders
+    bool logic_op_enabled = regs.output_merger.alphablend_enable == 0;
+    if (regs.fog_mode != Pica::Regs::FogMode::None && logic_op_enabled) {
+        LOG_ERROR(Render_OpenGL, "Fog on LogicOp not implemented in hardware renderer");
+        UNIMPLEMENTED();
+    }
+
     // Sync and bind the shader
     if (shader_dirty) {
         SetShader();
@@ -213,6 +235,12 @@ void RasterizerOpenGL::DrawTriangles() {
             SyncLightingLUT(index);
             uniform_block_data.lut_dirty[index] = false;
         }
+    }
+
+    // Sync the fog lut
+    if (uniform_block_data.fog_lut_dirty) {
+        SyncFogLUT();
+        uniform_block_data.fog_lut_dirty = false;
     }
 
     // Sync the uniform data
@@ -280,6 +308,21 @@ void RasterizerOpenGL::NotifyPicaRegisterChanged(u32 id) {
         SyncBlendColor();
         break;
 
+    // Fog state
+    case PICA_REG_INDEX(fog_color):
+        SyncFogColor();
+        break;
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[0], 0xe8):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[1], 0xe9):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[2], 0xea):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[3], 0xeb):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[4], 0xec):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[5], 0xed):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[6], 0xee):
+    case PICA_REG_INDEX_WORKAROUND(fog_lut_data[7], 0xef):
+        uniform_block_data.fog_lut_dirty = true;
+        break;
+
     // Alpha test
     case PICA_REG_INDEX(output_merger.alpha_test):
         SyncAlphaTest();
@@ -328,7 +371,7 @@ void RasterizerOpenGL::NotifyPicaRegisterChanged(u32 id) {
         shader_dirty = true;
         break;
 
-    // TEV stages
+    // TEV stages + fog (mode and flip; part of tev_combiner_buffer_input)
     case PICA_REG_INDEX(tev_stage0.color_source1):
     case PICA_REG_INDEX(tev_stage0.color_modifier1):
     case PICA_REG_INDEX(tev_stage0.color_op):
@@ -875,9 +918,15 @@ void RasterizerOpenGL::SetShader() {
         uniform_lut = glGetUniformLocation(shader->shader.handle, "lut[5]");
         if (uniform_lut != -1) { glUniform1i(uniform_lut, 8); }
 
+        GLuint uniform_fog_lut = glGetUniformLocation(shader->shader.handle, "fog_lut");
+        if (uniform_fog_lut != -1) { glUniform1i(uniform_fog_lut, 9); }
+
         current_shader = shader_cache.emplace(config, std::move(shader)).first->second.get();
 
         unsigned int block_index = glGetUniformBlockIndex(current_shader->shader.handle, "shader_data");
+        GLint block_size;
+        glGetActiveUniformBlockiv(current_shader->shader.handle, block_index, GL_UNIFORM_BLOCK_DATA_SIZE, &block_size);
+        ASSERT_MSG(block_size == sizeof(UniformData), "Uniform block size did not match!");
         glUniformBlockBinding(current_shader->shader.handle, block_index, 0);
 
         // Update uniforms
@@ -897,6 +946,8 @@ void RasterizerOpenGL::SetShader() {
             SyncLightAmbient(light_index);
             SyncLightPosition(light_index);
         }
+
+        SyncFogColor();
     }
 }
 
@@ -947,12 +998,25 @@ void RasterizerOpenGL::SyncBlendEnabled() {
 
 void RasterizerOpenGL::SyncBlendFuncs() {
     const auto& regs = Pica::g_state.regs;
+
+    auto DualSourceBlendFunc = [](auto factor) {
+        auto result = PicaToGL::BlendFunc(factor);
+        // In case of fog blending we use dual source blending and we must use another blend factor source (pre-fog)
+        // However: We don't have to test for the fog mode here. If the shader has turned fog off: SRC0 = SRC1.
+        if (result == GL_SRC_COLOR) {
+            result = GL_SRC1_COLOR;
+        } else if (result == GL_ONE_MINUS_SRC_COLOR) {
+            result = GL_ONE_MINUS_SRC1_COLOR;
+        }
+        return result;
+    };
+
     state.blend.rgb_equation = PicaToGL::BlendEquation(regs.output_merger.alpha_blending.blend_equation_rgb);
     state.blend.a_equation = PicaToGL::BlendEquation(regs.output_merger.alpha_blending.blend_equation_a);
-    state.blend.src_rgb_func = PicaToGL::BlendFunc(regs.output_merger.alpha_blending.factor_source_rgb);
-    state.blend.dst_rgb_func = PicaToGL::BlendFunc(regs.output_merger.alpha_blending.factor_dest_rgb);
-    state.blend.src_a_func = PicaToGL::BlendFunc(regs.output_merger.alpha_blending.factor_source_a);
-    state.blend.dst_a_func = PicaToGL::BlendFunc(regs.output_merger.alpha_blending.factor_dest_a);
+    state.blend.src_rgb_func = DualSourceBlendFunc(regs.output_merger.alpha_blending.factor_source_rgb);
+    state.blend.dst_rgb_func = DualSourceBlendFunc(regs.output_merger.alpha_blending.factor_dest_rgb);
+    state.blend.src_a_func = DualSourceBlendFunc(regs.output_merger.alpha_blending.factor_source_a);
+    state.blend.dst_a_func = DualSourceBlendFunc(regs.output_merger.alpha_blending.factor_dest_a);
 }
 
 void RasterizerOpenGL::SyncBlendColor() {
@@ -961,6 +1025,30 @@ void RasterizerOpenGL::SyncBlendColor() {
     state.blend.color.green = blend_color[1];
     state.blend.color.blue = blend_color[2];
     state.blend.color.alpha = blend_color[3];
+}
+
+void RasterizerOpenGL::SyncFogColor() {
+    const auto& regs = Pica::g_state.regs;
+    uniform_block_data.data.fog_color = {
+      regs.fog_color.r.Value() / 255.0f,
+      regs.fog_color.g.Value() / 255.0f,
+      regs.fog_color.b.Value() / 255.0f
+    };
+    uniform_block_data.dirty = true;
+}
+
+void RasterizerOpenGL::SyncFogLUT() {
+    std::array<GLuint, 128> new_data;
+
+    for (unsigned offset = 0; offset < new_data.size(); ++offset) {
+        new_data[offset] = Pica::g_state.fog.lut[offset].raw;
+    }
+
+    if (new_data != fog_lut_data) {
+        fog_lut_data = new_data;
+        glActiveTexture(GL_TEXTURE9);
+        glTexSubImage1D(GL_TEXTURE_1D, 0, 0, 128, GL_RED_INTEGER, GL_UNSIGNED_INT, fog_lut_data.data());
+    }
 }
 
 void RasterizerOpenGL::SyncAlphaTest() {

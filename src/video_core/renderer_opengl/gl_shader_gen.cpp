@@ -541,7 +541,13 @@ in float texcoord0_w;
 in vec4 normquat;
 in vec3 view;
 
-out vec4 color;
+)";
+
+    // Declare color output + blending source factor output
+    out += "layout(location = 0, index = 0) out vec4 color;\n";
+    out += "layout(location = 0, index = 1) out vec4 blend_factor;\n";
+
+    out += R"(
 
 struct LightSrc {
     vec3 specular_0;
@@ -559,10 +565,12 @@ layout (std140) uniform shader_data {
     float depth_offset;
     vec3 lighting_global_ambient;
     LightSrc light_src[NUM_LIGHTS];
+    vec3 fog_color;
 };
 
 uniform sampler2D tex[3];
 uniform sampler1D lut[6];
+uniform usampler1D fog_lut;
 
 // Rotate the vector v by the quaternion q
 vec3 quaternion_rotate(vec4 q, vec3 v) {
@@ -596,14 +604,34 @@ vec4 secondary_fragment_color = vec4(0.0);
         out += ") discard;\n";
     }
 
-    out += "color = last_tex_env_out;\n";
-
     out += "float z_over_w = 1.0 - gl_FragCoord.z * 2.0;\n";
     out += "float depth = z_over_w * depth_scale + depth_offset;\n";
     if (state.depthmap_enable == Pica::Regs::DepthBuffering::WBuffering) {
         out += "depth /= gl_FragCoord.w;\n";
     }
     out += "gl_FragDepth = depth;\n";
+
+    // Prepare dual source blending
+    out += "blend_factor = last_tex_env_out;\n";
+
+    // Append fog blending
+    if (state.fog_mode == Regs::FogMode::Fog) {
+        if (state.fog_flip) {
+            out += "float fog_index = (1.0 + z_over_w) * 128.0;\n";
+        } else {
+            out += "float fog_index = -z_over_w * 128.0;\n";
+        }
+        out += "float fog_i = clamp(floor(fog_index), 0.0, 127.0);\n";
+        out += "float fog_f = fog_index - fog_i;\n";
+        out += "uint fog_value = texelFetch(fog_lut, int(fog_i), 0).r;\n";
+        out += "float difference = float(int((fog_value & 0x1FFFU) << 19U) >> 19);\n"; // Extract signed difference
+        out += "fog_value >>= 13U;\n"; // Shift so value field is in the lsb
+        out += "float value = float(fog_value & 0x7FFU);\n";
+        out += "float fog_factor = (value + difference * fog_f) / 2047.0;\n";
+        out += "color = vec4(last_tex_env_out.rgb * fog_factor + fog_color.rgb * (1.0 - fog_factor), last_tex_env_out.a);\n";
+    } else {
+        out += "color = last_tex_env_out;\n";
+    }
 
     out += "}";
 
