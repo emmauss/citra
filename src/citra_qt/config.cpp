@@ -27,7 +27,8 @@ static const std::array<QVariant, Settings::NativeInput::NUM_INPUTS> defaults = 
     Qt::Key_M, Qt::Key_N, Qt::Key_B,
     Qt::Key_T, Qt::Key_G, Qt::Key_F, Qt::Key_H,
     Qt::Key_Up, Qt::Key_Down, Qt::Key_Left, Qt::Key_Right,
-    Qt::Key_I, Qt::Key_K, Qt::Key_J, Qt::Key_L
+    Qt::Key_I, Qt::Key_K, Qt::Key_J, Qt::Key_L,
+    Qt::Key_D
 };
 
 void Config::ReadValues() {
@@ -36,6 +37,7 @@ void Config::ReadValues() {
         Settings::values.input_mappings[Settings::NativeInput::All[i]] =
             qt_config->value(QString::fromStdString(Settings::NativeInput::Mapping[i]), defaults[i]).toInt();
     }
+    Settings::values.circle_pad_modifier_scale = qt_config->value("circle_pad_modifier_scale", 0.5).toFloat();
     qt_config->endGroup();
 
     qt_config->beginGroup("Core");
@@ -125,6 +127,7 @@ void Config::SaveValues() {
         qt_config->setValue(QString::fromStdString(Settings::NativeInput::Mapping[i]),
             Settings::values.input_mappings[Settings::NativeInput::All[i]]);
     }
+    qt_config->setValue("circle_pad_modifier_scale", (double)Settings::values.circle_pad_modifier_scale);
     qt_config->endGroup();
 
     qt_config->beginGroup("Core");

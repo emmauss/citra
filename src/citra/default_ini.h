@@ -31,6 +31,11 @@ pad_cup =
 pad_cdown =
 pad_cleft =
 pad_cright =
+pad_cmodifier =
+
+# The multiplier to the circle pad radius when modifier is pressed.
+# Must be in range of 0.0-1.0. Defaults to 0.5
+circle_pad_modifier_scale =
 
 [Core]
 # The applied frameskip amount. Must be a power of two.

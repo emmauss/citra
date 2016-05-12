@@ -19,6 +19,7 @@ enum Values {
     DUP, DDOWN, DLEFT, DRIGHT,
     SUP, SDOWN, SLEFT, SRIGHT,
     CUP, CDOWN, CLEFT, CRIGHT,
+    CMODIFIER,
     NUM_INPUTS
 };
 static const std::array<const char*, NUM_INPUTS> Mapping = {{
@@ -27,7 +28,8 @@ static const std::array<const char*, NUM_INPUTS> Mapping = {{
     "pad_start", "pad_select", "pad_home",
     "pad_dup", "pad_ddown", "pad_dleft", "pad_dright",
     "pad_sup", "pad_sdown", "pad_sleft", "pad_sright",
-    "pad_cup", "pad_cdown", "pad_cleft", "pad_cright"
+    "pad_cup", "pad_cdown", "pad_cleft", "pad_cright",
+    "pad_cmodifier"
 }};
 static const std::array<Values, NUM_INPUTS> All = {{
     A, B, X, Y,
@@ -35,7 +37,8 @@ static const std::array<Values, NUM_INPUTS> All = {{
     START, SELECT, HOME,
     DUP, DDOWN, DLEFT, DRIGHT,
     SUP, SDOWN, SLEFT, SRIGHT,
-    CUP, CDOWN, CLEFT, CRIGHT
+    CUP, CDOWN, CLEFT, CRIGHT,
+    CMODIFIER
 }};
 }
 
@@ -43,6 +46,7 @@ static const std::array<Values, NUM_INPUTS> All = {{
 struct Values {
     // Controls
     std::array<int, NativeInput::NUM_INPUTS> input_mappings;
+    float circle_pad_modifier_scale;
 
     // Core
     int frame_skip;

@@ -12,11 +12,21 @@
 #include "video_core/video_core.h"
 
 void EmuWindow::KeyPressed(KeyMap::HostDeviceKey key) {
-    pad_state.hex |= KeyMap::GetPadKey(key).hex;
+    auto hex = KeyMap::GetPadKey(key).hex;
+    if (hex == Service::HID::PAD_C_MODIFIER.hex) {
+        circle_pad_modifier = true;
+    } else {
+        pad_state.hex |= KeyMap::GetPadKey(key).hex;
+    }
 }
 
 void EmuWindow::KeyReleased(KeyMap::HostDeviceKey key) {
-    pad_state.hex &= ~KeyMap::GetPadKey(key).hex;
+    auto hex = KeyMap::GetPadKey(key).hex;
+    if (hex == Service::HID::PAD_C_MODIFIER.hex) {
+        circle_pad_modifier = false;
+    } else {
+        pad_state.hex &= ~KeyMap::GetPadKey(key).hex;
+    }
 }
 
 /**
