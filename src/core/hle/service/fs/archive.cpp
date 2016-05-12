@@ -309,7 +309,7 @@ ResultCode ControlArchive(ArchiveHandle handle) {
     if (result.raw & 0x80000000) {
         level -= 32;
     }
-    if (level == -1) {
+    if (level == 0xFFFFFFFF) {
         LOG_ERROR(Service_FS, "Fatal Error : Invalid operation");
         SVC::Break(0); //PANIC
     }
