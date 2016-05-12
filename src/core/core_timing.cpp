@@ -87,6 +87,10 @@ void SetClockFrequencyMHz(int cpu_mhz) {
     FireMhzChange();
 }
 
+int GetClockFrequency() {
+    return g_clock_rate_arm11;
+}
+
 int GetClockFrequencyMHz() {
     return g_clock_rate_arm11 / 1000000;
 }
