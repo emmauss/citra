@@ -272,7 +272,13 @@ bool GMainWindow::InitializeSystem() {
 }
 
 bool GMainWindow::LoadROM(const std::string& filename) {
-    Loader::ResultStatus result = Loader::LoadFile(filename);
+    std::unique_ptr<Loader::AppLoader> app_loader = Loader::GetFileLoader(filename);
+    if (!app_loader) {
+        LOG_CRITICAL(Frontend, "Failed to obtain loader for %s!", filename.c_str());
+        return false;
+    }
+
+    Loader::ResultStatus result = app_loader->Load();
     if (Loader::ResultStatus::Success != result) {
         LOG_CRITICAL(Frontend, "Failed to load ROM!");
         System::Shutdown();
