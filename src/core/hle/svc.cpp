@@ -6,7 +6,6 @@
 
 #include "common/logging/log.h"
 #include "common/microprofile.h"
-#include "common/scope_exit.h"
 #include "common/string_util.h"
 #include "common/symbols.h"
 
@@ -289,6 +288,16 @@ static ResultCode WaitSynchronizationN(s32* out, Handle* handles, s32 handle_cou
     if (handle_count < 0)
         return ResultCode(ErrorDescription::OutOfRange, ErrorModule::OS, ErrorSummary::InvalidArgument, ErrorLevel::Usage);
 
+    std::vector<Kernel::SharedPtr<Kernel::WaitObject>> wait_objects;
+    wait_objects.reserve(handle_count);
+    for (int i = 0; i < handle_count; ++i) {
+        wait_objects.push_back(Kernel::g_handle_table.GetWaitObject(handles[i]));
+        if (wait_objects.back() == nullptr)
+            return ERR_INVALID_HANDLE;
+    }
+
+    HLE::Reschedule(__func__);
+
     // If 'handle_count' is non-zero, iterate through each handle and wait the current thread if
     // necessary
     if (handle_count != 0) {
@@ -297,12 +306,8 @@ static ResultCode WaitSynchronizationN(s32* out, Handle* handles, s32 handle_cou
         Kernel::SharedPtr<Kernel::WaitObject> wait_object;
 
         for (int i = 0; i < handle_count; ++i) {
-            auto object = Kernel::g_handle_table.GetWaitObject(handles[i]);
-            if (object == nullptr)
-                return ERR_INVALID_HANDLE;
-
             // Check if the current thread should wait on this object...
-            if (object->ShouldWait()) {
+            if (wait_objects[i]->ShouldWait()) {
 
                 // Check we are waiting on all objects...
                 if (wait_all)
@@ -310,11 +315,11 @@ static ResultCode WaitSynchronizationN(s32* out, Handle* handles, s32 handle_cou
                     wait_thread = true;
             } else {
                 // Do not wait on this object, check if this object should be selected...
-                if (!wait_all && (!selected || (wait_object == object && was_waiting))) {
+                if (!wait_all && (!selected || (wait_object == wait_objects[i] && was_waiting))) {
                     // Do not wait the thread
                     wait_thread = false;
                     handle_index = i;
-                    wait_object = object;
+                    wait_object = wait_objects[i];
                     selected = true;
                 }
             }
@@ -327,20 +332,12 @@ static ResultCode WaitSynchronizationN(s32* out, Handle* handles, s32 handle_cou
         }
     }
 
-    SCOPE_EXIT({HLE::Reschedule("WaitSynchronizationN");}); // Reschedule after putting the threads to sleep.
-
     // If thread should wait, then set its state to waiting
     if (wait_thread) {
 
         // Actually wait the current thread on each object if we decided to wait...
-        std::vector<SharedPtr<Kernel::WaitObject>> wait_objects;
-        wait_objects.reserve(handle_count);
-
-        for (int i = 0; i < handle_count; ++i) {
-            auto object = Kernel::g_handle_table.GetWaitObject(handles[i]);
-            object->AddWaitingThread(Kernel::GetCurrentThread());
-            wait_objects.push_back(object);
-        }
+        for (int i = 0; i < handle_count; ++i)
+            wait_objects[i]->AddWaitingThread(Kernel::GetCurrentThread());
 
         Kernel::WaitCurrentThread_WaitSynchronization(std::move(wait_objects), true, wait_all);
 
@@ -353,11 +350,10 @@ static ResultCode WaitSynchronizationN(s32* out, Handle* handles, s32 handle_cou
 
     // Acquire objects if we did not wait...
     for (int i = 0; i < handle_count; ++i) {
-        auto object = Kernel::g_handle_table.GetWaitObject(handles[i]);
 
         // Acquire the object if it is not waiting...
-        if (!object->ShouldWait()) {
-            object->Acquire();
+        if (!wait_objects[i]->ShouldWait()) {
+            wait_objects[i]->Acquire();
 
             // If this was the first non-waiting object and 'wait_all' is false, don't acquire
             // any other objects
