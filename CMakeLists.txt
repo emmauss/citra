@@ -271,3 +271,7 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux|FreeBSD|OpenBSD|NetBSD")
     install(FILES "${CMAKE_SOURCE_DIR}/dist/citra.xml"
             DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mime/packages")
 endif()
+
+IF(MSVC)
+   ADD_DEFINITIONS(/arch:AVX2)
+ENDIF(MSVC)
