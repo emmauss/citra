@@ -19,6 +19,90 @@ static VAddr loaded_crs;
 
 class CROHelper {
     const VAddr address;
+
+    enum HeaderField {
+        Magic = 0,
+        NameOffset,
+        NextCRO,
+        PreviousCRO,
+        FileSize,
+        BssSize,
+        FixedSize,
+        Unk1,
+        Unk2,
+        Unk3,
+        Unk4,
+        SegmentOffset,
+        CodeOffset,
+        CodeSize,
+        DataOffset,
+        DataSize,
+        ModuleNameOffset,
+        ModuleNameSize,
+        SegmentTableOffset,
+        SegmentNum,
+        SymbolExportTableOffset,
+        SymbolExportNum,
+        IndexExportTableOffset,
+        IndexExportNum,
+        ExportStringsOffset,
+        ExportStringsSize,
+        ExportTreeTableOffset,
+        ExportTreeNum,
+        ObjectTableOffset,
+        ObjectNum,
+        ExternalPatchTableOffset,
+        ExternalPatchNum,
+        SymbolImportTableOffset,
+        SymbolImportNum,
+        IndexImportTableOffset,
+        IndexImportNum,
+        OffsetImportTableOffset,
+        OffsetImportNum,
+        ImportStringsOffset,
+        ImportStringsSize,
+        OffsetExportTableOffset,
+        OffsetExportNum,
+        InternalPatchTableOffset,
+        InternalPatchNum,
+        StaticPatchTableOffset,
+        StaticPatchNum,
+        Fix0Barrier,
+
+        Fix3Barrier = SymbolExportTableOffset,
+        Fix2Barrier = ObjectTableOffset,
+        Fix1Barrier = OffsetExportTableOffset,
+    };
+    static_assert(Fix0Barrier == (0x138 - 0x80) / 4, "CRO Header fields are wrong!");
+
+    VAddr Field(HeaderField field) {
+        return address + 0x80 + field * 4;
+    }
+
+    u32 GetField(HeaderField field) {
+        return Memory::Read32(Field(field));
+    }
+
+    void SetField(HeaderField field, u32 value) {
+        Memory::Write32(Field(field), value);
+    }
+
+    VAddr Next() {
+        return GetField(NextCRO);
+    }
+
+    VAddr Previous() {
+        return GetField(PreviousCRO);
+    }
+
+    void SetNext(VAddr next) {
+        SetField(NextCRO, next);
+    }
+
+    void SetPrevious(VAddr next) {
+        SetField(PreviousCRO, next);
+    }
+
 public:
     CROHelper(VAddr cro_address) : address(cro_address) {
     }
@@ -47,12 +131,83 @@ public:
         return RESULT_SUCCESS;
     }
 
+    void RegisterCRS() {
+        SetNext(0);
+        SetPrevious(0);
+    }
+
     void Register(bool auto_link) {
-        // TODO
+        CROHelper crs(loaded_crs);
+
+        CROHelper head(auto_link ? crs.Next() : crs.Previous());
+        if (head.address) {
+            // there are already CROs registered
+            // register as the new tail
+            CROHelper tail(head.Previous());
+
+            // link with the old tail
+            ASSERT(tail.Next() == 0);
+            SetPrevious(tail.address);
+            tail.SetNext(address);
+
+            // set previous of the head pointing to the new tail
+            head.SetPrevious(address);
+        } else {
+            // register as the first CRO
+            // set previous to self as tail
+            SetPrevious(address);
+
+            // set self as head
+            if (auto_link)
+                crs.SetNext(address);
+            else
+                crs.SetPrevious(address);
+        }
+
+        // the new one is the tail
+        SetNext(0);
     }
 
     void Unregister() {
-        // TODO
+        CROHelper crs(loaded_crs);
+        CROHelper nhead(crs.Next()), phead(crs.Previous());
+        CROHelper next(Next()), previous(Previous());
+        if (address == nhead.address || address == phead.address) {
+            // removing head
+            if (next.address) {
+                // the next is new head
+                // let its previous point to the tail
+                next.SetPrevious(previous.address);
+            }
+
+            // set new head
+            if (address == phead.address) {
+                crs.SetPrevious(next.address);
+            } else {
+                crs.SetNext(next.address);
+            }
+        } else if (next.address) {
+            // link previous and next
+            previous.SetNext(next.address);
+            next.SetPrevious(previous.address);
+        } else {
+            // removing tail
+            // set previous as new tail
+            previous.SetNext(0);
+
+            // let head's previous point to the new tail
+            if (nhead.address && nhead.Previous() == address) {
+                nhead.SetPrevious(previous.address);
+            } else if (phead.address && phead.Previous() == address) {
+                phead.SetPrevious(previous.address);
+            } else {
+                UNREACHABLE();
+            }
+        }
+
+        // unlink self
+        SetNext(0);
+        SetPrevious(0);
     }
 
     u32 Fix(int fix_level) {
@@ -109,7 +264,7 @@ static void Initialize(Service::Interface* self) {
     }
 
     CROHelper crs(crs_address);
-    // TODO Clear list head
+    crs.RegisterCRS();
 
     result = crs.Rebase(crs_size, 0, 0, 0, 0);
     if (result.IsError()) {
