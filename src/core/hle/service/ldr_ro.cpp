@@ -2,8 +2,6 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-
-
 #include "common/common_types.h"
 #include "common/logging/log.h"
 
@@ -23,9 +21,9 @@ class CROHelper {
     const VAddr address;
 
     struct SegmentEntry {
-        u32 segment_offset;
-        u32 segment_size;
-        u32 segment_id;
+        u32 offset;
+        u32 size;
+        u32 id;
     };
 
     struct SymbolExportEntry {
@@ -161,6 +159,16 @@ class CROHelper {
         SetField(PreviousCRO, next);
     }
 
+    template <HeaderField field, typename T>
+    void GetEntry(int index, T& data) {
+        Memory::ReadBlock(GetField(field) + index * sizeof(T), &data, sizeof(T));
+    }
+
+    template <HeaderField field, typename T>
+    void SetEntry(int index, const T& data) {
+        Memory::WriteBlock(GetField(field) + index * sizeof(T), &data, sizeof(T));
+    }
+
     ResultCode RebaseHeader(u32 cro_size) {
         u32 offset = GetField(NameOffset);
         if (offset)
@@ -177,18 +185,59 @@ class CROHelper {
         return RESULT_SUCCESS;
     }
 
-    ResultCode RebaseSegmentTable(VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size) {
-        // TODO
+    ResultCode RebaseSegmentTable(VAddr data_segment_address, u32 data_segment_size,
+        VAddr bss_segment_address, u32 bss_segment_size, u32& prev_data_segment) {
+        prev_data_segment = 0;
+        u32 segment_num = GetField(SegmentNum);
+        for (u32 i = 0; i < segment_num; ++i) {
+            SegmentEntry segment;
+            GetEntry<SegmentTableOffset>(i, segment);
+            // TODO verify address
+            if (segment.id == 2) {
+                if (segment.size) {
+                    prev_data_segment = segment.offset;
+                    segment.offset = data_segment_address;
+                }
+            } else if (segment.id == 3) {
+                if (segment.size) {
+                    segment.offset = bss_segment_address;
+                }
+            } else if (segment.offset) {
+                segment.offset += address;
+            }
+            SetEntry<SegmentTableOffset>(i, segment);
+        }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseSymbolExportTable() {
-        // TODO
+        u32 symbol_export_num = GetField(SymbolExportNum);
+        for (u32 i = 0; i < symbol_export_num; ++i) {
+            SymbolExportEntry entry;
+            GetEntry<SymbolExportTableOffset>(i, entry);
+            // TODO verify address, should be in export strings
+            if (entry.name_offset) {
+                entry.name_offset += address;
+            }
+            SetEntry<SymbolExportTableOffset>(i, entry);
+        }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseObjectTable() {
-        // TODO
+        u32 object_num = GetField(ObjectNum);
+        for (u32 i = 0; i < object_num; ++i) {
+            ObjectEntry entry;
+            GetEntry<ObjectTableOffset>(i, entry);
+            // TODO verify address
+            if (entry.string_offset)
+                entry.string_offset += address;
+            if (entry.table1_offset)
+                entry.table1_offset += address;
+            if (entry.table2_offset)
+                entry.table2_offset += address;
+            SetEntry<ObjectTableOffset>(i, entry);
+        }
         return RESULT_SUCCESS;
     }
 
@@ -257,8 +306,12 @@ public:
 
         // TODO verify module name
 
+        u32 prev_data_segment_address;
         if (!is_crs) {
-            result = RebaseSegmentTable(data_segment_addresss, data_segment_size, bss_segment_address, bss_segment_size);
+            result = RebaseSegmentTable(
+                data_segment_addresss, data_segment_size,
+                bss_segment_address, bss_segment_size,
+                prev_data_segment_address);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result.raw);
                 return result;
@@ -281,8 +334,9 @@ public:
             return result;
         }
 
-        // TODO verify external patch table
-        // "SomethingAboutExternalPatchTable"
+        // TODO verify Object ? (loc_1400451C)
+
+        // TODO apply external patch table? (loc_1400453C) probably set all patch to "Unresolved Symbo?"
 
         result = RebaseSymbolImportTable();
         if (result.IsError()) {
@@ -306,7 +360,7 @@ public:
 
         // TODO verify offset export table
 
-        // TODO verify internal patch table
+        // TODO apply internal patch table?
 
         // TODO verify exit function
 
