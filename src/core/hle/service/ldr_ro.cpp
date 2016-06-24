@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+
+
 #include "common/common_types.h"
 #include "common/logging/log.h"
 
@@ -20,6 +22,55 @@ static VAddr loaded_crs;
 class CROHelper {
     const VAddr address;
 
+    struct SegmentEntry {
+        u32 segment_offset;
+        u32 segment_size;
+        u32 segment_id;
+    };
+
+    struct SymbolExportEntry {
+        u32 name_offset;
+        u32 segment_28_4;
+    };
+
+    struct IndexExportEntry {
+        u32 segment_; // ?
+    };
+
+    struct ExportTreeEntry {
+        u16 segment_13_3;
+        u16 next;
+        u16 next_level;
+        u16 export_table_id;
+    };
+
+    struct ObjectEntry {
+        u32 string_offset;
+        u32 table1_offset;
+        u32 table1_num;
+        u32 table2_offset;
+        u32 table2_num;
+    };
+
+    struct PatchEntry {
+        u32 segment_28_4;
+        u8 type;
+        u8 unk;
+        u8 unk2;
+        u8 unk3;
+        u32 x;
+    };
+
+    struct ImportEntry {
+        u32 name_offset;
+        u32 symbol_offset;
+    };
+
+    struct OffsetExportEntry {
+        u32 segment_28_4;
+        u32 patches_offset;
+    };
+
     enum HeaderField {
         Magic = 0,
         NameOffset,
@@ -33,6 +84,7 @@ class CROHelper {
         Unk3,
         Unk4,
         SegmentOffset,
+
         CodeOffset,
         CodeSize,
         DataOffset,
@@ -41,6 +93,7 @@ class CROHelper {
         ModuleNameSize,
         SegmentTableOffset,
         SegmentNum,
+
         SymbolExportTableOffset,
         SymbolExportNum,
         IndexExportTableOffset,
@@ -49,6 +102,7 @@ class CROHelper {
         ExportStringsSize,
         ExportTreeTableOffset,
         ExportTreeNum,
+
         ObjectTableOffset,
         ObjectNum,
         ExternalPatchTableOffset,
@@ -61,6 +115,7 @@ class CROHelper {
         OffsetImportNum,
         ImportStringsOffset,
         ImportStringsSize,
+
         OffsetExportTableOffset,
         OffsetExportNum,
         InternalPatchTableOffset,
@@ -74,6 +129,9 @@ class CROHelper {
         Fix1Barrier = OffsetExportTableOffset,
     };
     static_assert(Fix0Barrier == (0x138 - 0x80) / 4, "CRO Header fields are wrong!");
+
+    static const std::array<int, 17> ENTRY_SIZE;
+    static const std::array<HeaderField, 4> FIX_BARRIERS;
 
     VAddr Field(HeaderField field) {
         return address + 0x80 + field * 4;
@@ -268,7 +326,7 @@ public:
         SetNext(0);
         SetPrevious(0);
 
-        // TODO clear fix size
+        SetField(FixedSize, 0);
 
         UnrebaseHeader();
     }
@@ -367,12 +425,72 @@ public:
         SetPrevious(0);
     }
 
+    u32 GetFixEnd(int fix_level) {
+        u32 end = 0x138;
+        end = std::max<u32>(end, GetField(CodeOffset) + GetField(CodeSize));
+
+        u32 entry_size_i = 2;
+        int field = ModuleNameOffset;
+        while (true) {
+            end = std::max<u32>(end,
+                GetField(static_cast<HeaderField>(field)) +
+                GetField(static_cast<HeaderField>(field + 1)) * ENTRY_SIZE[entry_size_i]);
+
+            ++entry_size_i;
+            field += 2;
+
+            if (field == FIX_BARRIERS[fix_level])
+                return end;
+        }
+    }
+
     u32 Fix(int fix_level) {
-        // TODO
-        // Note: Write fixed size in cro
-        return 0;
+        u32 fix_end = GetFixEnd(fix_level);
+
+        if (fix_level) {
+            SetField(Magic, 0x44584946); // FIXD
+
+            for (int field = FIX_BARRIERS[fix_level]; field < Fix0Barrier; field += 2) {
+                SetField(static_cast<HeaderField>(field), fix_end);
+                SetField(static_cast<HeaderField>(field + 1), 0);
+            }
+        }
+
+        fix_end += 0xFFF;
+        fix_end &= 0xFFFFF000; //round up
+
+        u32 fixed_size = fix_end - address;
+        SetField(FixedSize, fixed_size);
+        return fixed_size;
     }
 };
+
+const std::array<int, 17> CROHelper::ENTRY_SIZE {{
+    1, // code
+    1, // data
+    1, // module name
+    sizeof(SegmentEntry),
+    sizeof(SymbolExportEntry),
+    sizeof(IndexExportEntry),
+    1, // export strings
+    sizeof(ExportTreeEntry),
+    sizeof(ObjectEntry),
+    sizeof(PatchEntry),
+    sizeof(ImportEntry),
+    sizeof(ImportEntry),
+    sizeof(ImportEntry),
+    1, // import strings
+    sizeof(OffsetExportEntry),
+    sizeof(PatchEntry),
+    sizeof(PatchEntry)
+}};
+
+const std::array<CROHelper::HeaderField, 4> CROHelper::FIX_BARRIERS {{
+    Fix0Barrier,
+    Fix1Barrier,
+    Fix2Barrier,
+    Fix3Barrier
+}};
 
 /**
  * LDR_RO::Initialize service function
