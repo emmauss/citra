@@ -103,17 +103,174 @@ class CROHelper {
         SetField(PreviousCRO, next);
     }
 
-public:
-    CROHelper(VAddr cro_address) : address(cro_address) {
+    ResultCode RebaseHeader(u32 cro_size) {
+        u32 offset = GetField(NameOffset);
+        if (offset)
+            SetField(NameOffset, offset + address);
+
+        for (int field = CodeOffset; field < Fix0Barrier; field += 2) {
+            HeaderField header_field = static_cast<HeaderField>(field);
+            offset = GetField(header_field);
+            if (offset)
+                SetField(header_field, offset + address);
+        }
+
+        // TODO Verify
+        return RESULT_SUCCESS;
     }
 
-    ResultCode Rebase(u32 cro_size, VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size) {
+    ResultCode RebaseSegmentTable(VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size) {
         // TODO
         return RESULT_SUCCESS;
     }
 
-    void Unrebase() {
+    ResultCode RebaseSymbolExportTable() {
         // TODO
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode RebaseObjectTable() {
+        // TODO
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode RebaseSymbolImportTable() {
+        // TODO
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode RebaseIndexImportTable() {
+        // TODO
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode RebaseOffsetImportTable() {
+        // TODO
+        return RESULT_SUCCESS;
+    }
+
+    void UnrebaseOffsetImportTable() {
+        // TODO
+    }
+
+    void UnrebaseIndexImportTanle() {
+        // TODO
+    }
+
+    void UnrebaseSymbolImportTable() {
+        // TODO
+    }
+
+    void UnrebaseObjectTable() {
+        // TODO
+    }
+
+    void UnrebaseSymbolExportTable() {
+        // TODO
+    }
+
+    void UnrebaseSegmentTable() {
+        // TODO
+    }
+
+    void UnrebaseHeader() {
+        u32 offset = GetField(NameOffset);
+        if (offset)
+            SetField(NameOffset, offset - address);
+
+        for (int field = CodeOffset; field < Fix0Barrier; field += 2) {
+            HeaderField header_field = static_cast<HeaderField>(field);
+            offset = GetField(header_field);
+            if (offset)
+                SetField(header_field, offset - address);
+        }
+    }
+
+public:
+    CROHelper(VAddr cro_address) : address(cro_address) {
+    }
+
+    ResultCode Rebase(u32 cro_size, VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size, bool is_crs = false) {
+        ResultCode result = RebaseHeader(cro_size);
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing header %08X", result.raw);
+            return result;
+        }
+
+        // TODO verify module name
+
+        if (!is_crs) {
+            result = RebaseSegmentTable(data_segment_addresss, data_segment_size, bss_segment_address, bss_segment_size);
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result.raw);
+                return result;
+            }
+        }
+
+        result = RebaseSymbolExportTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing symbol export table %08X", result.raw);
+            return result;
+        }
+
+        // TODO verify export tree
+
+        // TODO verify export strings
+
+        result = RebaseObjectTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing object table %08X", result.raw);
+            return result;
+        }
+
+        // TODO verify external patch table
+        // "SomethingAboutExternalPatchTable"
+
+        result = RebaseSymbolImportTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing symbol import table %08X", result.raw);
+            return result;
+        }
+
+        result = RebaseIndexImportTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing index import table %08X", result.raw);
+            return result;
+        }
+
+        result = RebaseOffsetImportTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error rebasing offset import table %08X", result.raw);
+            return result;
+        }
+
+        // TODO verify import strings
+
+        // TODO verify offset export table
+
+        // TODO verify internal patch table
+
+        // TODO verify exit function
+
+        return RESULT_SUCCESS;
+    }
+
+    void Unrebase(bool is_crs = false) {
+        UnrebaseOffsetImportTable();
+        UnrebaseIndexImportTanle();
+        UnrebaseSymbolImportTable();
+        UnrebaseObjectTable();
+        UnrebaseSymbolExportTable();
+
+        if (!is_crs)
+            UnrebaseSegmentTable();
+
+        SetNext(0);
+        SetPrevious(0);
+
+        // TODO clear fix size
+
+        UnrebaseHeader();
     }
 
     ResultCode Verify(u32 cro_size, VAddr crr) {
@@ -217,10 +374,6 @@ public:
     }
 };
 
-static ResultCode LoadCRS(VAddr crs_address, u32 crs_size) {
-
-}
-
 /**
  * LDR_RO::Initialize service function
  *  Inputs:
@@ -266,7 +419,7 @@ static void Initialize(Service::Interface* self) {
     CROHelper crs(crs_address);
     crs.RegisterCRS();
 
-    result = crs.Rebase(crs_size, 0, 0, 0, 0);
+    result = crs.Rebase(crs_size, 0, 0, 0, 0, true);
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error Loading CRS %08X", result.raw);
         cmd_buff[1] = result.raw;
