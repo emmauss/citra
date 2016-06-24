@@ -79,9 +79,9 @@ class CROHelper {
         FixedSize,
         Unk1,
         Unk2,
-        Unk3,
-        Unk4,
-        SegmentOffset,
+        OnExit_segment_28_4,
+        OnExit_segment_28_4,
+        OnUnresolved_segment_28_4,
 
         CodeOffset,
         CodeSize,
@@ -336,7 +336,7 @@ public:
 
         // TODO verify Object ? (loc_1400451C)
 
-        // TODO apply external patch table? (loc_1400453C) probably set all patch to "Unresolved Symbo?"
+        // TODO reset all external patches to "Unresolved" (loc_1400453C)
 
         result = RebaseSymbolImportTable();
         if (result.IsError()) {
