@@ -656,9 +656,10 @@ static void LoadCRO(Service::Interface* self) {
     // TODO remap memory?
     // what ro module do: commit fixed-out memory, protect segment 0, commit fixed cro?
 
-    cmd_buff[2] = fix_size;
+    Core::g_app_core->ClearInstructionCache();
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = fix_size;
 }
 
 /**
@@ -698,6 +699,8 @@ static void UnloadCRO(Service::Interface* self) {
     cro.Unrebase();
 
     Kernel::g_current_process->vm_manager.UnmapRange(cro_address, cro_size);
+
+    Core::g_app_core->ClearInstructionCache();
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 }
