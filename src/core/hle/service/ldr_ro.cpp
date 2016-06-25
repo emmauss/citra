@@ -27,12 +27,12 @@ class CROHelper {
     };
 
     struct SymbolExportEntry {
-        u32 name_offset;
+        u32 name_offset; // pointing to a substring in ExportStrings
         u32 segment_tag;
     };
 
     struct IndexExportEntry {
-        u32 segment_; // ?
+        u32 segment_tag;
     };
 
     struct ExportTreeEntry {
@@ -42,18 +42,18 @@ class CROHelper {
         u16 export_table_id;
     };
 
-    struct ObjectEntry {
-        u32 string_offset;
-        u32 table1_offset;
-        u32 table1_num;
-        u32 table2_offset;
-        u32 table2_num;
+    struct ImportModuleEntry {
+        u32 name_offset; // pointing to a substring in ImporStrings
+        u32 index_import_table_offset; // pointing to a subtable of IndexImportTable
+        u32 index_import_num;
+        u32 offset_import_table_offset; // pointing to a subtable of OffsetImportTable
+        u32 offset_import_num;
     };
 
-    struct PatchEntry {
+    struct PatchEntry { // for ExternalPatchTable and StaticPatchTable
         u32 segment_tag;
         u8 type;
-        u8 is_batch_end; // segment index (use for value) in InternalPatch
+        u8 is_batch_end;
         u8 batch_resolved; // set at batch begin
         u8 unk3;
         u32 x;
@@ -68,14 +68,24 @@ class CROHelper {
         u32 x;
     };
 
-    struct ImportEntry {
-        u32 name_offset;
-        u32 patch_batch_offset;
+    struct SymbolImportEntry {
+        u32 name_offset; // pointing to a substring in ImporStrings
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
+    };
+
+    struct IndexImportEntry {
+        u32 index; // index in opponent's IndexExportTable
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
+    };
+
+    struct OffsetImportEntry {
+        u32 segment_tag;
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
 
     struct OffsetExportEntry {
         u32 segment_tag;
-        u32 patch_batch_offset;
+        u32 patch_batch_offset; // pointing to a batch in StaticPatchTable
     };
 
     enum HeaderField {
@@ -110,8 +120,8 @@ class CROHelper {
         ExportTreeTableOffset,
         ExportTreeNum,
 
-        ObjectTableOffset,
-        ObjectNum,
+        ImportModuleTableOffset,
+        ImportModuleNum,
         ExternalPatchTableOffset,
         ExternalPatchNum,
         SymbolImportTableOffset,
@@ -132,7 +142,7 @@ class CROHelper {
         Fix0Barrier,
 
         Fix3Barrier = SymbolExportTableOffset,
-        Fix2Barrier = ObjectTableOffset,
+        Fix2Barrier = ImportModuleTableOffset,
         Fix1Barrier = OffsetExportTableOffset,
     };
     static_assert(Fix0Barrier == (0x138 - 0x80) / 4, "CRO Header fields are wrong!");
@@ -166,6 +176,19 @@ class CROHelper {
 
     void SetPrevious(VAddr next) {
         SetField(PreviousCRO, next);
+    }
+
+    template <typename T> // [](CROHelper cro)->ResultCode
+    ResultCode ForEachAutoLinkCRO(T func) {
+        VAddr current = loaded_crs;
+        while (current) {
+            CROHelper cro(current);
+            ResultCode result = func(cro);
+            if (result.IsError())
+                return result;
+            current = cro.Next();
+        }
+        return RESULT_SUCCESS;
     }
 
     template <HeaderField field, typename T>
@@ -250,19 +273,19 @@ class CROHelper {
         return RESULT_SUCCESS;
     }
 
-    ResultCode RebaseObjectTable() {
-        u32 object_num = GetField(ObjectNum);
+    ResultCode RebaseImportModuleTable() {
+        u32 object_num = GetField(ImportModuleNum);
         for (u32 i = 0; i < object_num; ++i) {
-            ObjectEntry entry;
-            GetEntry<ObjectTableOffset>(i, entry);
+            ImportModuleEntry entry;
+            GetEntry<ImportModuleTableOffset>(i, entry);
             // TODO verify address
-            if (entry.string_offset)
-                entry.string_offset += address;
-            if (entry.table1_offset)
-                entry.table1_offset += address;
-            if (entry.table2_offset)
-                entry.table2_offset += address;
-            SetEntry<ObjectTableOffset>(i, entry);
+            if (entry.name_offset)
+                entry.name_offset += address;
+            if (entry.index_import_table_offset)
+                entry.index_import_table_offset += address;
+            if (entry.offset_import_table_offset)
+                entry.offset_import_table_offset += address;
+            SetEntry<ImportModuleTableOffset>(i, entry);
         }
         return RESULT_SUCCESS;
     }
@@ -271,7 +294,7 @@ class CROHelper {
         u32 num = GetField(SymbolImportNum);
         for (u32 i = 0; i < num ; ++i) {
             // TODO verify address, patch_batch_offset should be in external patch table
-            ImportEntry entry;
+            SymbolImportEntry entry;
             GetEntry<SymbolImportTableOffset>(i, entry);
             if (entry.name_offset)
                 entry.name_offset += address;
@@ -286,7 +309,7 @@ class CROHelper {
         u32 num = GetField(IndexImportNum);
         for (u32 i = 0; i < num ; ++i) {
             // TODO verify address, patch_batch_offset should be in external patch table
-            ImportEntry entry;
+            IndexImportEntry entry;
             GetEntry<IndexImportTableOffset>(i, entry);
             if (entry.patch_batch_offset)
                 entry.patch_batch_offset += address;
@@ -299,7 +322,7 @@ class CROHelper {
         u32 num = GetField(OffsetImportNum);
         for (u32 i = 0; i < num ; ++i) {
             // TODO verify address, patch_batch_offset should be in external patch table
-            ImportEntry entry;
+            OffsetImportEntry entry;
             GetEntry<OffsetImportTableOffset>(i, entry);
             if (entry.patch_batch_offset)
                 entry.patch_batch_offset += address;
@@ -495,13 +518,13 @@ public:
 
         // TODO verify export strings
 
-        result = RebaseObjectTable();
+        result = RebaseImportModuleTable();
         if (result.IsError()) {
             LOG_ERROR(Service_LDR, "Error rebasing object table %08X", result.raw);
             return result;
         }
 
-        // TODO verify Object ? (loc_1400451C)
+        // TODO verify external patch
 
         result = ResetAllExternalPatches();
         if (result.IsError()) {
@@ -543,7 +566,7 @@ public:
             return result;
         }
 
-        // TODO verify exit function
+        // TODO apply exit function patch
 
         return RESULT_SUCCESS;
     }
@@ -709,11 +732,11 @@ const std::array<int, 17> CROHelper::ENTRY_SIZE {{
     sizeof(IndexExportEntry),
     1, // export strings
     sizeof(ExportTreeEntry),
-    sizeof(ObjectEntry),
+    sizeof(ImportModuleEntry),
     sizeof(PatchEntry),
-    sizeof(ImportEntry),
-    sizeof(ImportEntry),
-    sizeof(ImportEntry),
+    sizeof(SymbolImportEntry),
+    sizeof(IndexImportEntry),
+    sizeof(OffsetImportEntry),
     1, // import strings
     sizeof(OffsetExportEntry),
     sizeof(InternalPatchEntry),
