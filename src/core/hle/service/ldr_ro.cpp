@@ -178,14 +178,15 @@ class CROHelper {
         SetField(PreviousCRO, next);
     }
 
-    template <typename T> // [](CROHelper cro)->ResultCode
-    ResultCode ForEachAutoLinkCRO(T func) {
+    template <typename T> // [](CROHelper cro)->ResultVal<bool>
+    static ResultCode ForEachAutoLinkCRO(T func) {
         VAddr current = loaded_crs;
         while (current) {
             CROHelper cro(current);
-            ResultCode result = func(cro);
-            if (result.IsError())
-                return result;
+            bool next;
+            CASCADE_RESULT(next, func(cro));
+            if (!next)
+                break;
             current = cro.Next();
         }
         return RESULT_SUCCESS;
@@ -539,27 +540,86 @@ class CROHelper {
     }
 
     void UnrebaseOffsetImportTable() {
-        // TODO
+        u32 num = GetField(OffsetImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            OffsetImportEntry entry;
+            GetEntry<OffsetImportTableOffset>(i, entry);
+            if (entry.patch_batch_offset) {
+                entry.patch_batch_offset -= address;
+            }
+            SetEntry<OffsetImportTableOffset>(i, entry);
+        }
     }
 
     void UnrebaseIndexImportTanle() {
-        // TODO
+        u32 num = GetField(IndexImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            IndexImportEntry entry;
+            GetEntry<IndexImportTableOffset>(i, entry);
+            if (entry.patch_batch_offset) {
+                entry.patch_batch_offset -= address;
+            }
+            SetEntry<IndexImportTableOffset>(i, entry);
+        }
     }
 
     void UnrebaseSymbolImportTable() {
-        // TODO
+        u32 num = GetField(SymbolImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            SymbolImportEntry entry;
+            GetEntry<SymbolImportTableOffset>(i, entry);
+            if (entry.name_offset) {
+                entry.name_offset -= address;
+            }
+            if (entry.patch_batch_offset) {
+                entry.patch_batch_offset -= address;
+            }
+            SetEntry<SymbolImportTableOffset>(i, entry);
+        }
     }
 
     void UnrebaseObjectTable() {
-        // TODO
+        u32 object_num = GetField(ImportModuleNum);
+        for (u32 i = 0; i < object_num; ++i) {
+            ImportModuleEntry entry;
+            GetEntry<ImportModuleTableOffset>(i, entry);
+            if (entry.name_offset) {
+                entry.name_offset -= address;
+            }
+            if (entry.index_import_table_offset) {
+                entry.index_import_table_offset -= address;
+            }
+            if (entry.offset_import_table_offset) {
+                entry.offset_import_table_offset -= address;
+            }
+            SetEntry<ImportModuleTableOffset>(i, entry);
+        }
     }
 
     void UnrebaseSymbolExportTable() {
-        // TODO
+        u32 symbol_export_num = GetField(SymbolExportNum);
+        for (u32 i = 0; i < symbol_export_num; ++i) {
+            SymbolExportEntry entry;
+            GetEntry<SymbolExportTableOffset>(i, entry);
+            if (entry.name_offset) {
+                entry.name_offset -= address;
+            }
+            SetEntry<SymbolExportTableOffset>(i, entry);
+        }
     }
 
     void UnrebaseSegmentTable() {
-        // TODO
+        u32 segment_num = GetField(SegmentNum);
+        for (u32 i = 0; i < segment_num; ++i) {
+            SegmentEntry segment;
+            GetEntry<SegmentTableOffset>(i, segment);
+            if (segment.id == 3) {
+                segment.offset = 0;
+            } else if (segment.offset) {
+                segment.offset -= address;
+            }
+            SetEntry<SegmentTableOffset>(i, segment);
+        }
     }
 
     void UnrebaseHeader() {
@@ -578,7 +638,6 @@ class CROHelper {
     ResultCode ApplySymbolImport() {
         u32 symbol_import_num = GetField(SymbolImportNum);
         for (u32 i = 0; i < symbol_import_num; ++i) {
-            // TODO error check
             SymbolImportEntry entry;
             GetEntry<SymbolImportTableOffset>(i, entry);
             VAddr patch_addr = entry.patch_batch_offset;
@@ -587,15 +646,22 @@ class CROHelper {
 
             if (!patch_entry.batch_resolved) {
                 LOG_INFO(Service_LDR, "Try resolving \"%s\" in %s", (char*)Memory::GetPointer(entry.name_offset), ModuleName().data());
-                ForEachAutoLinkCRO([&](CROHelper source){
+                ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                     u32 value = source.FindSymbolExport(entry.name_offset);
                     if (value) {
                         LOG_INFO(Service_LDR, "resolve from %s", source.ModuleName().data());
-                        ApplyPatchBatch(patch_addr, value);
-                        return ResultCode(-1);
+                        ResultCode result = ApplyPatchBatch(patch_addr, value);
+                        if (result.IsError()) {
+                            LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                            return result;
+                        }
+                        return MakeResult<bool>(false);
                     }
-                    return ResultCode(0);
+                    return MakeResult<bool>(true);
                 });
+                if (result.IsError()) {
+                    return result;
+                }
             }
         }
         return RESULT_SUCCESS;
@@ -604,13 +670,12 @@ class CROHelper {
     ResultCode ApplyModuleImport() {
         u32 import_module_num = GetField(ImportModuleNum);
         for (u32 i = 0; i < import_module_num; ++i) {
-            // TODO error check
             ImportModuleEntry entry;
             GetEntry<ImportModuleTableOffset>(i, entry);
             // TODO no GetPointer!
             char* want_cro_name = reinterpret_cast<char*>(Memory::GetPointer(entry.name_offset));
 
-            ForEachAutoLinkCRO([&](CROHelper source){
+            ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                 char* source_cro_name = reinterpret_cast<char*>(Memory::GetPointer(source.GetField(ModuleNameOffset)));
                 if (strcmp(want_cro_name, source_cro_name) == 0) {
                     LOG_INFO(Service_LDR, "Resolving symbols in %s from %s", ModuleName().data(), source.ModuleName().data());
@@ -620,20 +685,29 @@ class CROHelper {
                         IndexExportEntry ex;
                         source.GetEntry<IndexExportTableOffset>(im.index, ex);
                         u32 patch_value = source.SegmentTagToAddress(ex.segment_tag);
-                        ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        if (result.IsError()) {
+                            LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                            return result;
+                        }
                     }
                     for (u32 j = 0; j < entry.offset_import_num; ++j) {
                         OffsetImportEntry im;
                         Memory::ReadBlock(entry.offset_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
                         u32 patch_value = source.SegmentTagToAddress(im.segment_tag);
-                        ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        if (result.IsError()) {
+                            LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                            return result;
+                        }
                     }
-                    return ResultCode(-1);
+                    return MakeResult<bool>(false);
                 }
-                return ResultCode(0);
+                return MakeResult<bool>(true);
             });
-
-
+            if (result.IsError()) {
+                return result;
+            }
         }
         return RESULT_SUCCESS;
     }
@@ -642,7 +716,6 @@ class CROHelper {
         LOG_INFO(Service_LDR, "Try resolving named symbol in %s from %s", target.ModuleName().data(), ModuleName().data());
         u32 target_symbol_import_num = target.GetField(SymbolImportNum);
         for (u32 i = 0; i < target_symbol_import_num; ++i) {
-            // TODO error check
             SymbolImportEntry entry;
             target.GetEntry<SymbolImportTableOffset>(i, entry);
             VAddr patch_addr = entry.patch_batch_offset;
@@ -653,7 +726,11 @@ class CROHelper {
                 u32 patch_value = FindSymbolExport(entry.name_offset);
                 if (patch_value) {
                     LOG_INFO(Service_LDR, "Resolve symbol %s", Memory::GetPointer(entry.name_offset));
-                    target.ApplyPatchBatch(patch_addr, patch_value);
+                    ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value);
+                    if (result.IsError()) {
+                        LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                        return result;
+                    }
                 }
             }
         }
@@ -664,7 +741,6 @@ class CROHelper {
         LOG_INFO(Service_LDR, "Try resolving symbol in %s from %s", target.ModuleName().data(), ModuleName().data());
         u32 target_import_module_num = target.GetField(ImportModuleNum);
         for (u32 i = 0; i < target_import_module_num; ++i) {
-            // TODO error check
             ImportModuleEntry entry;
             target.GetEntry<ImportModuleTableOffset>(i, entry);
             // TODO no GetPointer!
@@ -680,13 +756,21 @@ class CROHelper {
                 IndexExportEntry ex;
                 GetEntry<IndexExportTableOffset>(im.index, ex);
                 u32 patch_value = SegmentTagToAddress(ex.segment_tag);
-                target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                if (result.IsError()) {
+                    LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                    return result;
+                }
             }
             for (u32 j = 0; j < entry.offset_import_num; ++j) {
                 OffsetImportEntry im;
                 Memory::ReadBlock(entry.offset_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
                 u32 patch_value = SegmentTagToAddress(im.segment_tag);
-                target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                if (result.IsError()) {
+                    LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                    return result;
+                }
             }
         }
 
@@ -829,16 +913,22 @@ public:
             return result;
         }
 
-        result = ForEachAutoLinkCRO([this](CROHelper target){
-            return ApplySymbolExport(target);
+        result = ForEachAutoLinkCRO([this](CROHelper target) -> ResultVal<bool> {
+            ResultCode result = ApplySymbolExport(target);
+            if (result.IsError())
+                return result;
+            return MakeResult<bool>(true);
         });
         if (result.IsError()) {
             LOG_ERROR(Service_LDR, "Error applying symbol export %08X", result.raw);
             return result;
         }
 
-        result = ForEachAutoLinkCRO([this](CROHelper target){
-            return ApplyModuleExport(target);
+        result = ForEachAutoLinkCRO([this](CROHelper target) -> ResultVal<bool> {
+            ResultCode result = ApplyModuleExport(target);
+            if (result.IsError())
+                return result;
+            return MakeResult<bool>(true);
         });
         if (result.IsError()) {
             LOG_ERROR(Service_LDR, "Error applying module export %08X", result.raw);
