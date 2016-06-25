@@ -37,7 +37,7 @@ class CROHelper {
 
     struct ExportTreeEntry {
         u16 segment_13_3;
-        u16 next;
+        u16 end_1_next_15; // {end:1, next:15}
         u16 next_level;
         u16 export_table_id;
     };
@@ -218,6 +218,20 @@ class CROHelper {
         return entry.offset + offset;
     }
 
+    VAddr FindSymbolExport(VAddr name) {
+        // TODO rewrite this!
+        u32 symbol_export_num = GetField(SymbolExportNum);
+        for (u32 i = 0; i < symbol_export_num; ++i) {
+            SymbolExportEntry entry;
+            GetEntry<SymbolExportTableOffset>(i, entry);
+            char* str = (char*)Memory::GetPointer(entry.name_offset);
+            char* str2 = (char*)Memory::GetPointer(name);
+            if (strcmp(str,str2) == 0)
+                return SegmentTagToAddress(entry.segment_tag);
+        }
+        return 0;
+    }
+
     ResultCode RebaseHeader(u32 cro_size) {
         u32 offset = GetField(NameOffset);
         if (offset)
@@ -393,7 +407,17 @@ class CROHelper {
     }
 
     ResultCode ApplyPatch(VAddr target_address, u8 patch_type, u32 x, u32 value, u32 addressB) {
-        // TODO
+        switch (patch_type) {
+            case 2:
+                Memory::Write32(target_address, value + x);
+                break;
+            case 3:
+                Memory::Write32(target_address, value + x - addressB);
+                break;
+            // TODO implement more types
+            default:
+                return ResultCode(0xD9012C23);
+        }
         return RESULT_SUCCESS;
     }
 
@@ -551,8 +575,135 @@ class CROHelper {
         }
     }
 
+    ResultCode ApplySymbolImport() {
+        u32 symbol_import_num = GetField(SymbolImportNum);
+        for (u32 i = 0; i < symbol_import_num; ++i) {
+            // TODO error check
+            SymbolImportEntry entry;
+            GetEntry<SymbolImportTableOffset>(i, entry);
+            VAddr patch_addr = entry.patch_batch_offset;
+            PatchEntry patch_entry;
+            Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
+
+            if (!patch_entry.batch_resolved) {
+                LOG_INFO(Service_LDR, "Try resolving \"%s\" in %s", (char*)Memory::GetPointer(entry.name_offset), ModuleName().data());
+                ForEachAutoLinkCRO([&](CROHelper source){
+                    u32 value = source.FindSymbolExport(entry.name_offset);
+                    if (value) {
+                        LOG_INFO(Service_LDR, "resolve from %s", source.ModuleName().data());
+                        ApplyPatchBatch(patch_addr, value);
+                        return ResultCode(-1);
+                    }
+                    return ResultCode(0);
+                });
+            }
+        }
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplyModuleImport() {
+        u32 import_module_num = GetField(ImportModuleNum);
+        for (u32 i = 0; i < import_module_num; ++i) {
+            // TODO error check
+            ImportModuleEntry entry;
+            GetEntry<ImportModuleTableOffset>(i, entry);
+            // TODO no GetPointer!
+            char* want_cro_name = reinterpret_cast<char*>(Memory::GetPointer(entry.name_offset));
+
+            ForEachAutoLinkCRO([&](CROHelper source){
+                char* source_cro_name = reinterpret_cast<char*>(Memory::GetPointer(source.GetField(ModuleNameOffset)));
+                if (strcmp(want_cro_name, source_cro_name) == 0) {
+                    LOG_INFO(Service_LDR, "Resolving symbols in %s from %s", ModuleName().data(), source.ModuleName().data());
+                    for (u32 j = 0; j < entry.index_import_num; ++j) {
+                        IndexImportEntry im;
+                        Memory::ReadBlock(entry.index_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
+                        IndexExportEntry ex;
+                        source.GetEntry<IndexExportTableOffset>(im.index, ex);
+                        u32 patch_value = source.SegmentTagToAddress(ex.segment_tag);
+                        ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                    }
+                    for (u32 j = 0; j < entry.offset_import_num; ++j) {
+                        OffsetImportEntry im;
+                        Memory::ReadBlock(entry.offset_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
+                        u32 patch_value = source.SegmentTagToAddress(im.segment_tag);
+                        ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                    }
+                    return ResultCode(-1);
+                }
+                return ResultCode(0);
+            });
+
+
+        }
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplySymbolExport(CROHelper target) {
+        LOG_INFO(Service_LDR, "Try resolving named symbol in %s from %s", target.ModuleName().data(), ModuleName().data());
+        u32 target_symbol_import_num = target.GetField(SymbolImportNum);
+        for (u32 i = 0; i < target_symbol_import_num; ++i) {
+            // TODO error check
+            SymbolImportEntry entry;
+            target.GetEntry<SymbolImportTableOffset>(i, entry);
+            VAddr patch_addr = entry.patch_batch_offset;
+            PatchEntry patch_entry;
+            Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
+
+            if (!patch_entry.batch_resolved) {
+                u32 patch_value = FindSymbolExport(entry.name_offset);
+                if (patch_value) {
+                    LOG_INFO(Service_LDR, "Resolve symbol %s", Memory::GetPointer(entry.name_offset));
+                    target.ApplyPatchBatch(patch_addr, patch_value);
+                }
+            }
+        }
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplyModuleExport(CROHelper target) {
+        LOG_INFO(Service_LDR, "Try resolving symbol in %s from %s", target.ModuleName().data(), ModuleName().data());
+        u32 target_import_module_num = target.GetField(ImportModuleNum);
+        for (u32 i = 0; i < target_import_module_num; ++i) {
+            // TODO error check
+            ImportModuleEntry entry;
+            target.GetEntry<ImportModuleTableOffset>(i, entry);
+            // TODO no GetPointer!
+            char* old_cro_name = reinterpret_cast<char*>(Memory::GetPointer(entry.name_offset));
+            char* new_cro_name = reinterpret_cast<char*>(Memory::GetPointer(GetField(ModuleNameOffset)));
+            if (strcmp(old_cro_name, new_cro_name) != 0)
+                continue;
+
+            LOG_INFO(Service_LDR, "Resolving...");
+            for (u32 j = 0; j < entry.index_import_num; ++j) {
+                IndexImportEntry im;
+                Memory::ReadBlock(entry.index_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
+                IndexExportEntry ex;
+                GetEntry<IndexExportTableOffset>(im.index, ex);
+                u32 patch_value = SegmentTagToAddress(ex.segment_tag);
+                target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+            }
+            for (u32 j = 0; j < entry.offset_import_num; ++j) {
+                OffsetImportEntry im;
+                Memory::ReadBlock(entry.offset_import_table_offset + j * sizeof(IndexImportEntry), &im, sizeof(IndexImportEntry));
+                u32 patch_value = SegmentTagToAddress(im.segment_tag);
+                target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+            }
+        }
+
+        return RESULT_SUCCESS;
+    }
+
 public:
     CROHelper(VAddr cro_address) : address(cro_address) {
+    }
+
+    std::string ModuleName() {
+        // FIXME
+        return std::string((char*)Memory::GetPointer(GetField(ModuleNameOffset)));
+    }
+
+    u32 GetFileSize() {
+        return GetField(FileSize);
     }
 
     ResultCode Rebase(u32 cro_size, VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size, bool is_crs = false) {
@@ -561,6 +712,8 @@ public:
             LOG_ERROR(Service_LDR, "Error rebasing header %08X", result.raw);
             return result;
         }
+
+        LOG_INFO(Service_LDR, "Load CRO %s", Memory::GetPointer(GetField(ModuleNameOffset)));
 
         // TODO verify module name
 
@@ -664,7 +817,34 @@ public:
     }
 
     ResultCode Link() {
-        // TODO
+        ResultCode result = ApplySymbolImport();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error applying symbol import %08X", result.raw);
+            return result;
+        }
+
+        result =  ApplyModuleImport();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error module symbol import %08X", result.raw);
+            return result;
+        }
+
+        result = ForEachAutoLinkCRO([this](CROHelper target){
+            return ApplySymbolExport(target);
+        });
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error applying symbol export %08X", result.raw);
+            return result;
+        }
+
+        result = ForEachAutoLinkCRO([this](CROHelper target){
+            return ApplyModuleExport(target);
+        });
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error applying module export %08X", result.raw);
+            return result;
+        }
+
         return RESULT_SUCCESS;
     }
 
@@ -975,6 +1155,7 @@ static void LoadCRO(Service::Interface* self) {
         LOG_ERROR(Service_LDR, "Error linking CRO %08X", result.raw);
         // TODO Unmap memory?
         cmd_buff[1] = result.raw;
+        UNREACHABLE();//Debug
         return;
     }
 
@@ -995,7 +1176,7 @@ static void LoadCRO(Service::Interface* self) {
  * LDR_RO::UnloadCRO service function
  *  Inputs:
  *      1 : mapped CRO pointer
- *      2 : CRO size
+ *      2 : ?
  *      3 : Original CRO pointer
  *      4 : Copy handle descriptor (zero)
  *      5 : KProcess handle
@@ -1018,7 +1199,6 @@ static void UnloadCRO(Service::Interface* self) {
     ResultCode result = cro.Unlink();
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error unlinking CRO %08X", result.raw);
-        // TODO Unmap memory?
         cmd_buff[1] = result.raw;
         return;
     }
@@ -1027,7 +1207,7 @@ static void UnloadCRO(Service::Interface* self) {
 
     cro.Unrebase();
 
-    Kernel::g_current_process->vm_manager.UnmapRange(cro_address, cro_size);
+    Kernel::g_current_process->vm_manager.UnmapRange(cro_address, cro.GetFileSize());
 
     Core::g_app_core->ClearInstructionCache();
 
