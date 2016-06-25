@@ -234,25 +234,31 @@ class CROHelper {
         return RESULT_SUCCESS;
     }
 
-    ResultCode RebaseSegmentTable(VAddr data_segment_address, u32 data_segment_size,
+    ResultCode RebaseSegmentTable(u32 cro_size,
+        VAddr data_segment_address, u32 data_segment_size,
         VAddr bss_segment_address, u32 bss_segment_size, u32& prev_data_segment) {
         prev_data_segment = 0;
         u32 segment_num = GetField(SegmentNum);
         for (u32 i = 0; i < segment_num; ++i) {
             SegmentEntry segment;
             GetEntry<SegmentTableOffset>(i, segment);
-            // TODO verify address
             if (segment.id == 2) {
                 if (segment.size) {
+                    if (segment.size > data_segment_size)
+                        return ResultCode(0xE0E12C1F);
                     prev_data_segment = segment.offset;
                     segment.offset = data_segment_address;
                 }
             } else if (segment.id == 3) {
                 if (segment.size) {
+                    if (segment.size > bss_segment_size)
+                        return ResultCode(0xE0E12C1F);
                     segment.offset = bss_segment_address;
                 }
             } else if (segment.offset) {
                 segment.offset += address;
+                if (segment.offset > address + cro_size)
+                    return ResultCode(0xD9012C19);
             }
             SetEntry<SegmentTableOffset>(i, segment);
         }
@@ -260,13 +266,19 @@ class CROHelper {
     }
 
     ResultCode RebaseSymbolExportTable() {
+        VAddr export_strings_offset = GetField(ExportStringsOffset);
+        VAddr export_strings_end = export_strings_offset + GetField(ExportStringsSize);
+
         u32 symbol_export_num = GetField(SymbolExportNum);
         for (u32 i = 0; i < symbol_export_num; ++i) {
             SymbolExportEntry entry;
             GetEntry<SymbolExportTableOffset>(i, entry);
-            // TODO verify address, should be in export strings
             if (entry.name_offset) {
                 entry.name_offset += address;
+                if (entry.name_offset < export_strings_offset
+                    || entry.name_offset >= export_strings_end) {
+                    return ResultCode(0xD9012C11);
+                }
             }
             SetEntry<SymbolExportTableOffset>(i, entry);
         }
@@ -274,58 +286,107 @@ class CROHelper {
     }
 
     ResultCode RebaseImportModuleTable() {
+        VAddr import_strings_offset = GetField(ImportStringsOffset);
+        VAddr import_strings_end = import_strings_offset + GetField(ImportStringsSize);
+        VAddr index_import_table_offset = GetField(IndexImportTableOffset);
+        VAddr index_import_table_end = index_import_table_offset + GetField(IndexImportNum) * sizeof(IndexImportEntry);
+        VAddr offset_import_table_offset = GetField(OffsetImportTableOffset);
+        VAddr offset_import_table_end = offset_import_table_offset + GetField(OffsetImportNum) * sizeof(OffsetImportEntry);
+
         u32 object_num = GetField(ImportModuleNum);
         for (u32 i = 0; i < object_num; ++i) {
             ImportModuleEntry entry;
             GetEntry<ImportModuleTableOffset>(i, entry);
-            // TODO verify address
-            if (entry.name_offset)
+            if (entry.name_offset) {
                 entry.name_offset += address;
-            if (entry.index_import_table_offset)
+                if (entry.name_offset < import_strings_offset
+                    || entry.name_offset >= import_strings_end) {
+                    return ResultCode(0xD9012C18);
+                }
+            }
+            if (entry.index_import_table_offset) {
                 entry.index_import_table_offset += address;
-            if (entry.offset_import_table_offset)
+                if (entry.index_import_table_offset < index_import_table_offset
+                    || entry.index_import_table_offset > index_import_table_end) {
+                    return ResultCode(0xD9012C18);
+                }
+            }
+            if (entry.offset_import_table_offset) {
                 entry.offset_import_table_offset += address;
+                if (entry.offset_import_table_offset < offset_import_table_offset
+                    || entry.offset_import_table_offset > offset_import_table_end) {
+                    return ResultCode(0xD9012C18);
+                }
+            }
             SetEntry<ImportModuleTableOffset>(i, entry);
         }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseSymbolImportTable() {
+        VAddr import_strings_offset = GetField(ImportStringsOffset);
+        VAddr import_strings_end = import_strings_offset + GetField(ImportStringsSize);
+        VAddr external_patch_table_offset = GetField(ExternalPatchTableOffset);
+        VAddr external_patch_table_end = external_patch_table_offset + GetField(ExternalPatchNum) * sizeof(PatchEntry);
+
         u32 num = GetField(SymbolImportNum);
         for (u32 i = 0; i < num ; ++i) {
-            // TODO verify address, patch_batch_offset should be in external patch table
             SymbolImportEntry entry;
             GetEntry<SymbolImportTableOffset>(i, entry);
-            if (entry.name_offset)
+            if (entry.name_offset) {
                 entry.name_offset += address;
-            if (entry.patch_batch_offset)
+                if (entry.name_offset < import_strings_offset
+                    || entry.name_offset >= import_strings_end) {
+                    return ResultCode(0xD9012C1B);
+                }
+            }
+            if (entry.patch_batch_offset) {
                 entry.patch_batch_offset += address;
+                if (entry.patch_batch_offset < external_patch_table_offset
+                    || entry.patch_batch_offset > external_patch_table_end) {
+                    return ResultCode(0xD9012C1B);
+                }
+            }
             SetEntry<SymbolImportTableOffset>(i, entry);
         }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseIndexImportTable() {
+        VAddr external_patch_table_offset = GetField(ExternalPatchTableOffset);
+        VAddr external_patch_table_end = external_patch_table_offset + GetField(ExternalPatchNum) * sizeof(PatchEntry);
+
         u32 num = GetField(IndexImportNum);
         for (u32 i = 0; i < num ; ++i) {
-            // TODO verify address, patch_batch_offset should be in external patch table
             IndexImportEntry entry;
             GetEntry<IndexImportTableOffset>(i, entry);
-            if (entry.patch_batch_offset)
+            if (entry.patch_batch_offset) {
                 entry.patch_batch_offset += address;
+                if (entry.patch_batch_offset < external_patch_table_offset
+                    || entry.patch_batch_offset > external_patch_table_end) {
+                    return ResultCode(0xD9012C14);
+                }
+            }
             SetEntry<IndexImportTableOffset>(i, entry);
         }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseOffsetImportTable() {
+        VAddr external_patch_table_offset = GetField(ExternalPatchTableOffset);
+        VAddr external_patch_table_end = external_patch_table_offset + GetField(ExternalPatchNum) * sizeof(PatchEntry);
+
         u32 num = GetField(OffsetImportNum);
         for (u32 i = 0; i < num ; ++i) {
-            // TODO verify address, patch_batch_offset should be in external patch table
             OffsetImportEntry entry;
             GetEntry<OffsetImportTableOffset>(i, entry);
-            if (entry.patch_batch_offset)
+            if (entry.patch_batch_offset) {
                 entry.patch_batch_offset += address;
+                if (entry.patch_batch_offset < external_patch_table_offset
+                    || entry.patch_batch_offset > external_patch_table_end) {
+                    return ResultCode(0xD9012C17);
+                }
+            }
             SetEntry<OffsetImportTableOffset>(i, entry);
         }
         return RESULT_SUCCESS;
@@ -397,13 +458,21 @@ class CROHelper {
     }
 
     ResultCode ApplyOffsetExportToCRS() {
+        VAddr static_patch_table_offset = GetField(StaticPatchTableOffset);
+        VAddr static_patch_table_end = static_patch_table_offset + GetField(StaticPatchNum) * sizeof(PatchEntry);
+
         CROHelper crs(loaded_crs);
         u32 offset_export_num = GetField(OffsetExportNum);
         for (u32 i = 0; i < offset_export_num; ++i) {
             OffsetExportEntry entry;
             GetEntry<OffsetExportTableOffset>(i, entry);
-            // TODO verify address, batch_offset should be in static patch table
             u32 batch_address = entry.patch_batch_offset + address;
+
+            if (batch_address < static_patch_table_offset
+                || batch_address > static_patch_table_end) {
+                return ResultCode(0xD9012C16);
+            }
+
             u32 patch_value = SegmentTagToAddress(entry.segment_tag);
 
             ResultCode result = crs.ApplyPatchBatch(batch_address, patch_value);
@@ -497,7 +566,7 @@ public:
 
         u32 prev_data_segment_address = 0;
         if (!is_crs) {
-            result = RebaseSegmentTable(
+            result = RebaseSegmentTable(cro_size,
                 data_segment_addresss, data_segment_size,
                 bss_segment_address, bss_segment_size,
                 prev_data_segment_address);
@@ -799,6 +868,7 @@ static void Initialize(Service::Interface* self) {
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error Loading CRS %08X", result.raw);
         cmd_buff[1] = result.raw;
+        UNREACHABLE();//Debug
         return;
     }
 
@@ -896,6 +966,7 @@ static void LoadCRO(Service::Interface* self) {
         LOG_ERROR(Service_LDR, "Error rebasing CRO %08X", result.raw);
         // TODO Unmap memory?
         cmd_buff[1] = result.raw;
+        UNREACHABLE();//Debug
         return;
     }
 
