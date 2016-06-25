@@ -28,7 +28,7 @@ class CROHelper {
 
     struct SymbolExportEntry {
         u32 name_offset;
-        u32 segment_28_4;
+        u32 segment_tag;
     };
 
     struct IndexExportEntry {
@@ -51,9 +51,18 @@ class CROHelper {
     };
 
     struct PatchEntry {
-        u32 segment_28_4;
+        u32 segment_tag;
         u8 type;
-        u8 unk;
+        u8 is_batch_end; // segment index (use for value) in InternalPatch
+        u8 batch_resolved; // set at batch begin
+        u8 unk3;
+        u32 x;
+    };
+
+    struct InternalPatchEntry {
+        u32 segment_tag;
+        u8 type;
+        u8 value_segment_index;
         u8 unk2;
         u8 unk3;
         u32 x;
@@ -61,12 +70,12 @@ class CROHelper {
 
     struct ImportEntry {
         u32 name_offset;
-        u32 symbol_offset;
+        u32 patch_batch_offset;
     };
 
     struct OffsetExportEntry {
-        u32 segment_28_4;
-        u32 patches_offset;
+        u32 segment_tag;
+        u32 patch_batch_offset;
     };
 
     enum HeaderField {
@@ -79,9 +88,9 @@ class CROHelper {
         FixedSize,
         Unk1,
         Unk2,
-        OnExit_segment_28_4,
-        OnExit_segment_28_4,
-        OnUnresolved_segment_28_4,
+        OnLoad_segment_tag,
+        OnExit_segment_tag,
+        OnUnresolved_segment_tag,
 
         CodeOffset,
         CodeSize,
@@ -169,6 +178,23 @@ class CROHelper {
         Memory::WriteBlock(GetField(field) + index * sizeof(T), &data, sizeof(T));
     }
 
+    static std::tuple<u32, u32> DecodeSegmentTag(u32 segment_tag) {
+        return std::make_tuple(segment_tag & 0xF, segment_tag >> 4);
+    }
+
+    VAddr SegmentTagToAddress(u32 segment_tag) {
+        u32 index, offset;
+        std::tie(index, offset) = DecodeSegmentTag(segment_tag);
+        u32 segment_num = GetField(SegmentNum);
+        if (index >= segment_num)
+            return 0;
+        SegmentEntry entry;
+        GetEntry<SegmentTableOffset>(index, entry);
+        if (offset >= entry.size)
+            return 0;
+        return entry.offset + offset;
+    }
+
     ResultCode RebaseHeader(u32 cro_size) {
         u32 offset = GetField(NameOffset);
         if (offset)
@@ -242,17 +268,157 @@ class CROHelper {
     }
 
     ResultCode RebaseSymbolImportTable() {
-        // TODO
+        u32 num = GetField(SymbolImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            // TODO verify address, patch_batch_offset should be in external patch table
+            ImportEntry entry;
+            GetEntry<SymbolImportTableOffset>(i, entry);
+            if (entry.name_offset)
+                entry.name_offset += address;
+            if (entry.patch_batch_offset)
+                entry.patch_batch_offset += address;
+            SetEntry<SymbolImportTableOffset>(i, entry);
+        }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseIndexImportTable() {
-        // TODO
+        u32 num = GetField(IndexImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            // TODO verify address, patch_batch_offset should be in external patch table
+            ImportEntry entry;
+            GetEntry<IndexImportTableOffset>(i, entry);
+            if (entry.patch_batch_offset)
+                entry.patch_batch_offset += address;
+            SetEntry<IndexImportTableOffset>(i, entry);
+        }
         return RESULT_SUCCESS;
     }
 
     ResultCode RebaseOffsetImportTable() {
+        u32 num = GetField(OffsetImportNum);
+        for (u32 i = 0; i < num ; ++i) {
+            // TODO verify address, patch_batch_offset should be in external patch table
+            ImportEntry entry;
+            GetEntry<OffsetImportTableOffset>(i, entry);
+            if (entry.patch_batch_offset)
+                entry.patch_batch_offset += address;
+            SetEntry<OffsetImportTableOffset>(i, entry);
+        }
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplyPatch(VAddr target_address, u8 patch_type, u32 x, u32 value, u32 addressB) {
         // TODO
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ResetAllExternalPatches() {
+        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolved_segment_tag));
+
+        bool batch_begin = true;
+        u32 external_patch_num = GetField(ExternalPatchNum);
+        for (u32 i = 0; i < external_patch_num; ++i) {
+            PatchEntry patch;
+            GetEntry<ExternalPatchTableOffset>(i, patch);
+            VAddr patch_target = SegmentTagToAddress(patch.segment_tag);
+            if (patch_target == 0) {
+                return ResultCode(0xD9012C12);
+            }
+            ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, reset_value, patch_target);
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
+                return result;
+            }
+
+            if (batch_begin) {
+                patch.batch_resolved = 0; // reset to unresolved state
+                SetEntry<ExternalPatchTableOffset>(i, patch);
+            }
+
+            batch_begin = patch.is_batch_end != 0; // current is end, next is begin
+        }
+
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplyPatchBatch(VAddr batch, u32 patch_value) {
+        if (patch_value==0)
+            return ResultCode(0xD9012C10);
+
+        VAddr patch_address = batch;
+        while (true) {
+            PatchEntry patch;
+            Memory::ReadBlock(patch_address, &patch, sizeof(PatchEntry));
+
+            VAddr patch_target = SegmentTagToAddress(patch.segment_tag);
+            if (patch_target == 0) {
+                return ResultCode(0xD9012C12);
+            }
+            ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, patch_value, patch_target);
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
+                return result;
+            }
+
+            if (patch.is_batch_end)
+                break;
+
+            patch_address += sizeof(PatchEntry);
+        }
+
+        PatchEntry patch;
+        Memory::ReadBlock(batch, &patch, sizeof(PatchEntry));
+        patch.batch_resolved = 1;
+        Memory::WriteBlock(batch, &patch, sizeof(PatchEntry));
+    }
+
+    ResultCode ApplyOffsetExportToCRS() {
+        CROHelper crs(loaded_crs);
+        u32 offset_export_num = GetField(OffsetExportNum);
+        for (u32 i = 0; i < offset_export_num; ++i) {
+            OffsetExportEntry entry;
+            GetEntry<OffsetExportTableOffset>(i, entry);
+            // TODO verify address, batch_offset should be in static patch table
+            u32 batch_address = entry.patch_batch_offset + address;
+            u32 patch_value = SegmentTagToAddress(entry.segment_tag);
+
+            ResultCode result = crs.ApplyPatchBatch(batch_address, patch_value);
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
+                return result;
+            }
+        }
+        return RESULT_SUCCESS;
+    }
+
+    ResultCode ApplyInternalPatches(u32 old_data_segment_address) {
+        u32 internal_patch_num = GetField(InternalPatchNum);
+        for (u32 i = 0; i < internal_patch_num; ++i) {
+            InternalPatchEntry patch;
+            GetEntry<InternalPatchTableOffset>(i, patch);
+            u32 target_segment_index, target_segment_offset;
+            std::tie(target_segment_index, target_segment_offset) = DecodeSegmentTag(patch.segment_tag);
+            SegmentEntry target_segment;
+            // TODO check segment index and offset
+            GetEntry<SegmentTableOffset>(target_segment_index, target_segment);
+            u32 target_address, target_addressB = target_segment.offset + target_segment_offset;
+            if (target_segment.id == 2) {
+                target_address = old_data_segment_address + target_segment_offset;
+            } else {
+                target_address = target_addressB;
+            }
+
+            SegmentEntry value_segment;
+            // TODO check segment index
+            GetEntry<SegmentTableOffset>(patch.value_segment_index, value_segment);
+
+            ResultCode result = ApplyPatch(target_address, patch.type, patch.x, value_segment.offset, target_addressB);
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
+                return result;
+            }
+        }
         return RESULT_SUCCESS;
     }
 
@@ -306,7 +472,7 @@ public:
 
         // TODO verify module name
 
-        u32 prev_data_segment_address;
+        u32 prev_data_segment_address = 0;
         if (!is_crs) {
             result = RebaseSegmentTable(
                 data_segment_addresss, data_segment_size,
@@ -317,6 +483,7 @@ public:
                 return result;
             }
         }
+        prev_data_segment_address += address;
 
         result = RebaseSymbolExportTable();
         if (result.IsError()) {
@@ -336,7 +503,11 @@ public:
 
         // TODO verify Object ? (loc_1400451C)
 
-        // TODO reset all external patches to "Unresolved" (loc_1400453C)
+        result = ResetAllExternalPatches();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error resetting all external patches %08X", result.raw);
+            return result;
+        }
 
         result = RebaseSymbolImportTable();
         if (result.IsError()) {
@@ -358,9 +529,19 @@ public:
 
         // TODO verify import strings
 
-        // TODO verify offset export table
+        if (!is_crs) {
+            result = ApplyOffsetExportToCRS();
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying offset export to CRS %08X", result.raw);
+                return result;
+            }
+        }
 
-        // TODO apply internal patch table?
+        result = ApplyInternalPatches(prev_data_segment_address);
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error applying internal patches %08X", result.raw);
+            return result;
+        }
 
         // TODO verify exit function
 
@@ -535,7 +716,7 @@ const std::array<int, 17> CROHelper::ENTRY_SIZE {{
     sizeof(ImportEntry),
     1, // import strings
     sizeof(OffsetExportEntry),
-    sizeof(PatchEntry),
+    sizeof(InternalPatchEntry),
     sizeof(PatchEntry)
 }};
 
