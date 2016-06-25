@@ -5,6 +5,7 @@ set(SRCS
             arm/dyncom/arm_dyncom_dec.cpp
             arm/dyncom/arm_dyncom_interpreter.cpp
             arm/dyncom/arm_dyncom_thumb.cpp
+            arm/dyncom/arm_dyncom_trans.cpp
             arm/skyeye_common/armstate.cpp
             arm/skyeye_common/armsupp.cpp
             arm/skyeye_common/vfp/vfp.cpp
@@ -29,6 +30,7 @@ set(SRCS
             hle/applets/mii_selector.cpp
             hle/applets/swkbd.cpp
             hle/kernel/address_arbiter.cpp
+            hle/kernel/client_port.cpp
             hle/kernel/event.cpp
             hle/kernel/kernel.cpp
             hle/kernel/memory.cpp
@@ -36,6 +38,7 @@ set(SRCS
             hle/kernel/process.cpp
             hle/kernel/resource_limit.cpp
             hle/kernel/semaphore.cpp
+            hle/kernel/server_port.cpp
             hle/kernel/session.cpp
             hle/kernel/shared_memory.cpp
             hle/kernel/thread.cpp
@@ -140,6 +143,7 @@ set(HEADERS
             arm/dyncom/arm_dyncom_interpreter.h
             arm/dyncom/arm_dyncom_run.h
             arm/dyncom/arm_dyncom_thumb.h
+            arm/dyncom/arm_dyncom_trans.h
             arm/skyeye_common/arm_regformat.h
             arm/skyeye_common/armstate.h
             arm/skyeye_common/armsupp.h
@@ -167,6 +171,7 @@ set(HEADERS
             hle/applets/mii_selector.h
             hle/applets/swkbd.h
             hle/kernel/address_arbiter.h
+            hle/kernel/client_port.h
             hle/kernel/event.h
             hle/kernel/kernel.h
             hle/kernel/memory.h
@@ -174,6 +179,7 @@ set(HEADERS
             hle/kernel/process.h
             hle/kernel/resource_limit.h
             hle/kernel/semaphore.h
+            hle/kernel/server_port.h
             hle/kernel/session.h
             hle/kernel/shared_memory.h
             hle/kernel/thread.h
