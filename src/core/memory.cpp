@@ -280,6 +280,19 @@ u8* GetPointer(const VAddr vaddr) {
     return nullptr;
 }
 
+
+std::string GetString(VAddr vaddr) {
+    std::string string;
+    while (true) {
+        char c = Read8(vaddr);
+        if (!c)
+            break;
+        string.push_back(c);
+        ++vaddr;
+    }
+    return string;
+}
+
 u8* GetPhysicalPointer(PAddr address) {
     // TODO(Subv): This call should not go through the application's memory mapping.
     return GetPointer(PhysicalToVirtualAddress(address));
