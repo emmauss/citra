@@ -735,7 +735,7 @@ class CROHelper {
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
             if (!patch_entry.batch_resolved) {
-                LOG_INFO(Service_LDR, "Try resolving \"%s\" in %s", (char*)Memory::GetPointer(entry.name_offset), ModuleName().data());
+                LOG_INFO(Service_LDR, "Try resolving \"%s\" in %s", Memory::GetString(entry.name_offset).data(), ModuleName().data());
                 ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                     u32 value = source.FindExportNamedSymbol(entry.name_offset);
                     if (value) {
@@ -769,7 +769,7 @@ class CROHelper {
             PatchEntry patch_entry;
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
-            LOG_INFO(Service_LDR, "Resetting \"%s\" in %s", (char*)Memory::GetPointer(entry.name_offset), ModuleName().data());
+            LOG_INFO(Service_LDR, "Resetting \"%s\" in %s", Memory::GetString(entry.name_offset).data(), ModuleName().data());
             ResultCode result = ApplyPatchBatch(patch_addr, reset_value, true);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error reseting patch batch %08X", result.raw);
@@ -883,7 +883,7 @@ class CROHelper {
                 u32 patch_value = FindExportNamedSymbol(entry.name_offset);
                 if (patch_value) {
                     LOG_INFO(Service_LDR, "Resolving symbol %s",
-                        Memory::GetPointer(entry.name_offset));
+                        Memory::GetString(entry.name_offset).data());
                     ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -914,7 +914,7 @@ class CROHelper {
                 if (patch_value) {
                     patch_value = reset_value;
                     LOG_INFO(Service_LDR, "Resetting symbol %s",
-                        Memory::GetPointer(entry.name_offset));
+                        Memory::GetString(entry.name_offset).data());
                     ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value, true);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -1056,6 +1056,10 @@ public:
         return GetField(FileSize);
     }
 
+    u32 GetFixedSize() {
+        return GetField(FixedSize);
+    }
+
     /// Rebases the module according to its address
     ResultCode Rebase(u32 cro_size, VAddr data_segment_addresss, u32 data_segment_size, VAddr bss_segment_address, u32 bss_segment_size, bool is_crs = false) {
         ResultCode result = RebaseHeader(cro_size);
@@ -1064,7 +1068,7 @@ public:
             return result;
         }
 
-        LOG_INFO(Service_LDR, "Load CRO %s", Memory::GetPointer(GetField(ModuleNameOffset)));
+        LOG_INFO(Service_LDR, "Load CRO %s", ModuleName().data());
 
         // TODO verify module name
 
@@ -1354,7 +1358,6 @@ public:
     }
 
     u32 Fix(int fix_level) {
-        // TODO THIS IS BROKEN!
         u32 fix_end = GetFixEnd(fix_level);
 
 
@@ -1372,7 +1375,7 @@ public:
 
         u32 fixed_size = fix_end - address;
         SetField(FixedSize, fixed_size);
-        return /*fixed_size*/GetField(FileSize); // HACK
+        return fixed_size;
     }
 };
 
@@ -1435,7 +1438,7 @@ static void Initialize(Service::Interface* self) {
 
     ResultCode result(RESULT_SUCCESS.raw);
 
-    // TODO should be memory aliasing?
+    // TODO should be memory aliasing
     std::shared_ptr<std::vector<u8>> crs_mem = std::make_shared<std::vector<u8>>(crs_size);
     Memory::ReadBlock(crs_buffer, crs_mem->data(), crs_size);
     result = Kernel::g_current_process->vm_manager.MapMemoryBlock(crs_address, crs_mem, 0, crs_size, Kernel::MemoryState::Code).Code();
@@ -1525,7 +1528,7 @@ static void LoadCRO(Service::Interface* self) {
         return;
     }
 
-    // TODO should be memory aliasing?
+    // TODO should be memory aliasing
     std::shared_ptr<std::vector<u8>> cro_mem = std::make_shared<std::vector<u8>>(cro_size);
     Memory::ReadBlock(cro_buffer, cro_mem->data(), cro_size);
     ResultCode result = Kernel::g_current_process->vm_manager.MapMemoryBlock(cro_address, cro_mem, 0, cro_size, Kernel::MemoryState::Code).Code();
@@ -1540,7 +1543,7 @@ static void LoadCRO(Service::Interface* self) {
     result = cro.Verify(cro_size, crr_address);
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error verifying CRO in CRR %08X", result.raw);
-        // TODO Unmap memory?
+        // TODO Unmap memory
         cmd_buff[1] = result.raw;
         return;
     }
@@ -1548,7 +1551,7 @@ static void LoadCRO(Service::Interface* self) {
     result = cro.Rebase(cro_size, data_segment_address, data_segment_size, bss_segment_address, bss_segment_size);
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error rebasing CRO %08X", result.raw);
-        // TODO Unmap memory?
+        // TODO Unmap memory
         cmd_buff[1] = result.raw;
         UNREACHABLE();//Debug
         return;
@@ -1557,7 +1560,7 @@ static void LoadCRO(Service::Interface* self) {
     result = cro.Link();
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error linking CRO %08X", result.raw);
-        // TODO Unmap memory?
+        // TODO Unmap memory
         cmd_buff[1] = result.raw;
         UNREACHABLE();//Debug
         return;
@@ -1567,10 +1570,26 @@ static void LoadCRO(Service::Interface* self) {
 
     u32 fix_size = cro.Fix(fix_level);
 
-    // TODO remap memory?
-    // what ro module do: commit fixed-out memory, protect segment 0, commit fixed cro?
+    // HACK because not implemented memory aliasing, and game can read
+    // from the original buffer (which we just modified in the mapped buffer).
+    Memory::WriteBlock(cro_buffer, cro_mem->data(), cro_size);
+
+    if (fix_size != cro_size) {
+        std::shared_ptr<std::vector<u8>> fixed_cro_mem = std::make_shared<std::vector<u8>>(
+            cro_mem->data(), cro_mem->data() + fix_size);
+        Kernel::g_current_process->vm_manager.UnmapRange(cro_address, cro_size);
+        ResultCode result = Kernel::g_current_process->vm_manager.MapMemoryBlock(cro_address, fixed_cro_mem, 0, fix_size, Kernel::MemoryState::Code).Code();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error remapping memory block %08X", result.raw);
+            cmd_buff[1] = result.raw;
+            return;
+        }
+    }
 
     Core::g_app_core->ClearInstructionCache();
+
+    LOG_WARNING(Service_LDR, "Loaded CRO [%s] at 0x%08X, fixed_end = 0x%08X, end = 0x%08X",
+        cro.ModuleName().data(), cro_address, cro_address+fix_size, cro_address+cro_size);
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = fix_size;
@@ -1592,10 +1611,14 @@ static void UnloadCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 cro_address = cmd_buff[1];
 
+    CROHelper cro(cro_address);
+
+    LOG_WARNING(Service_LDR, "Unloading CRO [%s] at 0x%08X", cro.ModuleName().data(), cro_address);
+
+    u32 fixed_size = cro.GetFixedSize();
+
     // TODO "Validate Something"
     // TODO loc_140033CC
-
-    CROHelper cro(cro_address);
 
     cro.Unregister();
 
@@ -1611,7 +1634,7 @@ static void UnloadCRO(Service::Interface* self) {
 
     cro.Unrebase();
 
-    Kernel::g_current_process->vm_manager.UnmapRange(cro_address, cro.GetFileSize());
+    Kernel::g_current_process->vm_manager.UnmapRange(cro_address, fixed_size);
 
     Core::g_app_core->ClearInstructionCache();
 
