@@ -560,6 +560,7 @@ class CROHelper {
         Memory::ReadBlock(batch, &patch, sizeof(PatchEntry));
         patch.batch_resolved = reset ? 0 : 1;
         Memory::WriteBlock(batch, &patch, sizeof(PatchEntry));
+        return RESULT_SUCCESS;
     }
 
     /// Applies all static anonymous symbol to the static module // TODO ???
