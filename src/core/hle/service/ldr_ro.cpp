@@ -283,6 +283,58 @@ class CROHelper {
 
     /// Rebases offsets in module header according to module address
     ResultCode RebaseHeader(u32 cro_size) {
+        ResultCode error = CROFormatError(0x11);
+
+        // verifies magic
+        if (GetField(Magic) != 0x304F5243) // CRO0
+            return error;
+
+        // verifies not registered
+        if (GetField(NextCRO) || GetField(PreviousCRO))
+            return error;
+
+        // This seems to be a hard limit set by the RO module
+        if (GetField(FileSize) > 0x10000000 || GetField(BssSize) > 0x10000000)
+            return error;
+
+        // verifies not fixed
+        if (GetField(FixedSize))
+            return error;
+
+        if (GetField(CodeOffset) < 0x138)
+            return error;
+
+        // verifies all offsets are in the correct order
+        constexpr std::array<HeaderField, 18> OFFSET_ORDER = {{
+            CodeOffset,
+            ModuleNameOffset,
+            SegmentTableOffset,
+            ExportNamedSymbolTableOffset,
+            ExportTreeTableOffset,
+            ExportIndexedSymbolTableOffset,
+            ExportStringsOffset,
+            ImportModuleTableOffset,
+            ExternalPatchTableOffset,
+            ImportNamedSymbolTableOffset,
+            ImportIndexedSymbolTableOffset,
+            ImportAnonymousSymbolTableOffset,
+            ImportStringsOffset,
+            StaticAnonymousSymbolTableOffset,
+            InternalPatchTableOffset,
+            StaticPatchTableOffset,
+            DataOffset,
+            FileSize
+        }};
+
+        u32 prev_offset = GetField(OFFSET_ORDER[0]), cur_offset;
+        for (int i = 1; i < OFFSET_ORDER.size(); ++i) {
+            cur_offset = GetField(OFFSET_ORDER[i]);
+            if (cur_offset < prev_offset)
+                return error;
+            prev_offset = cur_offset;
+        }
+
+        // rebases offsets
         u32 offset = GetField(NameOffset);
         if (offset)
             SetField(NameOffset, offset + address);
@@ -294,7 +346,15 @@ class CROHelper {
                 SetField(header_field, offset + address);
         }
 
-        // TODO Verify
+        // verifies everything is not beyond the buffer
+        u32 file_end = address + cro_size;
+        for (int field = CodeOffset, i = 0; field < Fix0Barrier; field += 2, ++i) {
+            HeaderField offset_field = static_cast<HeaderField>(field);
+            HeaderField size_field = static_cast<HeaderField>(field + 1);
+            if (GetField(offset_field) + GetField(size_field) * ENTRY_SIZE[i] > file_end)
+                return error;
+        }
+
         return RESULT_SUCCESS;
     }
 
