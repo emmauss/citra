@@ -36,11 +36,11 @@ class CROHelper {
 
     struct ExportNamedSymbollEntry {
         u32 name_offset; // pointing to a substring in ExportStrings
-        u32 segment_tag;
+        u32 symbol_segment_tag;
     };
 
     struct ExportIndexedSymbolEntry {
-        u32 segment_tag;
+        u32 symbol_segment_tag;
     };
 
     struct ExportTreeEntry {
@@ -59,7 +59,7 @@ class CROHelper {
     };
 
     struct PatchEntry { // for ExternalPatchTable and StaticPatchTable
-        u32 segment_tag; // to self's segment in ExternalPatchTable. to static module segment in StaticPatchTable?
+        u32 target_segment_tag; // to self's segment in ExternalPatchTable. to static module segment in StaticPatchTable?
         u8 type;
         u8 is_batch_end;
         u8 batch_resolved; // set at batch begin
@@ -68,7 +68,7 @@ class CROHelper {
     };
 
     struct InternalPatchEntry {
-        u32 segment_tag;
+        u32 target_segment_tag;
         u8 type;
         u8 value_segment_index;
         u8 unk2;
@@ -87,12 +87,12 @@ class CROHelper {
     };
 
     struct ImportAnonymousSymbolEntry {
-        u32 segment_tag; // to the opponent's segment
+        u32 symbol_segment_tag; // to the opponent's segment
         u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
 
     struct StaticAnonymousSymbolEntry {
-        u32 segment_tag;
+        u32 symbol_segment_tag;
         u32 patch_batch_offset; // pointing to a batch in StaticPatchTable
     };
 
@@ -104,11 +104,11 @@ class CROHelper {
         FileSize,
         BssSize,
         FixedSize,
-        Unk1,
-        Unk_segment_tag,
-        OnLoad_segment_tag,
-        OnExit_segment_tag,
-        OnUnresolved_segment_tag,
+        UnknownZero,
+        UnkSegmentTag,
+        OnLoadSegmentTag,
+        OnExitSegmentTag,
+        OnUnresolvedSegmentTag,
 
         CodeOffset,
         CodeSize,
@@ -274,7 +274,7 @@ class CROHelper {
             ExportNamedSymbollEntry entry;
             GetEntry<ExportNamedSymbolTableOffset>(i, entry);
             if (name == Memory::GetString(entry.name_offset))
-                return SegmentTagToAddress(entry.segment_tag);
+                return SegmentTagToAddress(entry.symbol_segment_tag);
         }
         return 0;
     }
@@ -496,14 +496,14 @@ class CROHelper {
 
     /// Resets all external patches to unresolved state.
     ResultCode ResetAllExternalPatches() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolved_segment_tag));
+        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         bool batch_begin = true;
         u32 external_patch_num = GetField(ExternalPatchNum);
         for (u32 i = 0; i < external_patch_num; ++i) {
             PatchEntry patch;
             GetEntry<ExternalPatchTableOffset>(i, patch);
-            VAddr patch_target = SegmentTagToAddress(patch.segment_tag);
+            VAddr patch_target = SegmentTagToAddress(patch.target_segment_tag);
             if (patch_target == 0) {
                 return ResultCode(0xD9012C12);
             }
@@ -540,7 +540,7 @@ class CROHelper {
             PatchEntry patch;
             Memory::ReadBlock(patch_address, &patch, sizeof(PatchEntry));
 
-            VAddr patch_target = SegmentTagToAddress(patch.segment_tag);
+            VAddr patch_target = SegmentTagToAddress(patch.target_segment_tag);
             if (patch_target == 0) {
                 return ResultCode(0xD9012C12);
             }
@@ -580,7 +580,7 @@ class CROHelper {
                 return ResultCode(0xD9012C16);
             }
 
-            u32 patch_value = SegmentTagToAddress(entry.segment_tag);
+            u32 patch_value = SegmentTagToAddress(entry.symbol_segment_tag);
 
             ResultCode result = crs.ApplyPatchBatch(batch_address, patch_value);
             if (result.IsError()) {
@@ -598,7 +598,7 @@ class CROHelper {
             InternalPatchEntry patch;
             GetEntry<InternalPatchTableOffset>(i, patch);
             u32 target_segment_index, target_segment_offset;
-            std::tie(target_segment_index, target_segment_offset) = DecodeSegmentTag(patch.segment_tag);
+            std::tie(target_segment_index, target_segment_offset) = DecodeSegmentTag(patch.target_segment_tag);
             SegmentEntry target_segment;
             // TODO check segment index and offset
             GetEntry<SegmentTableOffset>(target_segment_index, target_segment);
@@ -760,7 +760,7 @@ class CROHelper {
 
     /// Resets all imported named symbols of this module to unresolved state
     ResultCode ResetImportNamedSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolved_segment_tag));
+        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         u32 symbol_import_num = GetField(ImportNamedSymbolNum);
         for (u32 i = 0; i < symbol_import_num; ++i) {
@@ -783,7 +783,7 @@ class CROHelper {
 
     /// Resets all imported indexed symbols of this module to unresolved state
     ResultCode ResetImportIndexedSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolved_segment_tag));
+        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         u32 import_num = GetField(ImportIndexedSymbolNum);
         for (u32 i = 0; i < import_num; ++i) {
@@ -804,7 +804,7 @@ class CROHelper {
 
     /// Resets all imported anonymous symbols of this module to unresolved state
     ResultCode ResetImportAnonymousSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolved_segment_tag));
+        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         u32 import_num = GetField(ImportAnonymousSymbolNum);
         for (u32 i = 0; i < import_num; ++i) {
@@ -839,7 +839,7 @@ class CROHelper {
                         Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
                         ExportIndexedSymbolEntry ex;
                         source.GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
-                        u32 patch_value = source.SegmentTagToAddress(ex.segment_tag);
+                        u32 patch_value = source.SegmentTagToAddress(ex.symbol_segment_tag);
                         ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -849,7 +849,7 @@ class CROHelper {
                     for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                         ImportAnonymousSymbolEntry im;
                         Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
-                        u32 patch_value = source.SegmentTagToAddress(im.segment_tag);
+                        u32 patch_value = source.SegmentTagToAddress(im.symbol_segment_tag);
                         ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -900,7 +900,7 @@ class CROHelper {
     ResultCode ResetExportNamedSymbol(CROHelper target) {
         LOG_INFO(Service_LDR, "Try resetying named symbol in %s from %s",
             target.ModuleName().data(), ModuleName().data());
-        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolved_segment_tag));
+        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
 
         u32 target_symbol_import_num = target.GetField(ImportNamedSymbolNum);
         for (u32 i = 0; i < target_symbol_import_num; ++i) {
@@ -948,7 +948,7 @@ class CROHelper {
                 u32 patch_value;
                 ExportIndexedSymbolEntry ex;
                 GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
-                patch_value = SegmentTagToAddress(ex.segment_tag);
+                patch_value = SegmentTagToAddress(ex.symbol_segment_tag);
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -958,7 +958,7 @@ class CROHelper {
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
                 Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
-                u32 patch_value = SegmentTagToAddress(im.segment_tag);
+                u32 patch_value = SegmentTagToAddress(im.symbol_segment_tag);
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -974,7 +974,7 @@ class CROHelper {
     ResultCode ResetModuleExport(CROHelper target) {
         LOG_INFO(Service_LDR, "Try resetting symbol in %s from %s",
             target.ModuleName().data(), ModuleName().data());
-        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolved_segment_tag));
+        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
 
         std::string module_name = ModuleName();
         u32 target_import_module_num = target.GetField(ImportModuleNum);
