@@ -300,13 +300,12 @@ class CROHelper {
      * @param data_segment_size the buffer size for .data segment
      * @param bss_segment_address the buffer address for .bss segment
      * @param bss_segment_size the buffer size for .bss segment
-     * @param prev_data_segment the address of .data segment before rebasing
-     * @returns ResultCode indicating the result of the operation, 0 on success
+     * @returns ResultVal<u32> with the previous data segment offset before rebasing
      */
-    ResultCode RebaseSegmentTable(u32 cro_size,
+    ResultVal<u32> RebaseSegmentTable(u32 cro_size,
         VAddr data_segment_address, u32 data_segment_size,
-        VAddr bss_segment_address, u32 bss_segment_size, u32& prev_data_segment) {
-        prev_data_segment = 0;
+        VAddr bss_segment_address, u32 bss_segment_size) {
+        u32 prev_data_segment = 0;
         u32 segment_num = GetField(SegmentNum);
         for (u32 i = 0; i < segment_num; ++i) {
             SegmentEntry segment;
@@ -331,7 +330,7 @@ class CROHelper {
             }
             SetEntry<SegmentTableOffset>(i, segment);
         }
-        return RESULT_SUCCESS;
+        return MakeResult<u32>(prev_data_segment);
     }
 
     /// Rebases offsets in exported named symbol table according to module address
@@ -1077,14 +1076,14 @@ public:
 
         u32 prev_data_segment_address = 0;
         if (!is_crs) {
-            result = RebaseSegmentTable(cro_size,
+            auto result_val = RebaseSegmentTable(cro_size,
                 data_segment_addresss, data_segment_size,
-                bss_segment_address, bss_segment_size,
-                prev_data_segment_address);
-            if (result.IsError()) {
-                LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result.raw);
-                return result;
+                bss_segment_address, bss_segment_size);
+            if (result_val.Failed()) {
+                LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result_val.Code());
+                return result_val.Code();
             }
+            prev_data_segment_address = *result_val;
         }
         prev_data_segment_address += address;
 
