@@ -658,7 +658,7 @@ class CROHelper {
             }
 
             u32 patch_value = SegmentTagToAddress(entry.symbol_segment_tag);
-
+            LOG_TRACE(Service_LDR, "CRO \"%s\" exports 0x%08X to the static module", ModuleName().data(), patch_value);
             ResultCode result = crs.ApplyPatchBatch(batch_address, patch_value);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -698,7 +698,7 @@ class CROHelper {
 
             SegmentEntry value_segment;
             GetEntry<SegmentTableOffset>(patch.value_segment_index, value_segment);
-
+            LOG_TRACE(Service_LDR, "Internally patches 0x%08X with 0x%08X", target_address, value_segment.offset);
             ResultCode result = ApplyPatch(target_address, patch.type, patch.x, value_segment.offset, target_addressB);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
@@ -823,11 +823,12 @@ class CROHelper {
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
             if (!patch_entry.batch_resolved) {
-                LOG_INFO(Service_LDR, "Try resolving \"%s\" in %s", Memory::GetString(entry.name_offset, import_strings_size).data(), ModuleName().data());
                 ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
-                    u32 value = source.FindExportNamedSymbol(Memory::GetString(entry.name_offset, import_strings_size));
+                    std::string symbol_name = Memory::GetString(entry.name_offset, import_strings_size);
+                    u32 value = source.FindExportNamedSymbol(symbol_name);
                     if (value) {
-                        LOG_INFO(Service_LDR, "resolve from %s", source.ModuleName().data());
+                        LOG_TRACE(Service_LDR, "CRO \"%s\" imports \"%s\" from \"%s\"",
+                            ModuleName().data(), symbol_name.data(), source.ModuleName().data());
                         ResultCode result = ApplyPatchBatch(patch_addr, value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -857,7 +858,6 @@ class CROHelper {
             PatchEntry patch_entry;
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
-            LOG_INFO(Service_LDR, "Resetting \"%s\" in %s", Memory::GetString(entry.name_offset, import_strings_size).data(), ModuleName().data());
             ResultCode result = ApplyPatchBatch(patch_addr, reset_value, true);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error reseting patch batch %08X", result.raw);
@@ -921,23 +921,28 @@ class CROHelper {
 
             ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                 if (want_cro_name == source.ModuleName()) {
-                    LOG_INFO(Service_LDR, "Resolving symbols in %s from %s", ModuleName().data(), source.ModuleName().data());
+                    LOG_DEBUG(Service_LDR, "CRO \"%s\" imports indexed symbols from \"%s\"",
+                        ModuleName().data(), source.ModuleName().data());
                     for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                         ImportIndexedSymbolEntry im;
                         Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
                         ExportIndexedSymbolEntry ex;
                         source.GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
                         u32 patch_value = source.SegmentTagToAddress(ex.symbol_segment_tag);
+                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", patch_value);
                         ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                             return result;
                         }
                     }
+                    LOG_DEBUG(Service_LDR, "CRO \"%s\" imports anonymous symbols from \"%s\"",
+                        ModuleName().data(), source.ModuleName().data());
                     for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                         ImportAnonymousSymbolEntry im;
                         Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
                         u32 patch_value = source.SegmentTagToAddress(im.symbol_segment_tag);
+                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", patch_value);
                         ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -957,9 +962,9 @@ class CROHelper {
 
     /// Resolves target module's imported named symbols that exported by this module
     ResultCode ApplyExportNamedSymbol(CROHelper target) {
-        LOG_INFO(Service_LDR, "Try resolving named symbol in %s from %s",
-            target.ModuleName().data(), ModuleName().data());
-        u32 target_import_string_size = target.GetField(ImportStringsSize);
+        LOG_DEBUG(Service_LDR, "CRO \"%s\" exports named symbols to \"%s\"",
+            ModuleName().data(), target.ModuleName().data());
+        u32 target_import_strings_size = target.GetField(ImportStringsSize);
         u32 target_symbol_import_num = target.GetField(ImportNamedSymbolNum);
         for (u32 i = 0; i < target_symbol_import_num; ++i) {
             ImportNamedSymbolEntry entry;
@@ -969,10 +974,10 @@ class CROHelper {
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
             if (!patch_entry.batch_resolved) {
-                u32 patch_value = FindExportNamedSymbol(Memory::GetString(entry.name_offset, target_import_string_size));
+                std::string symbol_name = Memory::GetString(entry.name_offset, target_import_strings_size);
+                u32 patch_value = FindExportNamedSymbol(symbol_name);
                 if (patch_value) {
-                    LOG_INFO(Service_LDR, "Resolving symbol %s",
-                        Memory::GetString(entry.name_offset, target_import_string_size).data());
+                    LOG_TRACE(Service_LDR, "    exports symbol \"%s\"", symbol_name.data());
                     ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -986,8 +991,8 @@ class CROHelper {
 
     /// Reset target's named symbols imported from this module to unresolved state
     ResultCode ResetExportNamedSymbol(CROHelper target) {
-        LOG_INFO(Service_LDR, "Try resetying named symbol in %s from %s",
-            target.ModuleName().data(), ModuleName().data());
+        LOG_DEBUG(Service_LDR, "CRO \"%s\" unexports named symbols to \"%s\"",
+            ModuleName().data(), target.ModuleName().data());
         u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
         u32 target_import_strings_size = target.GetField(ImportStringsSize);
         u32 target_symbol_import_num = target.GetField(ImportNamedSymbolNum);
@@ -999,11 +1004,11 @@ class CROHelper {
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
             if (!patch_entry.batch_resolved) {
-                u32 patch_value = FindExportNamedSymbol(Memory::GetString(entry.name_offset, target_import_strings_size));
+                std::string symbol_name = Memory::GetString(entry.name_offset, target_import_strings_size);
+                u32 patch_value = FindExportNamedSymbol(symbol_name);
                 if (patch_value) {
                     patch_value = reset_value;
-                    LOG_INFO(Service_LDR, "Resetting symbol %s",
-                        Memory::GetString(entry.name_offset, target_import_strings_size).data());
+                    LOG_TRACE(Service_LDR, "    unexports symbol \"%s\"", symbol_name.data());
                     ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value, true);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -1017,9 +1022,6 @@ class CROHelper {
 
     /// Resolves imported indexed and anonymous symbols in the target module which imported this module
     ResultCode ApplyModuleExport(CROHelper target) {
-        LOG_INFO(Service_LDR, "Try resolving symbol in %s from %s",
-            target.ModuleName().data(), ModuleName().data());
-
         std::string module_name = ModuleName();
         u32 target_import_string_size = target.GetField(ImportStringsSize);
         u32 target_import_module_num = target.GetField(ImportModuleNum);
@@ -1030,7 +1032,8 @@ class CROHelper {
             if (Memory::GetString(entry.name_offset, target_import_string_size) != module_name)
                 continue;
 
-            LOG_INFO(Service_LDR, "Resolving...");
+            LOG_DEBUG(Service_LDR, "CRO \"%s\" exports indexed symbols to \"%s\"",
+                module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
                 Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
@@ -1038,16 +1041,21 @@ class CROHelper {
                 ExportIndexedSymbolEntry ex;
                 GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
                 patch_value = SegmentTagToAddress(ex.symbol_segment_tag);
+                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", patch_value);
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                     return result;
                 }
             }
+
+            LOG_DEBUG(Service_LDR, "CRO \"%s\" exports anonymous symbols to \"%s\"",
+                module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
                 Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
                 u32 patch_value = SegmentTagToAddress(im.symbol_segment_tag);
+                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", patch_value);
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -1061,8 +1069,6 @@ class CROHelper {
 
     /// Reset target's indexed and anonymous symbol imported from this module to unresolved state
     ResultCode ResetModuleExport(CROHelper target) {
-        LOG_INFO(Service_LDR, "Try resetting symbol in %s from %s",
-            target.ModuleName().data(), ModuleName().data());
         u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
 
         std::string module_name = ModuleName();
@@ -1075,7 +1081,8 @@ class CROHelper {
             if (Memory::GetString(entry.name_offset, target_import_string_size) != module_name)
                 continue;
 
-            LOG_INFO(Service_LDR, "Resetting...");
+            LOG_DEBUG(Service_LDR, "CRO \"%s\" unexports indexed symbols to \"%s\"",
+                module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
                 Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
@@ -1086,6 +1093,9 @@ class CROHelper {
                     return result;
                 }
             }
+
+            LOG_DEBUG(Service_LDR, "CRO \"%s\" unexports anonymous symbols to \"%s\"",
+                module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
                 Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
@@ -1117,7 +1127,8 @@ class CROHelper {
                 ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                     u32 value = source.FindExportNamedSymbol("nnroAeabiAtexit_");
                     if (value) {
-                        LOG_INFO(Service_LDR, "resolve from %s", source.ModuleName().data());
+                        LOG_DEBUG(Service_LDR, "CRP \"%s\" import exit function from \"%s\"",
+                            ModuleName().data(), source.ModuleName().data());
                         ResultCode result = ApplyPatchBatch(patch_addr, value);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
@@ -1159,8 +1170,6 @@ public:
             LOG_ERROR(Service_LDR, "Error rebasing header %08X", result.raw);
             return result;
         }
-
-        LOG_INFO(Service_LDR, "Load CRO %s", ModuleName().data());
 
         result = VerifyString(GetField(ModuleNameOffset), GetField(ModuleNameSize));
         if (result.IsError()) {
@@ -1563,8 +1572,8 @@ static void Initialize(Service::Interface* self) {
     u32 crs_size      = cmd_buff[2];
     VAddr crs_address = cmd_buff[3];
 
-    LOG_WARNING(Service_LDR, "(STUBBED) called. crs_adress=0x%08X, crs_size=0x%08X, address=0x%08X",
-                crs_buffer, crs_size, crs_address);
+    LOG_WARNING(Service_LDR, "called. loading CRS from 0x%08X to 0x%08X, size = 0x%X",
+                crs_buffer, crs_address, crs_size);
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 
@@ -1606,8 +1615,8 @@ static void Initialize(Service::Interface* self) {
 /**
  * LDR_RO::LoadCRR service function
  *  Inputs:
- *      1 : CRS buffer pointer
- *      2 : CRS Size
+ *      1 : CRR buffer pointer
+ *      2 : CRR Size
  *      3 : Copy handle descriptor (zero)
  *      4 : KProcess handle
  *  Outputs:
@@ -1636,7 +1645,23 @@ static void LoadCRR(Service::Interface* self) {
 /**
  * LDR_RO::LoadCRO service function
  *  Inputs:
- *      WTF
+ *      1 : CRO buffer pointer
+ *      2 : CRO Size
+ *      3 : Process memory address where the CRO will be mapped
+ *      4 : .data segment buffer pointer
+ *      5 : must be zero
+ *      6 : .data segment buffer size
+ *      7 : .bss segment buffer pointer
+ *      8 : .bss segment buffer size
+ *      9 : (bool) register CRO as auto-link module
+ *     10 : fix level
+ *     11 : CRR address
+ *     12 : Copy handle descriptor (zero)
+ *     13 : KProcess handle
+ *  Outputs:
+ *      0 : Return header
+ *      1 : Result of function, 0 on success, otherwise error code
+ *      2 : CRO fixed size
  */
 template <bool link_on_load_bug_fix>
 static void LoadCRO(Service::Interface* self) {
@@ -1652,6 +1677,14 @@ static void LoadCRO(Service::Interface* self) {
     bool auto_link = (cmd_buff[9] & 0xFF) != 0;
     u32 fix_level = cmd_buff[10];
     VAddr crr_address = cmd_buff[11];
+
+    LOG_WARNING(Service_LDR, "called, loading CRO from 0x%08X to 0x%08X, size = 0x%X, "
+        "data_segment = 0x%08X, data_size = 0x%X, bss_segment = 0x%08X, bss_size = 0x%X, "
+        "auto_link = %s, fix_level = %d, crr = 0x%08X",
+        cro_buffer, cro_address, cro_size,
+        data_segment_address, data_segment_size, bss_segment_address, bss_segment_size,
+        auto_link ? "true" : "false", fix_level, crr_address
+        );
 
     cmd_buff[0] = IPC::MakeHeader(1, 2, 0);
 
@@ -1728,8 +1761,9 @@ static void LoadCRO(Service::Interface* self) {
 
     Core::g_app_core->ClearInstructionCache();
 
-    LOG_WARNING(Service_LDR, "Loaded CRO [%s] at 0x%08X, fixed_end = 0x%08X, end = 0x%08X",
-        cro.ModuleName().data(), cro_address, cro_address+fix_size, cro_address+cro_size);
+    LOG_INFO(Service_LDR, "CRO \"%s\" loaded at 0x%08X, fixed_end = 0x%08X",
+        cro.ModuleName().data(), cro_address, cro_address+fix_size
+        );
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = fix_size;
@@ -1753,7 +1787,7 @@ static void UnloadCRO(Service::Interface* self) {
 
     CROHelper cro(cro_address);
 
-    LOG_WARNING(Service_LDR, "Unloading CRO [%s] at 0x%08X", cro.ModuleName().data(), cro_address);
+    LOG_WARNING(Service_LDR, "Unloading CRO \"%s\" at 0x%08X", cro.ModuleName().data(), cro_address);
 
     u32 fixed_size = cro.GetFixedSize();
 
@@ -1793,10 +1827,13 @@ static void UnloadCRO(Service::Interface* self) {
  */
 static void LinkCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
-    u32 cro = cmd_buff[1];
+    u32 cro_address = cmd_buff[1];
+
+    CROHelper cro(cro_address);
+    LOG_WARNING(Service_LDR, "Linking CRO \"%s\"", cro.ModuleName().data());
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
-    cmd_buff[1] = CROHelper(cro).Link(false).raw;
+    cmd_buff[1] = cro.Link(false).raw;
 }
 
 /**
@@ -1811,12 +1848,15 @@ static void LinkCRO(Service::Interface* self) {
  */
 static void UnlinkCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
-    u32 cro = cmd_buff[1];
+    u32 cro_address = cmd_buff[1];
+
+    CROHelper cro(cro_address);
+    LOG_WARNING(Service_LDR, "Unlinking CRO \"%s\"", cro.ModuleName().data());
 
     // TODO "Validate Something"
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
-    cmd_buff[1] = CROHelper(cro).Unlink().raw;
+    cmd_buff[1] = cro.Unlink().raw;
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
