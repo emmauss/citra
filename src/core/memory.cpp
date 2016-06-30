@@ -281,9 +281,9 @@ u8* GetPointer(const VAddr vaddr) {
 }
 
 
-std::string GetString(VAddr vaddr) {
+std::string GetString(VAddr vaddr, u32 max_length) {
     std::string string;
-    while (true) {
+    for (u32 i = 0; i < max_length; ++i) {
         char c = Read8(vaddr);
         if (!c)
             break;
