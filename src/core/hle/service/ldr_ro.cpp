@@ -18,6 +18,10 @@ namespace LDR_RO {
 
 static VAddr loaded_crs; ///< the virtual address of the static module
 
+static ResultCode CROFormatError(u32 description) {
+    return ResultCode((ErrorDescription)description, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
+}
+
 class CROHelper {
     const VAddr address; ///< the virtual address of this module
 
@@ -293,6 +297,16 @@ class CROHelper {
         return RESULT_SUCCESS;
     }
 
+    /// Verify a string to be terminate by 0
+    static ResultCode VerifyString(VAddr address, u32 size) {
+        if (size) {
+            if (Memory::Read8(address + size - 1) != 0)
+                return CROFormatError(0x0B);
+        }
+        return RESULT_SUCCESS;
+    }
+
+
     /**
      * Rebases offsets in segment table according to module address.
      * @param cro_size the size of the CRO file
@@ -326,7 +340,7 @@ class CROHelper {
             } else if (segment.offset) {
                 segment.offset += address;
                 if (segment.offset > address + cro_size)
-                    return ResultCode(0xD9012C19);
+                    return CROFormatError(0x19);
             }
             SetEntry<SegmentTableOffset>(i, segment);
         }
@@ -346,7 +360,7 @@ class CROHelper {
                 entry.name_offset += address;
                 if (entry.name_offset < export_strings_offset
                     || entry.name_offset >= export_strings_end) {
-                    return ResultCode(0xD9012C11);
+                    return CROFormatError(0x11);
                 }
             }
             SetEntry<ExportNamedSymbolTableOffset>(i, entry);
@@ -371,21 +385,21 @@ class CROHelper {
                 entry.name_offset += address;
                 if (entry.name_offset < import_strings_offset
                     || entry.name_offset >= import_strings_end) {
-                    return ResultCode(0xD9012C18);
+                    return CROFormatError(0x18);
                 }
             }
             if (entry.import_indexed_symbol_table_offset) {
                 entry.import_indexed_symbol_table_offset += address;
                 if (entry.import_indexed_symbol_table_offset < import_indexed_symbol_table_offset
                     || entry.import_indexed_symbol_table_offset > index_import_table_end) {
-                    return ResultCode(0xD9012C18);
+                    return CROFormatError(0x18);
                 }
             }
             if (entry.import_anonymous_symbol_table_offset) {
                 entry.import_anonymous_symbol_table_offset += address;
                 if (entry.import_anonymous_symbol_table_offset < import_anonymous_symbol_table_offset
                     || entry.import_anonymous_symbol_table_offset > offset_import_table_end) {
-                    return ResultCode(0xD9012C18);
+                    return CROFormatError(0x18);
                 }
             }
             SetEntry<ImportModuleTableOffset>(i, entry);
@@ -408,14 +422,14 @@ class CROHelper {
                 entry.name_offset += address;
                 if (entry.name_offset < import_strings_offset
                     || entry.name_offset >= import_strings_end) {
-                    return ResultCode(0xD9012C1B);
+                    return CROFormatError(0x1B);
                 }
             }
             if (entry.patch_batch_offset) {
                 entry.patch_batch_offset += address;
                 if (entry.patch_batch_offset < external_patch_table_offset
                     || entry.patch_batch_offset > external_patch_table_end) {
-                    return ResultCode(0xD9012C1B);
+                    return CROFormatError(0x1B);
                 }
             }
             SetEntry<ImportNamedSymbolTableOffset>(i, entry);
@@ -436,7 +450,7 @@ class CROHelper {
                 entry.patch_batch_offset += address;
                 if (entry.patch_batch_offset < external_patch_table_offset
                     || entry.patch_batch_offset > external_patch_table_end) {
-                    return ResultCode(0xD9012C14);
+                    return CROFormatError(0x14);
                 }
             }
             SetEntry<ImportIndexedSymbolTableOffset>(i, entry);
@@ -457,7 +471,7 @@ class CROHelper {
                 entry.patch_batch_offset += address;
                 if (entry.patch_batch_offset < external_patch_table_offset
                     || entry.patch_batch_offset > external_patch_table_end) {
-                    return ResultCode(0xD9012C17);
+                    return CROFormatError(0x17);
                 }
             }
             SetEntry<ImportAnonymousSymbolTableOffset>(i, entry);
@@ -485,7 +499,7 @@ class CROHelper {
                 break;
             // TODO implement more types
             default:
-                return ResultCode(0xD9012C23);
+                return CROFormatError(0x23);
         }
         return RESULT_SUCCESS;
     }
@@ -493,15 +507,21 @@ class CROHelper {
     /// Resets all external patches to unresolved state.
     ResultCode ResetAllExternalPatches() {
         u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
+        u32 external_patch_num = GetField(ExternalPatchNum);
+        PatchEntry patch;
+
+        // verify that the last patch is the end of a batch
+        GetEntry<ExternalPatchTableOffset>(external_patch_num - 1, patch);
+        if (!patch.is_batch_end) {
+            return CROFormatError(0x12);
+        }
 
         bool batch_begin = true;
-        u32 external_patch_num = GetField(ExternalPatchNum);
         for (u32 i = 0; i < external_patch_num; ++i) {
-            PatchEntry patch;
             GetEntry<ExternalPatchTableOffset>(i, patch);
             VAddr patch_target = SegmentTagToAddress(patch.target_segment_tag);
             if (patch_target == 0) {
-                return ResultCode(0xD9012C12);
+                return CROFormatError(0x12);
             }
             ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, reset_value, patch_target);
             if (result.IsError()) {
@@ -529,7 +549,7 @@ class CROHelper {
      */
     ResultCode ApplyPatchBatch(VAddr batch, u32 patch_value, bool reset = false) {
         if (patch_value == 0 && !reset)
-            return ResultCode(0xD9012C10);
+            return CROFormatError(0x10);
 
         VAddr patch_address = batch;
         while (true) {
@@ -538,7 +558,7 @@ class CROHelper {
 
             VAddr patch_target = SegmentTagToAddress(patch.target_segment_tag);
             if (patch_target == 0) {
-                return ResultCode(0xD9012C12);
+                return CROFormatError(0x12);
             }
             ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, patch_value, patch_target);
             if (result.IsError()) {
@@ -573,7 +593,7 @@ class CROHelper {
 
             if (batch_address < static_patch_table_offset
                 || batch_address > static_patch_table_end) {
-                return ResultCode(0xD9012C16);
+                return CROFormatError(0x16);
             }
 
             u32 patch_value = SegmentTagToAddress(entry.symbol_segment_tag);
@@ -589,24 +609,33 @@ class CROHelper {
 
     /// Applies all internal patches to the module itself
     ResultCode ApplyInternalPatches(u32 old_data_segment_address) {
+        u32 segment_num = GetField(SegmentNum);
         u32 internal_patch_num = GetField(InternalPatchNum);
         for (u32 i = 0; i < internal_patch_num; ++i) {
             InternalPatchEntry patch;
             GetEntry<InternalPatchTableOffset>(i, patch);
+            VAddr target_addressB = SegmentTagToAddress(patch.target_segment_tag);
+            if (target_addressB == 0) {
+                return CROFormatError(0x15);
+            }
+
+            VAddr target_address;
             u32 target_segment_index, target_segment_offset;
             std::tie(target_segment_index, target_segment_offset) = DecodeSegmentTag(patch.target_segment_tag);
             SegmentEntry target_segment;
-            // TODO check segment index and offset
             GetEntry<SegmentTableOffset>(target_segment_index, target_segment);
-            u32 target_address, target_addressB = target_segment.offset + target_segment_offset;
             if (target_segment.type == SegmentType::Data) {
+                // If the patch is to the .data segment, we need to patch it in the old buffer
                 target_address = old_data_segment_address + target_segment_offset;
             } else {
                 target_address = target_addressB;
             }
 
+            if (patch.value_segment_index >= segment_num) {
+                return CROFormatError(0x15);
+            }
+
             SegmentEntry value_segment;
-            // TODO check segment index
             GetEntry<SegmentTableOffset>(patch.value_segment_index, value_segment);
 
             ResultCode result = ApplyPatch(target_address, patch.type, patch.x, value_segment.offset, target_addressB);
@@ -1072,7 +1101,11 @@ public:
 
         LOG_INFO(Service_LDR, "Load CRO %s", ModuleName().data());
 
-        // TODO verify module name
+        result = VerifyString(GetField(ModuleNameOffset), GetField(ModuleNameSize));
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error verifying module name %08X", result.raw);
+            return result;
+        }
 
         u32 prev_data_segment_address = 0;
         if (!is_crs) {
@@ -1080,7 +1113,7 @@ public:
                 data_segment_addresss, data_segment_size,
                 bss_segment_address, bss_segment_size);
             if (result_val.Failed()) {
-                LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result_val.Code());
+                LOG_ERROR(Service_LDR, "Error rebasing segment table %08X", result_val.Code().raw);
                 return result_val.Code();
             }
             prev_data_segment_address = *result_val;
@@ -1095,15 +1128,17 @@ public:
 
         // TODO verify export tree
 
-        // TODO verify export strings
+        result = VerifyString(GetField(ExportStringsOffset), GetField(ExportStringsSize));
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error verifying export strings %08X", result.raw);
+            return result;
+        }
 
         result = RebaseImportModuleTable();
         if (result.IsError()) {
             LOG_ERROR(Service_LDR, "Error rebasing object table %08X", result.raw);
             return result;
         }
-
-        // TODO verify external patch
 
         result = ResetAllExternalPatches();
         if (result.IsError()) {
@@ -1129,7 +1164,11 @@ public:
             return result;
         }
 
-        // TODO verify import strings
+        result = VerifyString(GetField(ImportStringsOffset), GetField(ImportStringsSize));
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error verifying import strings %08X", result.raw);
+            return result;
+        }
 
         if (!is_crs) {
             result = ApplyStaticAnonymousSymbolToCRS();
