@@ -5,6 +5,7 @@
 #include "common/alignment.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
+#include "common/scope_exit.h"
 
 #include "core/arm/arm_interface.h"
 #include "core/hle/kernel/process.h"
@@ -1221,20 +1222,57 @@ public:
     }
 
     /// Links this module with all registered auto-link module
-    ResultCode Link() {
+    ResultCode Link(bool link_on_load_bug_fix) {
+        ResultCode result = RESULT_SUCCESS;
 
-        // Imports named symbols from other modules
-        ResultCode result = ApplyImportNamedSymbol();
-        if (result.IsError()) {
-            LOG_ERROR(Service_LDR, "Error applying symbol import %08X", result.raw);
-            return result;
-        }
+        {
+            VAddr data_segment_address;
+            if (link_on_load_bug_fix) {
+                // this is a bug fix introduced by 7.2.0-17's LoadCRO_New
+                // The bug itself is:
+                // If a patch target is in .data segment, it will patch to the
+                // user-specified buffer. But if this is linking during loading,
+                // the .data segment hasn't been tranfer from CRO to the buffer,
+                // thus the patch will be overwritten by data transfer.
+                // To fix this bug, we need temporarily restore the old .data segment
+                // offset and apply imported symbols.
 
-        // Imports indexed and anonymous symbols from other modules
-        result =  ApplyModuleImport();
-        if (result.IsError()) {
-            LOG_ERROR(Service_LDR, "Error applying module import %08X", result.raw);
-            return result;
+                // RO service seems assuming segment_index == segment_type,
+                // so we do the same
+                if (GetField(SegmentNum) >= 2) { // means we have .data segment
+                    SegmentEntry entry;
+                    GetEntry<SegmentTableOffset>(2, entry);
+                    ASSERT(entry.type == SegmentType::Data);
+                    data_segment_address = entry.offset;
+                    entry.offset = GetField(DataOffset);
+                    SetEntry<SegmentTableOffset>(2, entry);
+                }
+            }
+            SCOPE_EXIT({
+                // restore the new .data segment address after importing
+                if (link_on_load_bug_fix) {
+                    if (GetField(SegmentNum) >= 2) {
+                        SegmentEntry entry;
+                        GetEntry<SegmentTableOffset>(2, entry);
+                        entry.offset = data_segment_address;
+                        SetEntry<SegmentTableOffset>(2, entry);
+                    }
+                }
+            });
+
+            // Imports named symbols from other modules
+            result = ApplyImportNamedSymbol();
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying symbol import %08X", result.raw);
+                return result;
+            }
+
+            // Imports indexed and anonymous symbols from other modules
+            result =  ApplyModuleImport();
+            if (result.IsError()) {
+                LOG_ERROR(Service_LDR, "Error applying module import %08X", result.raw);
+                return result;
+            }
         }
 
         // Exports symbols to other modules
@@ -1540,6 +1578,7 @@ static void LoadCRR(Service::Interface* self) {
  *  Inputs:
  *      WTF
  */
+template <bool link_on_load_bug_fix>
 static void LoadCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     VAddr cro_buffer  = cmd_buff[1];
@@ -1598,7 +1637,7 @@ static void LoadCRO(Service::Interface* self) {
         return;
     }
 
-    result = cro.Link();
+    result = cro.Link(link_on_load_bug_fix);
     if (result.IsError()) {
         LOG_ERROR(Service_LDR, "Error linking CRO %08X", result.raw);
         // TODO Unmap memory
@@ -1697,7 +1736,7 @@ static void LinkCRO(Service::Interface* self) {
     u32 cro = cmd_buff[1];
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
-    cmd_buff[1] = CROHelper(cro).Link().raw;
+    cmd_buff[1] = CROHelper(cro).Link(false).raw;
 }
 
 /**
@@ -1724,12 +1763,12 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x000100C2, Initialize,            "Initialize"},
     {0x00020082, LoadCRR,               "LoadCRR"},
     {0x00030042, nullptr,               "UnloadCCR"},
-    {0x000402C2, LoadCRO,               "LoadCRO"},
+    {0x000402C2, LoadCRO<false>,        "LoadCRO"},
     {0x000500C2, UnloadCRO,             "UnloadCRO"},
     {0x00060042, LinkCRO,               "LinkCRO"},
     {0x00070042, UnlinkCRO,             "UnlinkCRO"},
     {0x00080042, nullptr,               "Shutdown"},
-    {0x000902C2, nullptr,               "LoadCRO_New"},
+    {0x000902C2, LoadCRO<true>,         "LoadCRO_New"},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
