@@ -20,25 +20,35 @@ namespace LDR_RO {
 static VAddr loaded_crs; ///< the virtual address of the static module
 
 static ResultCode CROFormatError(u32 description) {
-    return ResultCode((ErrorDescription)description, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
+    return ResultCode(static_cast<ErrorDescription>(description), ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
 }
 
-static const ResultCode ERROR_ALREADY_INITIALIZED = ResultCode(ErrorDescription::AlreadyInitialized, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Permanent);
-static const ResultCode ERROR_NOT_INITIALIZED = ResultCode(ErrorDescription::NotInitialized, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Permanent);
-static const ResultCode ERROR_BUFFER_TOO_SMALL = ResultCode((ErrorDescription)31, ErrorModule::RO_1, ErrorSummary::InvalidArgument, ErrorLevel::Usage);
-static const ResultCode ERROR_MISALIGNED_ADDRESS = ResultCode(ErrorDescription::MisalignedAddress, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
-static const ResultCode ERROR_MISALIGNED_SIZE = ResultCode(ErrorDescription::MisalignedSize, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
-static const ResultCode ERROR_ILLEGAL_ADDRESS = ResultCode((ErrorDescription)15, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Usage);
-static const ResultCode ERROR_INVALID_CRO = ResultCode((ErrorDescription)13, ErrorModule::RO_1, ErrorSummary::InvalidState, ErrorLevel::Permanent);
+static const ResultCode ERROR_ALREADY_INITIALIZED =
+    ResultCode(ErrorDescription::AlreadyInitialized, ErrorModule::RO_1, ErrorSummary::Internal,        ErrorLevel::Permanent);
+static const ResultCode ERROR_NOT_INITIALIZED =
+    ResultCode(ErrorDescription::NotInitialized,     ErrorModule::RO_1, ErrorSummary::Internal,        ErrorLevel::Permanent);
+static const ResultCode ERROR_BUFFER_TOO_SMALL =
+    ResultCode(static_cast<ErrorDescription>(31),    ErrorModule::RO_1, ErrorSummary::InvalidArgument, ErrorLevel::Usage);
+static const ResultCode ERROR_MISALIGNED_ADDRESS =
+    ResultCode(ErrorDescription::MisalignedAddress,  ErrorModule::RO_1, ErrorSummary::WrongArgument,   ErrorLevel::Permanent);
+static const ResultCode ERROR_MISALIGNED_SIZE =
+    ResultCode(ErrorDescription::MisalignedSize,     ErrorModule::RO_1, ErrorSummary::WrongArgument,   ErrorLevel::Permanent);
+static const ResultCode ERROR_ILLEGAL_ADDRESS =
+    ResultCode(static_cast<ErrorDescription>(15),    ErrorModule::RO_1, ErrorSummary::Internal,        ErrorLevel::Usage);
+static const ResultCode ERROR_INVALID_CRO =
+    ResultCode(static_cast<ErrorDescription>(13),    ErrorModule::RO_1, ErrorSummary::InvalidState,    ErrorLevel::Permanent);
+
+static const u32 CRO_HEADER_SIZE = 0x138;
+static const u32 CRO_HASH_SIZE = 0x80;
 
 class CROHelper {
     const VAddr address; ///< the virtual address of this module
 
     enum class SegmentType : u32 {
-        Text = 0,
+        Text   = 0,
         ROData = 1,
-        Data = 2,
-        BSS = 3,
+        Data   = 2,
+        BSS    = 3,
     };
 
     struct SegmentEntry {
@@ -46,15 +56,18 @@ class CROHelper {
         u32 size;
         SegmentType type;
     };
+    static_assert(sizeof(SegmentEntry) == 12, "SegmentEntry has wrong size");
 
     struct ExportNamedSymbolEntry {
         u32 name_offset; // pointing to a substring in ExportStrings
         u32 symbol_segment_tag;
     };
+    static_assert(sizeof(ExportNamedSymbolEntry) == 8, "ExportNamedSymbolEntry has wrong size");
 
     struct ExportIndexedSymbolEntry {
         u32 symbol_segment_tag;
     };
+    static_assert(sizeof(ExportIndexedSymbolEntry) == 4, "ExportIndexedSymbolEntry has wrong size");
 
     struct ExportTreeEntry {
         u16 test_bit; // bit sddress into the name to test
@@ -62,21 +75,25 @@ class CROHelper {
         u16 right; // the highest bit indicates whether the next entry is the last one
         u16 export_table_id;
     };
+    static_assert(sizeof(ExportTreeEntry) == 8, "ExportTreeEntry has wrong size");
 
     struct ImportNamedSymbolEntry {
         u32 name_offset; // pointing to a substring in ImportStrings
         u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
+    static_assert(sizeof(ImportNamedSymbolEntry) == 8, "ImportNamedSymbolEntry has wrong size");
 
     struct ImportIndexedSymbolEntry {
         u32 index; // index in opponent's ExportIndexedSymbolEntry
         u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
+    static_assert(sizeof(ImportIndexedSymbolEntry) == 8, "ImportIndexedSymbolEntry has wrong size");
 
     struct ImportAnonymousSymbolEntry {
         u32 symbol_segment_tag; // to the opponent's segment
         u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
+    static_assert(sizeof(ImportAnonymousSymbolEntry) == 8, "ImportAnonymousSymbolEntry has wrong size");
 
     struct ImportModuleEntry {
         u32 name_offset; // pointing to a substring in ImporStrings
@@ -95,6 +112,7 @@ class CROHelper {
                 &entry, sizeof(ImportAnonymousSymbolEntry));
         }
     };
+    static_assert(sizeof(ImportModuleEntry) == 20, "ImportModuleEntry has wrong size");
 
     struct PatchEntry { // for ExternalPatchTable and StaticPatchTable
         u32 target_segment_tag; // to self's segment in ExternalPatchTable. to static module segment in StaticPatchTable?
@@ -104,6 +122,7 @@ class CROHelper {
         u8 unk3;
         u32 shift;
     };
+    static_assert(sizeof(PatchEntry) == 12, "PatchEntry has wrong size");
 
     struct InternalPatchEntry {
         u32 target_segment_tag;
@@ -113,11 +132,13 @@ class CROHelper {
         u8 unk3;
         u32 shift;
     };
+    static_assert(sizeof(InternalPatchEntry) == 12, "InternalPatchEntry has wrong size");
 
     struct StaticAnonymousSymbolEntry {
         u32 symbol_segment_tag;
         u32 patch_batch_offset; // pointing to a batch in StaticPatchTable
     };
+    static_assert(sizeof(StaticAnonymousSymbolEntry) == 8, "StaticAnonymousSymbolEntry has wrong size");
 
     enum HeaderField {
         Magic = 0,
@@ -176,7 +197,7 @@ class CROHelper {
         Fix2Barrier = ImportModuleTableOffset,
         Fix1Barrier = StaticAnonymousSymbolTableOffset,
     };
-    static_assert(Fix0Barrier == (0x138 - 0x80) / 4, "CRO Header fields are wrong!");
+    static_assert(Fix0Barrier == (CRO_HEADER_SIZE - CRO_HASH_SIZE) / 4, "CRO Header fields are wrong!");
 
     static const std::array<int, 17> ENTRY_SIZE;
     static const std::array<HeaderField, 4> FIX_BARRIERS;
@@ -185,7 +206,7 @@ class CROHelper {
     static const u32 MAGIC_FIXD;
 
     VAddr Field(HeaderField field) {
-        return address + 0x80 + field * 4;
+        return address + CRO_HASH_SIZE + field * 4;
     }
 
     u32 GetField(HeaderField field) {
@@ -221,7 +242,7 @@ class CROHelper {
      * @returns ResultCode indicating the result of the operation, 0 if all iteration success,
      *         otherwise error code of the last iteration.
      */
-    template <typename T> // [](CROHelper cro)->ResultVal<bool>
+    template <typename T>
     static ResultCode ForEachAutoLinkCRO(T func) {
         VAddr current = loaded_crs;
         while (current) {
@@ -346,7 +367,7 @@ class CROHelper {
         if (GetField(FixedSize))
             return error;
 
-        if (GetField(CodeOffset) < 0x138)
+        if (GetField(CodeOffset) < CRO_HEADER_SIZE)
             return error;
 
         // verifies all offsets are in the correct order
@@ -1545,7 +1566,7 @@ public:
     }
 
     u32 GetFixEnd(int fix_level) {
-        u32 end = 0x138;
+        u32 end = CRO_HEADER_SIZE;
         end = std::max<u32>(end, GetField(CodeOffset) + GetField(CodeSize));
 
         u32 entry_size_i = 2;
@@ -1584,7 +1605,7 @@ public:
         return fixed_size;
     }
 
-    bool Verify() {
+    bool IsLoaded() {
         u32 magic = GetField(Magic);
         if (magic != MAGIC_CRO0 && magic != MAGIC_FIXD)
             return false;
@@ -1654,7 +1675,7 @@ static void Initialize(Service::Interface* self) {
         return;
     }
 
-    if (crs_size < 0x138) {
+    if (crs_size < CRO_HEADER_SIZE) {
         LOG_ERROR(Service_LDR, "CRS is too small");
         cmd_buff[1] = ERROR_BUFFER_TOO_SMALL.raw;
         return;
@@ -1768,17 +1789,17 @@ static void LoadCRR(Service::Interface* self) {
 template <bool link_on_load_bug_fix>
 static void LoadCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
-    VAddr cro_buffer  = cmd_buff[1];
-    VAddr cro_address = cmd_buff[2];
-    u32 cro_size      = cmd_buff[3];
+    VAddr cro_buffer           = cmd_buff[1];
+    VAddr cro_address          = cmd_buff[2];
+    u32 cro_size               = cmd_buff[3];
     VAddr data_segment_address = cmd_buff[4];
-    u32 zero = cmd_buff[5];
-    u32 data_segment_size = cmd_buff[6];
-    u32 bss_segment_address = cmd_buff[7];
-    u32 bss_segment_size = cmd_buff[8];
-    bool auto_link = (cmd_buff[9] & 0xFF) != 0;
-    u32 fix_level = cmd_buff[10];
-    VAddr crr_address = cmd_buff[11];
+    u32 zero                   = cmd_buff[5];
+    u32 data_segment_size      = cmd_buff[6];
+    u32 bss_segment_address    = cmd_buff[7];
+    u32 bss_segment_size       = cmd_buff[8];
+    bool auto_link             = (cmd_buff[9] & 0xFF) != 0;
+    u32 fix_level              = cmd_buff[10];
+    VAddr crr_address          = cmd_buff[11];
 
     LOG_WARNING(Service_LDR, "called, loading CRO from 0x%08X to 0x%08X, size = 0x%X, "
         "data_segment = 0x%08X, data_size = 0x%X, bss_segment = 0x%08X, bss_size = 0x%X, "
@@ -1796,7 +1817,7 @@ static void LoadCRO(Service::Interface* self) {
         return;
     }
 
-    if (cro_size < 0x138) {
+    if (cro_size < CRO_HEADER_SIZE) {
         LOG_ERROR(Service_LDR, "CRO too small");
         cmd_buff[1] = ERROR_BUFFER_TOO_SMALL.raw;
         return;
@@ -1938,8 +1959,8 @@ static void UnloadCRO(Service::Interface* self) {
         return;
     }
 
-    if (!cro.Verify()) {
-        LOG_ERROR(Service_LDR, "Invalid CRO");
+    if (!cro.IsLoaded()) {
+        LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
         cmd_buff[1] = ERROR_INVALID_CRO.raw;
         return;
     }
@@ -1963,9 +1984,14 @@ static void UnloadCRO(Service::Interface* self) {
 
     cro.Unrebase();
 
-    Kernel::g_current_process->vm_manager.UnmapRange(cro_address, fixed_size);
-
     Core::g_app_core->ClearInstructionCache();
+
+    result = Kernel::g_current_process->vm_manager.UnmapRange(cro_address, fixed_size);
+    if (result.IsError()) {
+        LOG_ERROR(Service_LDR, "Error unmapping CRO %08X", result.raw);
+    }
+
+    cmd_buff[1] = result.raw;
 }
 
 /**
@@ -1999,8 +2025,8 @@ static void LinkCRO(Service::Interface* self) {
         return;
     }
 
-    if (!cro.Verify()) {
-        LOG_ERROR(Service_LDR, "Invalid CRO");
+    if (!cro.IsLoaded()) {
+        LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
         cmd_buff[1] = ERROR_INVALID_CRO.raw;
         return;
     }
@@ -2044,8 +2070,8 @@ static void UnlinkCRO(Service::Interface* self) {
         return;
     }
 
-    if (!cro.Verify()) {
-        LOG_ERROR(Service_LDR, "Invalid CRO");
+    if (!cro.IsLoaded()) {
+        LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
         cmd_buff[1] = ERROR_INVALID_CRO.raw;
         return;
     }
@@ -2058,6 +2084,39 @@ static void UnlinkCRO(Service::Interface* self) {
     cmd_buff[1] = result.raw;
 }
 
+/**
+ * LDR_RO::Shutdown service function
+ *  Inputs:
+ *      1 : CRS buffer pointer
+ *      2 : Copy handle descriptor (zero)
+ *      3 : KProcess handle
+ *  Outputs:
+ *      0 : Return header
+ *      1 : Result of function, 0 on success, otherwise error code
+ */
+static void Shutdown(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    LOG_WARNING(Service_LDR, "called, CRS buffer = 0x%08X", cmd_buff[1]);
+
+    if (!loaded_crs) {
+        LOG_ERROR(Service_LDR, "Not initialized");
+        cmd_buff[1] = ERROR_NOT_INITIALIZED.raw;
+        return;
+    }
+
+    cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
+
+    CROHelper crs(loaded_crs);
+    crs.Unrebase(true);
+    ResultCode result = Kernel::g_current_process->vm_manager.UnmapRange(loaded_crs, crs.GetFileSize());
+    if (result.IsError()) {
+        LOG_ERROR(Service_LDR, "Error unmapping CRS %08X", result.raw);
+    }
+    loaded_crs = 0;
+    cmd_buff[1] = result.raw;
+}
+
 const Interface::FunctionInfo FunctionTable[] = {
     {0x000100C2, Initialize,            "Initialize"},
     {0x00020082, LoadCRR,               "LoadCRR"},
@@ -2066,7 +2125,7 @@ const Interface::FunctionInfo FunctionTable[] = {
     {0x000500C2, UnloadCRO,             "UnloadCRO"},
     {0x00060042, LinkCRO,               "LinkCRO"},
     {0x00070042, UnlinkCRO,             "UnlinkCRO"},
-    {0x00080042, nullptr,               "Shutdown"},
+    {0x00080042, Shutdown,              "Shutdown"},
     {0x000902C2, LoadCRO<true>,         "LoadCRO_New"},
 };
 
