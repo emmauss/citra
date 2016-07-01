@@ -23,6 +23,14 @@ static ResultCode CROFormatError(u32 description) {
     return ResultCode((ErrorDescription)description, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
 }
 
+static const ResultCode ERROR_ALREADY_INITIALIZED = ResultCode(ErrorDescription::AlreadyInitialized, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Permanent);
+static const ResultCode ERROR_NOT_INITIALIZED = ResultCode(ErrorDescription::NotInitialized, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Permanent);
+static const ResultCode ERROR_BUFFER_TOO_SMALL = ResultCode((ErrorDescription)31, ErrorModule::RO_1, ErrorSummary::InvalidArgument, ErrorLevel::Usage);
+static const ResultCode ERROR_MISALIGNED_ADDRESS = ResultCode(ErrorDescription::MisalignedAddress, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
+static const ResultCode ERROR_MISALIGNED_SIZE = ResultCode(ErrorDescription::MisalignedSize, ErrorModule::RO_1, ErrorSummary::WrongArgument, ErrorLevel::Permanent);
+static const ResultCode ERROR_ILLEGAL_ADDRESS = ResultCode((ErrorDescription)15, ErrorModule::RO_1, ErrorSummary::Internal, ErrorLevel::Usage);
+static const ResultCode ERROR_INVALID_CRO = ResultCode((ErrorDescription)13, ErrorModule::RO_1, ErrorSummary::InvalidState, ErrorLevel::Permanent);
+
 class CROHelper {
     const VAddr address; ///< the virtual address of this module
 
@@ -163,6 +171,9 @@ class CROHelper {
     static const std::array<int, 17> ENTRY_SIZE;
     static const std::array<HeaderField, 4> FIX_BARRIERS;
 
+    static const u32 MAGIC_CRO0;
+    static const u32 MAGIC_FIXD;
+
     VAddr Field(HeaderField field) {
         return address + 0x80 + field * 4;
     }
@@ -286,7 +297,7 @@ class CROHelper {
         ResultCode error = CROFormatError(0x11);
 
         // verifies magic
-        if (GetField(Magic) != 0x304F5243) // CRO0
+        if (GetField(Magic) != MAGIC_CRO0)
             return error;
 
         // verifies not registered
@@ -388,14 +399,14 @@ class CROHelper {
             if (segment.type == SegmentType::Data) {
                 if (segment.size) {
                     if (segment.size > data_segment_size)
-                        return ResultCode(0xE0E12C1F);
+                        return ERROR_BUFFER_TOO_SMALL;
                     prev_data_segment = segment.offset;
                     segment.offset = data_segment_address;
                 }
             } else if (segment.type == SegmentType::BSS) {
                 if (segment.size) {
                     if (segment.size > bss_segment_size)
-                        return ResultCode(0xE0E12C1F);
+                        return ERROR_BUFFER_TOO_SMALL;
                     segment.offset = bss_segment_address;
                 }
             } else if (segment.offset) {
@@ -1510,7 +1521,7 @@ public:
 
 
         if (fix_level) {
-            SetField(Magic, 0x44584946); // FIXD
+            SetField(Magic, MAGIC_FIXD);
 
             for (int field = FIX_BARRIERS[fix_level]; field < Fix0Barrier; field += 2) {
                 SetField(static_cast<HeaderField>(field), fix_end);
@@ -1524,6 +1535,16 @@ public:
         u32 fixed_size = fix_end - address;
         SetField(FixedSize, fixed_size);
         return fixed_size;
+    }
+
+    bool Verify() {
+        u32 magic = GetField(Magic);
+        if (magic != MAGIC_CRO0 && magic != MAGIC_FIXD)
+            return false;
+
+        // TODO
+
+        return true;
     }
 };
 
@@ -1554,6 +1575,9 @@ const std::array<CROHelper::HeaderField, 4> CROHelper::FIX_BARRIERS {{
     Fix3Barrier
 }};
 
+const u32 CROHelper::MAGIC_CRO0 = 0x304F5243;
+const u32 CROHelper::MAGIC_FIXD = 0x44584946;
+
 /**
  * LDR_RO::Initialize service function
  *  Inputs:
@@ -1578,11 +1602,42 @@ static void Initialize(Service::Interface* self) {
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 
     if (loaded_crs) {
-        cmd_buff[1] = 0xD9612FF9;
+        LOG_ERROR(Service_LDR, "Already initialized");
+        cmd_buff[1] = ERROR_ALREADY_INITIALIZED.raw;
         return;
     }
 
-    // TODO Check process, size, size alignment, address alignment, memory access
+    if (crs_size < 0x138) {
+        LOG_ERROR(Service_LDR, "CRS is too small");
+        cmd_buff[1] = ERROR_BUFFER_TOO_SMALL.raw;
+        return;
+    }
+
+    if (crs_buffer & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRS original address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (crs_address & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRS mapping address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (crs_size & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRS size is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_SIZE.raw;
+        return;
+    }
+
+    // TODO check memory access
+
+    if (crs_address < 0x00100000 || crs_address + crs_size > 0x04000000) {
+        LOG_ERROR(Service_LDR, "CRS mapping address is illegal");
+        cmd_buff[1] = ERROR_ILLEGAL_ADDRESS.raw;
+        return;
+    }
 
     ResultCode result(RESULT_SUCCESS.raw);
 
@@ -1655,7 +1710,7 @@ static void LoadCRR(Service::Interface* self) {
  *      8 : .bss segment buffer size
  *      9 : (bool) register CRO as auto-link module
  *     10 : fix level
- *     11 : CRR address
+ *     11 : CRR address (zero if use loaded CRR)
  *     12 : Copy handle descriptor (zero)
  *     13 : KProcess handle
  *  Outputs:
@@ -1689,15 +1744,46 @@ static void LoadCRO(Service::Interface* self) {
     cmd_buff[0] = IPC::MakeHeader(1, 2, 0);
 
     if (!loaded_crs) {
-        cmd_buff[1] = 0xD9612FF8;
+        LOG_ERROR(Service_LDR, "Not initialized");
+        cmd_buff[1] = ERROR_NOT_INITIALIZED.raw;
         return;
     }
 
-    // TODO Check process, size, size alignment, address alignment, memory access
+    if (cro_size < 0x138) {
+        LOG_ERROR(Service_LDR, "CRO too small");
+        cmd_buff[1] = ERROR_BUFFER_TOO_SMALL.raw;
+        return;
+    }
+
+    if (cro_buffer & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO original address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (cro_address & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO mapping address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (cro_size & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO size is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_SIZE.raw;
+        return;
+    }
+
+    // TODO check memory access
+
+    if (cro_address < 0x00100000 || cro_address + cro_size > 0x04000000) {
+        LOG_ERROR(Service_LDR, "CRO mapping address is illegal");
+        cmd_buff[1] = ERROR_ILLEGAL_ADDRESS.raw;
+        return;
+    }
 
     if (zero) {
         LOG_ERROR(Service_LDR, "Zero is not zero %d", zero);
-        cmd_buff[1] = 0xE1612C1D;
+        cmd_buff[1] = ERROR_ILLEGAL_ADDRESS.raw;
         return;
     }
 
@@ -1759,6 +1845,8 @@ static void LoadCRO(Service::Interface* self) {
         }
     }
 
+    // TODO reprotect .text page
+
     Core::g_app_core->ClearInstructionCache();
 
     LOG_INFO(Service_LDR, "CRO \"%s\" loaded at 0x%08X, fixed_end = 0x%08X",
@@ -1789,10 +1877,29 @@ static void UnloadCRO(Service::Interface* self) {
 
     LOG_WARNING(Service_LDR, "Unloading CRO \"%s\" at 0x%08X", cro.ModuleName().data(), cro_address);
 
-    u32 fixed_size = cro.GetFixedSize();
+    cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 
-    // TODO "Validate Something"
-    // TODO loc_140033CC
+    if (!loaded_crs) {
+        LOG_ERROR(Service_LDR, "Not initialized");
+        cmd_buff[1] = ERROR_NOT_INITIALIZED.raw;
+        return;
+    }
+
+    if (cro_address & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (!cro.Verify()) {
+        LOG_ERROR(Service_LDR, "Invalid CRO");
+        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        return;
+    }
+
+    // TODO unprotect .text page
+
+    u32 fixed_size = cro.GetFixedSize();
 
     cro.Unregister();
 
@@ -1811,8 +1918,6 @@ static void UnloadCRO(Service::Interface* self) {
     Kernel::g_current_process->vm_manager.UnmapRange(cro_address, fixed_size);
 
     Core::g_app_core->ClearInstructionCache();
-
-    cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 }
 
 /**
@@ -1833,7 +1938,31 @@ static void LinkCRO(Service::Interface* self) {
     LOG_WARNING(Service_LDR, "Linking CRO \"%s\"", cro.ModuleName().data());
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
-    cmd_buff[1] = cro.Link(false).raw;
+
+    if (!loaded_crs) {
+        LOG_ERROR(Service_LDR, "Not initialized");
+        cmd_buff[1] = ERROR_NOT_INITIALIZED.raw;
+        return;
+    }
+
+    if (cro_address & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (!cro.Verify()) {
+        LOG_ERROR(Service_LDR, "Invalid CRO");
+        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        return;
+    }
+
+    ResultCode result = cro.Link(false);
+    if (result.IsError()) {
+        LOG_ERROR(Service_LDR, "Error linking CRO %08X", result.raw);
+    }
+
+    cmd_buff[1] = result.raw;
 }
 
 /**
@@ -1853,10 +1982,32 @@ static void UnlinkCRO(Service::Interface* self) {
     CROHelper cro(cro_address);
     LOG_WARNING(Service_LDR, "Unlinking CRO \"%s\"", cro.ModuleName().data());
 
-    // TODO "Validate Something"
-
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
-    cmd_buff[1] = cro.Unlink().raw;
+
+    if (!loaded_crs) {
+        LOG_ERROR(Service_LDR, "Not initialized");
+        cmd_buff[1] = ERROR_NOT_INITIALIZED.raw;
+        return;
+    }
+
+    if (cro_address & 0xFFF) {
+        LOG_ERROR(Service_LDR, "CRO address is not aligned");
+        cmd_buff[1] = ERROR_MISALIGNED_ADDRESS.raw;
+        return;
+    }
+
+    if (!cro.Verify()) {
+        LOG_ERROR(Service_LDR, "Invalid CRO");
+        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        return;
+    }
+
+    ResultCode result = cro.Unlink();
+    if (result.IsError()) {
+        LOG_ERROR(Service_LDR, "Error unlinking CRO %08X", result.raw);
+    }
+
+    cmd_buff[1] = result.raw;
 }
 
 const Interface::FunctionInfo FunctionTable[] = {
