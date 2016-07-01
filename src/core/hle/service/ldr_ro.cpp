@@ -102,7 +102,7 @@ class CROHelper {
         u8 is_batch_end;
         u8 batch_resolved; // set at batch begin
         u8 unk3;
-        u32 x;
+        u32 shift;
     };
 
     struct InternalPatchEntry {
@@ -111,7 +111,7 @@ class CROHelper {
         u8 value_segment_index;
         u8 unk2;
         u8 unk3;
-        u32 x;
+        u32 shift;
     };
 
     struct StaticAnonymousSymbolEntry {
@@ -602,19 +602,19 @@ class CROHelper {
      * Applies a patch
      * @param target_address where to apply the patch
      * @param patch_type the type of the patch
-     * @param x // TODO
-     * @param value the value to be patched
-     * @param addressB the future address of the target.
+     * @param shift address shift apply to the patched symbol
+     * @param symbol_address the symbol address to be patched with
+     * @param target_future_address the future address of the target.
      *        Usually equals to target_address, but will be different for a target in .data segment
      * @returns ResultCode indicating the result of the operation, 0 on success
      */
-    ResultCode ApplyPatch(VAddr target_address, u8 patch_type, u32 x, u32 value, u32 addressB) {
+    ResultCode ApplyPatch(VAddr target_address, u8 patch_type, u32 shift, u32 symbol_address, u32 target_future_address) {
         switch (patch_type) {
             case 2:
-                Memory::Write32(target_address, value + x); // writes an obsolute address value
+                Memory::Write32(target_address, symbol_address + shift); // writes an obsolute address value
                 break;
             case 3:
-                Memory::Write32(target_address, value + x - addressB); // writes an relative address value
+                Memory::Write32(target_address, symbol_address + shift - target_future_address); // writes an relative address value
                 break;
             // TODO implement more types
             default:
@@ -625,7 +625,7 @@ class CROHelper {
 
     /// Resets all external patches to unresolved state.
     ResultCode ResetAllExternalPatches() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
         u32 external_patch_num = GetField(ExternalPatchNum);
         PatchEntry patch;
 
@@ -642,7 +642,7 @@ class CROHelper {
             if (patch_target == 0) {
                 return CROFormatError(0x12);
             }
-            ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, reset_value, patch_target);
+            ResultCode result = ApplyPatch(patch_target, patch.type, patch.shift, unresolved_symbol, patch_target);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
                 return result;
@@ -662,12 +662,12 @@ class CROHelper {
     /**
      * Applies or resets a batch of patch
      * @param batch the virtual address of the first patch in the batch
-     * @param patch_value the value to be patched
+     * @param symbol_address the symbol address to be patched with
      * @param reset false to set the batch to resolved state, true to set the batch to unresolved state
      * @returns ResultCode indicating the result of the operation, 0 on success
      */
-    ResultCode ApplyPatchBatch(VAddr batch, u32 patch_value, bool reset = false) {
-        if (patch_value == 0 && !reset)
+    ResultCode ApplyPatchBatch(VAddr batch, u32 symbol_address, bool reset = false) {
+        if (symbol_address == 0 && !reset)
             return CROFormatError(0x10);
 
         VAddr patch_address = batch;
@@ -679,7 +679,7 @@ class CROHelper {
             if (patch_target == 0) {
                 return CROFormatError(0x12);
             }
-            ResultCode result = ApplyPatch(patch_target, patch.type, patch.x, patch_value, patch_target);
+            ResultCode result = ApplyPatch(patch_target, patch.type, patch.shift, symbol_address, patch_target);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
                 return result;
@@ -715,9 +715,9 @@ class CROHelper {
                 return CROFormatError(0x16);
             }
 
-            u32 patch_value = SegmentTagToAddress(entry.symbol_segment_tag);
+            u32 symbol_address = SegmentTagToAddress(entry.symbol_segment_tag);
             LOG_TRACE(Service_LDR, "CRO \"%s\" exports 0x%08X to the static module", ModuleName().data(), patch_value);
-            ResultCode result = crs.ApplyPatchBatch(batch_address, patch_value);
+            ResultCode result = crs.ApplyPatchBatch(batch_address, symbol_address);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                 return result;
@@ -757,7 +757,7 @@ class CROHelper {
             SegmentEntry value_segment;
             GetEntry<SegmentTableOffset>(patch.value_segment_index, value_segment);
             LOG_TRACE(Service_LDR, "Internally patches 0x%08X with 0x%08X", target_address, value_segment.offset);
-            ResultCode result = ApplyPatch(target_address, patch.type, patch.x, value_segment.offset, target_addressB);
+            ResultCode result = ApplyPatch(target_address, patch.type, patch.shift, value_segment.offset, target_addressB);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error applying patch %08X", result.raw);
                 return result;
@@ -883,11 +883,11 @@ class CROHelper {
             if (!patch_entry.batch_resolved) {
                 ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
                     std::string symbol_name = Memory::GetString(entry.name_offset, import_strings_size);
-                    u32 value = source.FindExportNamedSymbol(symbol_name);
-                    if (value) {
+                    u32 symbol_address = source.FindExportNamedSymbol(symbol_name);
+                    if (symbol_address) {
                         LOG_TRACE(Service_LDR, "CRO \"%s\" imports \"%s\" from \"%s\"",
                             ModuleName().data(), symbol_name.data(), source.ModuleName().data());
-                        ResultCode result = ApplyPatchBatch(patch_addr, value);
+                        ResultCode result = ApplyPatchBatch(patch_addr, symbol_address);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                             return result;
@@ -906,7 +906,7 @@ class CROHelper {
 
     /// Resets all imported named symbols of this module to unresolved state
     ResultCode ResetImportNamedSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
         u32 import_strings_size = GetField(ImportStringsSize);
         u32 symbol_import_num = GetField(ImportNamedSymbolNum);
         for (u32 i = 0; i < symbol_import_num; ++i) {
@@ -916,7 +916,7 @@ class CROHelper {
             PatchEntry patch_entry;
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
-            ResultCode result = ApplyPatchBatch(patch_addr, reset_value, true);
+            ResultCode result = ApplyPatchBatch(patch_addr, unresolved_symbol, true);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error reseting patch batch %08X", result.raw);
                 return result;
@@ -928,7 +928,7 @@ class CROHelper {
 
     /// Resets all imported indexed symbols of this module to unresolved state
     ResultCode ResetImportIndexedSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         u32 import_num = GetField(ImportIndexedSymbolNum);
         for (u32 i = 0; i < import_num; ++i) {
@@ -938,7 +938,7 @@ class CROHelper {
             PatchEntry patch_entry;
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
-            ResultCode result = ApplyPatchBatch(patch_addr, reset_value, true);
+            ResultCode result = ApplyPatchBatch(patch_addr, unresolved_symbol, true);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error reseting patch batch %08X", result.raw);
                 return result;
@@ -949,7 +949,7 @@ class CROHelper {
 
     /// Resets all imported anonymous symbols of this module to unresolved state
     ResultCode ResetImportAnonymousSymbol() {
-        u32 reset_value = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = SegmentTagToAddress(GetField(OnUnresolvedSegmentTag));
 
         u32 import_num = GetField(ImportAnonymousSymbolNum);
         for (u32 i = 0; i < import_num; ++i) {
@@ -959,7 +959,7 @@ class CROHelper {
             PatchEntry patch_entry;
             Memory::ReadBlock(patch_addr, &patch_entry, sizeof(PatchEntry));
 
-            ResultCode result = ApplyPatchBatch(patch_addr, reset_value, true);
+            ResultCode result = ApplyPatchBatch(patch_addr, unresolved_symbol, true);
             if (result.IsError()) {
                 LOG_ERROR(Service_LDR, "Error reseting patch batch %08X", result.raw);
                 return result;
@@ -986,9 +986,9 @@ class CROHelper {
                         entry.GetImportIndexedSymbolEntry(j, im);
                         ExportIndexedSymbolEntry ex;
                         source.GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
-                        u32 patch_value = source.SegmentTagToAddress(ex.symbol_segment_tag);
-                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", patch_value);
-                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        u32 symbol_address = source.SegmentTagToAddress(ex.symbol_segment_tag);
+                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", symbol_address);
+                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, symbol_address);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                             return result;
@@ -999,9 +999,9 @@ class CROHelper {
                     for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                         ImportAnonymousSymbolEntry im;
                         entry.GetImportAnonymousSymbolEntry(j, im);
-                        u32 patch_value = source.SegmentTagToAddress(im.symbol_segment_tag);
-                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", patch_value);
-                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                        u32 symbol_address = source.SegmentTagToAddress(im.symbol_segment_tag);
+                        LOG_TRACE(Service_LDR, "    Imports 0x%08X", symbol_address);
+                        ResultCode result = ApplyPatchBatch(im.patch_batch_offset, symbol_address);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                             return result;
@@ -1033,10 +1033,10 @@ class CROHelper {
 
             if (!patch_entry.batch_resolved) {
                 std::string symbol_name = Memory::GetString(entry.name_offset, target_import_strings_size);
-                u32 patch_value = FindExportNamedSymbol(symbol_name);
-                if (patch_value) {
+                u32 symbol_address = FindExportNamedSymbol(symbol_name);
+                if (symbol_address) {
                     LOG_TRACE(Service_LDR, "    exports symbol \"%s\"", symbol_name.data());
-                    ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value);
+                    ResultCode result = target.ApplyPatchBatch(patch_addr, symbol_address);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                         return result;
@@ -1051,7 +1051,7 @@ class CROHelper {
     ResultCode ResetExportNamedSymbol(CROHelper target) {
         LOG_DEBUG(Service_LDR, "CRO \"%s\" unexports named symbols to \"%s\"",
             ModuleName().data(), target.ModuleName().data());
-        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
         u32 target_import_strings_size = target.GetField(ImportStringsSize);
         u32 target_symbol_import_num = target.GetField(ImportNamedSymbolNum);
         for (u32 i = 0; i < target_symbol_import_num; ++i) {
@@ -1063,11 +1063,10 @@ class CROHelper {
 
             if (!patch_entry.batch_resolved) {
                 std::string symbol_name = Memory::GetString(entry.name_offset, target_import_strings_size);
-                u32 patch_value = FindExportNamedSymbol(symbol_name);
-                if (patch_value) {
-                    patch_value = reset_value;
+                u32 symbol_address = FindExportNamedSymbol(symbol_name);
+                if (symbol_address) {
                     LOG_TRACE(Service_LDR, "    unexports symbol \"%s\"", symbol_name.data());
-                    ResultCode result = target.ApplyPatchBatch(patch_addr, patch_value, true);
+                    ResultCode result = target.ApplyPatchBatch(patch_addr, unresolved_symbol, true);
                     if (result.IsError()) {
                         LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                         return result;
@@ -1095,12 +1094,11 @@ class CROHelper {
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
                 entry.GetImportIndexedSymbolEntry(j, im);
-                u32 patch_value;
                 ExportIndexedSymbolEntry ex;
                 GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
-                patch_value = SegmentTagToAddress(ex.symbol_segment_tag);
-                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", patch_value);
-                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                u32 symbol_address = SegmentTagToAddress(ex.symbol_segment_tag);
+                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", symbol_address);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, symbol_address);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                     return result;
@@ -1112,9 +1110,9 @@ class CROHelper {
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
                 entry.GetImportAnonymousSymbolEntry(j, im);
-                u32 patch_value = SegmentTagToAddress(im.symbol_segment_tag);
-                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", patch_value);
-                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
+                u32 symbol_address = SegmentTagToAddress(im.symbol_segment_tag);
+                LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", symbol_address);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, symbol_address);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                     return result;
@@ -1127,7 +1125,7 @@ class CROHelper {
 
     /// Reset target's indexed and anonymous symbol imported from this module to unresolved state
     ResultCode ResetModuleExport(CROHelper target) {
-        u32 reset_value = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
+        u32 unresolved_symbol = target.SegmentTagToAddress(target.GetField(OnUnresolvedSegmentTag));
 
         std::string module_name = ModuleName();
         u32 target_import_string_size = target.GetField(ImportStringsSize);
@@ -1144,8 +1142,7 @@ class CROHelper {
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
                 entry.GetImportIndexedSymbolEntry(j, im);
-                u32 patch_value = reset_value;
-                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value, true);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, unresolved_symbol, true);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                     return result;
@@ -1157,8 +1154,7 @@ class CROHelper {
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
                 entry.GetImportAnonymousSymbolEntry(j, im);
-                u32 patch_value =reset_value;
-                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value, true);
+                ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, unresolved_symbol, true);
                 if (result.IsError()) {
                     LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                     return result;
@@ -1183,11 +1179,11 @@ class CROHelper {
             if (Memory::GetString(entry.name_offset, import_strings_size) == "__aeabi_atexit"){
                 // TODO verify this code
                 ResultCode result = ForEachAutoLinkCRO([&](CROHelper source) -> ResultVal<bool> {
-                    u32 value = source.FindExportNamedSymbol("nnroAeabiAtexit_");
-                    if (value) {
+                    u32 symbol_address = source.FindExportNamedSymbol("nnroAeabiAtexit_");
+                    if (symbol_address) {
                         LOG_DEBUG(Service_LDR, "CRP \"%s\" import exit function from \"%s\"",
                             ModuleName().data(), source.ModuleName().data());
-                        ResultCode result = ApplyPatchBatch(patch_addr, value);
+                        ResultCode result = ApplyPatchBatch(patch_addr, symbol_address);
                         if (result.IsError()) {
                             LOG_ERROR(Service_LDR, "Error applying patch batch %08X", result.raw);
                             return result;
@@ -1962,7 +1958,8 @@ static void UnloadCRO(Service::Interface* self) {
         return;
     }
 
-    // TODO if fixed {...}
+    // TODO if not fixed, clear all external/internal patches to restore the state before loading
+    //      This makes no sense before we implement memory aliasing.
 
     cro.Unrebase();
 
