@@ -63,12 +63,37 @@ class CROHelper {
         u16 export_table_id;
     };
 
+    struct ImportNamedSymbolEntry {
+        u32 name_offset; // pointing to a substring in ImportStrings
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
+    };
+
+    struct ImportIndexedSymbolEntry {
+        u32 index; // index in opponent's ExportIndexedSymbolEntry
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
+    };
+
+    struct ImportAnonymousSymbolEntry {
+        u32 symbol_segment_tag; // to the opponent's segment
+        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
+    };
+
     struct ImportModuleEntry {
         u32 name_offset; // pointing to a substring in ImporStrings
         u32 import_indexed_symbol_table_offset; // pointing to a subtable of ImportIndexedSymbolTable
         u32 import_indexed_symbol_num;
         u32 import_anonymous_symbol_table_offset; // pointing to a subtable of ImportAnonymousSymbolTable
         u32 import_anonymous_symbol_num;
+
+        void GetImportIndexedSymbolEntry(u32 index, ImportIndexedSymbolEntry& entry) {
+            Memory::ReadBlock(import_indexed_symbol_table_offset + index * sizeof(ImportIndexedSymbolEntry),
+                &entry, sizeof(ImportIndexedSymbolEntry));
+        }
+
+        void GetImportAnonymousSymbolEntry(u32 index, ImportAnonymousSymbolEntry& entry) {
+            Memory::ReadBlock(import_anonymous_symbol_table_offset + index * sizeof(ImportAnonymousSymbolEntry),
+                &entry, sizeof(ImportAnonymousSymbolEntry));
+        }
     };
 
     struct PatchEntry { // for ExternalPatchTable and StaticPatchTable
@@ -87,21 +112,6 @@ class CROHelper {
         u8 unk2;
         u8 unk3;
         u32 x;
-    };
-
-    struct ImportNamedSymbolEntry {
-        u32 name_offset; // pointing to a substring in ImportStrings
-        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
-    };
-
-    struct ImportIndexedSymbolEntry {
-        u32 index; // index in opponent's ExportIndexedSymbolEntry
-        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
-    };
-
-    struct ImportAnonymousSymbolEntry {
-        u32 symbol_segment_tag; // to the opponent's segment
-        u32 patch_batch_offset; // pointing to a batch in ExternalPatchTable
     };
 
     struct StaticAnonymousSymbolEntry {
@@ -936,7 +946,7 @@ class CROHelper {
                         ModuleName().data(), source.ModuleName().data());
                     for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                         ImportIndexedSymbolEntry im;
-                        Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                        entry.GetImportIndexedSymbolEntry(j, im);
                         ExportIndexedSymbolEntry ex;
                         source.GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
                         u32 patch_value = source.SegmentTagToAddress(ex.symbol_segment_tag);
@@ -951,7 +961,7 @@ class CROHelper {
                         ModuleName().data(), source.ModuleName().data());
                     for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                         ImportAnonymousSymbolEntry im;
-                        Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                        entry.GetImportAnonymousSymbolEntry(j, im);
                         u32 patch_value = source.SegmentTagToAddress(im.symbol_segment_tag);
                         LOG_TRACE(Service_LDR, "    Imports 0x%08X", patch_value);
                         ResultCode result = ApplyPatchBatch(im.patch_batch_offset, patch_value);
@@ -1047,7 +1057,7 @@ class CROHelper {
                 module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
-                Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                entry.GetImportIndexedSymbolEntry(j, im);
                 u32 patch_value;
                 ExportIndexedSymbolEntry ex;
                 GetEntry<ExportIndexedSymbolTableOffset>(im.index, ex);
@@ -1064,7 +1074,7 @@ class CROHelper {
                 module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
-                Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                entry.GetImportAnonymousSymbolEntry(j, im);
                 u32 patch_value = SegmentTagToAddress(im.symbol_segment_tag);
                 LOG_TRACE(Service_LDR, "    exports symbol 0x%08X", patch_value);
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value);
@@ -1096,7 +1106,7 @@ class CROHelper {
                 module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_indexed_symbol_num; ++j) {
                 ImportIndexedSymbolEntry im;
-                Memory::ReadBlock(entry.import_indexed_symbol_table_offset + j * sizeof(ImportIndexedSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                entry.GetImportIndexedSymbolEntry(j, im);
                 u32 patch_value = reset_value;
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value, true);
                 if (result.IsError()) {
@@ -1109,7 +1119,7 @@ class CROHelper {
                 module_name.data(), target.ModuleName().data());
             for (u32 j = 0; j < entry.import_anonymous_symbol_num; ++j) {
                 ImportAnonymousSymbolEntry im;
-                Memory::ReadBlock(entry.import_anonymous_symbol_table_offset + j * sizeof(ImportAnonymousSymbolEntry), &im, sizeof(ImportIndexedSymbolEntry));
+                entry.GetImportAnonymousSymbolEntry(j, im);
                 u32 patch_value =reset_value;
                 ResultCode result = target.ApplyPatchBatch(im.patch_batch_offset, patch_value, true);
                 if (result.IsError()) {
