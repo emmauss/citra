@@ -47,7 +47,7 @@ class CROHelper {
         SegmentType type;
     };
 
-    struct ExportNamedSymbollEntry {
+    struct ExportNamedSymbolEntry {
         u32 name_offset; // pointing to a substring in ExportStrings
         u32 symbol_segment_tag;
     };
@@ -57,9 +57,9 @@ class CROHelper {
     };
 
     struct ExportTreeEntry {
-        u16 segment_13_3;
-        u16 end_1_next_15; // {end:1, next:15}
-        u16 next_level;
+        u16 test_bit; // bit sddress into the name to test
+        u16 left;  // the highest bit indicates whether the next entry is the last one
+        u16 right; // the highest bit indicates whether the next entry is the last one
         u16 export_table_id;
     };
 
@@ -290,16 +290,40 @@ class CROHelper {
      * @return VAddr the virtual address of the symbol. 0 if not found
      */
     VAddr FindExportNamedSymbol(const std::string& name) {
-        // TODO rewrite this!
-        u32 export_strings_size = GetField(ExportStringsSize);
-        u32 symbol_export_num = GetField(ExportNamedSymbolNum);
-        for (u32 i = 0; i < symbol_export_num; ++i) {
-            ExportNamedSymbollEntry entry;
-            GetEntry<ExportNamedSymbolTableOffset>(i, entry);
-            if (name == Memory::GetString(entry.name_offset, export_strings_size))
-                return SegmentTagToAddress(entry.symbol_segment_tag);
+        if (!GetField(ExportTreeNum))
+            return 0;
+        u32 len = name.size();
+        ExportTreeEntry entry;
+        GetEntry<ExportTreeTableOffset>(0, entry);
+        u16 next = entry.left;
+        u32 found_id;
+        while (1) {
+            GetEntry<ExportTreeTableOffset>(next & 0x7FFF, entry);
+            if (next & 0x8000) {
+                found_id = entry.export_table_id;
+                break;
+            }
+            u16 test_byte = entry.test_bit >> 3;
+            u16 test_bit_in_byte = entry.test_bit & 7;
+            if (test_byte >= len) {
+                next = entry.left;
+            } else if((name[test_byte] >> test_bit_in_byte) & 1) {
+                next = entry.right;
+            } else {
+                next = entry.left;
+            }
         }
-        return 0;
+
+        u32 symbol_export_num = GetField(ExportNamedSymbolNum);
+        if (found_id >= symbol_export_num)
+            return 0;
+
+        u32 export_strings_size = GetField(ExportStringsSize);
+        ExportNamedSymbolEntry symbol_entry;
+        GetEntry<ExportNamedSymbolTableOffset>(found_id, symbol_entry);
+        if (Memory::GetString(symbol_entry.name_offset, export_strings_size) != name)
+            return 0;
+        return SegmentTagToAddress(symbol_entry.symbol_segment_tag);
     }
 
     /// Rebases offsets in module header according to module address
@@ -436,7 +460,7 @@ class CROHelper {
 
         u32 symbol_export_num = GetField(ExportNamedSymbolNum);
         for (u32 i = 0; i < symbol_export_num; ++i) {
-            ExportNamedSymbollEntry entry;
+            ExportNamedSymbolEntry entry;
             GetEntry<ExportNamedSymbolTableOffset>(i, entry);
             if (entry.name_offset) {
                 entry.name_offset += address;
@@ -446,6 +470,19 @@ class CROHelper {
                 }
             }
             SetEntry<ExportNamedSymbolTableOffset>(i, entry);
+        }
+        return RESULT_SUCCESS;
+    }
+
+    /// Verifies indeces in export tree table
+    ResultCode VerifyExportTreeTable() {
+        u32 tree_num = GetField(ExportTreeNum);
+        for (u32 i =0; i < tree_num; ++i) {
+            ExportTreeEntry entry;
+            GetEntry<ExportTreeTableOffset>(i, entry);
+            if ((entry.left & 0x7FFF) >= tree_num || (entry.right & 0x7FFF) >= tree_num) {
+                return CROFormatError(0x11);
+            }
         }
         return RESULT_SUCCESS;
     }
@@ -794,7 +831,7 @@ class CROHelper {
     void UnrebaseExportNamedSymbolTable() {
         u32 symbol_export_num = GetField(ExportNamedSymbolNum);
         for (u32 i = 0; i < symbol_export_num; ++i) {
-            ExportNamedSymbollEntry entry;
+            ExportNamedSymbolEntry entry;
             GetEntry<ExportNamedSymbolTableOffset>(i, entry);
             if (entry.name_offset) {
                 entry.name_offset -= address;
@@ -1217,7 +1254,11 @@ public:
             return result;
         }
 
-        // TODO verify export tree
+        result = VerifyExportTreeTable();
+        if (result.IsError()) {
+            LOG_ERROR(Service_LDR, "Error verifying export tree %08X", result.raw);
+            return result;
+        }
 
         result = VerifyString(GetField(ExportStringsOffset), GetField(ExportStringsSize));
         if (result.IsError()) {
@@ -1563,7 +1604,7 @@ const std::array<int, 17> CROHelper::ENTRY_SIZE {{
     1, // data
     1, // module name
     sizeof(SegmentEntry),
-    sizeof(ExportNamedSymbollEntry),
+    sizeof(ExportNamedSymbolEntry),
     sizeof(ExportIndexedSymbolEntry),
     1, // export strings
     sizeof(ExportTreeEntry),
