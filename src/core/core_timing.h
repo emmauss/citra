@@ -134,6 +134,7 @@ void RegisterMHzChangeCallback(MHzChangeCallback callback);
 std::string GetScheduledEventsSummary();
 
 void SetClockFrequencyMHz(int cpu_mhz);
+int GetClockFrequency();
 int GetClockFrequencyMHz();
 extern int g_slice_length;
 
