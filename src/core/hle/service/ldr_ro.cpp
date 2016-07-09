@@ -35,7 +35,7 @@ static const ResultCode ERROR_MISALIGNED_SIZE =
     ResultCode(ErrorDescription::MisalignedSize,     ErrorModule::RO, ErrorSummary::WrongArgument,   ErrorLevel::Permanent);
 static const ResultCode ERROR_ILLEGAL_ADDRESS =
     ResultCode(static_cast<ErrorDescription>(15),    ErrorModule::RO, ErrorSummary::Internal,        ErrorLevel::Usage);
-static const ResultCode ERROR_INVALID_CRO =
+static const ResultCode ERROR_NOT_LOADED =
     ResultCode(static_cast<ErrorDescription>(13),    ErrorModule::RO, ErrorSummary::InvalidState,    ErrorLevel::Permanent);
 
 static const u32 CRO_HEADER_SIZE = 0x138;
@@ -1811,7 +1811,7 @@ static MemorySynchronizer memory_synchronizer;
  *      1 : CRS buffer pointer
  *      2 : CRS Size
  *      3 : Process memory address where the CRS will be mapped
- *      4 : Copy handle descriptor (zero)
+ *      4 : Copy handle descriptor (zero) // TODO copy or move???
  *      5 : KProcess handle
  *  Outputs:
  *      0 : Return header
@@ -1822,9 +1822,18 @@ static void Initialize(Service::Interface* self) {
     VAddr crs_buffer  = cmd_buff[1];
     u32 crs_size      = cmd_buff[2];
     VAddr crs_address = cmd_buff[3];
+    u32 descriptor    = cmd_buff[4];
+    u32 process       = cmd_buff[5];
 
-    LOG_WARNING(Service_LDR, "called. loading CRS from 0x%08X to 0x%08X, size = 0x%X",
-                crs_buffer, crs_address, crs_size);
+    LOG_WARNING(Service_LDR, "called. loading CRS from 0x%08X to 0x%08X, size = 0x%X. Process = 0x%08X",
+                crs_buffer, crs_address, crs_size, process);
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     cmd_buff[0] = IPC::MakeHeader(1, 1, 0);
 
@@ -1912,7 +1921,15 @@ static void LoadCRR(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 crr_buffer_ptr = cmd_buff[1];
     u32 crr_size       = cmd_buff[2];
+    u32 descriptor     = cmd_buff[3];
     u32 process        = cmd_buff[4];
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     cmd_buff[0] = IPC::MakeHeader(2, 1, 0);
 
@@ -1935,7 +1952,15 @@ static void LoadCRR(Service::Interface* self) {
 static void UnloadCRR(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 crr_buffer_ptr = cmd_buff[1];
+    u32 descriptor     = cmd_buff[2];
     u32 process        = cmd_buff[3];
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     cmd_buff[0] = IPC::MakeHeader(3, 1, 0);
 
@@ -1980,15 +2005,24 @@ static void LoadCRO(Service::Interface* self) {
     bool auto_link             = (cmd_buff[9] & 0xFF) != 0;
     u32 fix_level              = cmd_buff[10];
     VAddr crr_address          = cmd_buff[11];
+    u32 descriptor             = cmd_buff[12];
+    u32 process                = cmd_buff[13];
 
     LOG_WARNING(Service_LDR, "called (%s), loading CRO from 0x%08X to 0x%08X, size = 0x%X, "
         "data_segment = 0x%08X, data_size = 0x%X, bss_segment = 0x%08X, bss_size = 0x%X, "
-        "auto_link = %s, fix_level = %d, crr = 0x%08X",
+        "auto_link = %s, fix_level = %d, crr = 0x%08X. Process = 0x%08X",
         link_on_load_bug_fix ? "new" : "old",
         cro_buffer, cro_address, cro_size,
         data_segment_address, data_segment_size, bss_segment_address, bss_segment_size,
-        auto_link ? "true" : "false", fix_level, crr_address
+        auto_link ? "true" : "false", fix_level, crr_address, process
         );
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     memory_synchronizer.SynchronizeMappingMemory();
 
@@ -2112,7 +2146,7 @@ static void LoadCRO(Service::Interface* self) {
  * LDR_RO::UnloadCRO service function
  *  Inputs:
  *      1 : mapped CRO pointer
- *      2 : zero?
+ *      2 : zero? (RO service doesn't care)
  *      3 : Original CRO pointer
  *      4 : Copy handle descriptor (zero)
  *      5 : KProcess handle
@@ -2123,10 +2157,19 @@ static void LoadCRO(Service::Interface* self) {
 static void UnloadCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 cro_address = cmd_buff[1];
+    u32 descriptor  = cmd_buff[4];
+    u32 process     = cmd_buff[5];
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     CROHelper cro(cro_address);
 
-    LOG_WARNING(Service_LDR, "Unloading CRO \"%s\" at 0x%08X", cro.ModuleName().data(), cro_address);
+    LOG_WARNING(Service_LDR, "Unloading CRO \"%s\" at 0x%08X. Process = 0x%08X", cro.ModuleName().data(), cro_address, process);
 
     memory_synchronizer.SynchronizeMappingMemory();
 
@@ -2146,7 +2189,7 @@ static void UnloadCRO(Service::Interface* self) {
 
     if (!cro.IsLoaded()) {
         LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
-        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        cmd_buff[1] = ERROR_NOT_LOADED.raw;
         return;
     }
 
@@ -2209,9 +2252,18 @@ static void UnloadCRO(Service::Interface* self) {
 static void LinkCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 cro_address = cmd_buff[1];
+    u32 descriptor  = cmd_buff[2];
+    u32 process     = cmd_buff[3];
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     CROHelper cro(cro_address);
-    LOG_WARNING(Service_LDR, "Linking CRO \"%s\"", cro.ModuleName().data());
+    LOG_WARNING(Service_LDR, "Linking CRO \"%s\". Process = 0x%08X", cro.ModuleName().data(), process);
 
     memory_synchronizer.SynchronizeMappingMemory();
 
@@ -2231,7 +2283,7 @@ static void LinkCRO(Service::Interface* self) {
 
     if (!cro.IsLoaded()) {
         LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
-        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        cmd_buff[1] = ERROR_NOT_LOADED.raw;
         return;
     }
 
@@ -2259,9 +2311,18 @@ static void LinkCRO(Service::Interface* self) {
 static void UnlinkCRO(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     u32 cro_address = cmd_buff[1];
+    u32 descriptor  = cmd_buff[2];
+    u32 process     = cmd_buff[3];
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     CROHelper cro(cro_address);
-    LOG_WARNING(Service_LDR, "Unlinking CRO \"%s\"", cro.ModuleName().data());
+    LOG_WARNING(Service_LDR, "Unlinking CRO \"%s\". Process = 0x%08X", cro.ModuleName().data(), process);
 
     memory_synchronizer.SynchronizeMappingMemory();
 
@@ -2281,7 +2342,7 @@ static void UnlinkCRO(Service::Interface* self) {
 
     if (!cro.IsLoaded()) {
         LOG_ERROR(Service_LDR, "Invalid or not loaded CRO");
-        cmd_buff[1] = ERROR_INVALID_CRO.raw;
+        cmd_buff[1] = ERROR_NOT_LOADED.raw;
         return;
     }
 
@@ -2308,8 +2369,18 @@ static void UnlinkCRO(Service::Interface* self) {
  */
 static void Shutdown(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
+    u32 crs_buffer = cmd_buff[1];
+    u32 descriptor = cmd_buff[2];
+    u32 process    = cmd_buff[3];
 
-    LOG_WARNING(Service_LDR, "called, CRS buffer = 0x%08X", cmd_buff[1]);
+    LOG_WARNING(Service_LDR, "called, CRS buffer = 0x%08X, process = 0x%08X", crs_buffer, process);
+
+    if (descriptor != 0) {
+        LOG_ERROR(Service_LDR, "IPC handle descriptor failed validation (0x%X).", descriptor);
+        cmd_buff[0] = IPC::MakeHeader(0, 1, 0);
+        cmd_buff[1] = ResultCode(ErrorDescription::OS_InvalidBufferDescriptor, ErrorModule::OS, ErrorSummary::WrongArgument, ErrorLevel::Permanent).raw;
+        return;
+    }
 
     memory_synchronizer.SynchronizeMappingMemory();
 
