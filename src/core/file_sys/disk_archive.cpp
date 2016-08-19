@@ -115,7 +115,7 @@ ResultCode DiskFile::Open() {
 
     if (!FileUtil::Exists(path)) {
         if (!mode.create_flag) {
-            LOG_ERROR(Service_FS, "Non-existing file %s can't be open without mode create.", path.c_str());
+            LOG_CRITICAL(Service_FS, "Non-existing file %s can't be open without mode create.", path.c_str());
             return ResultCode(ErrorDescription::FS_NotFound, ErrorModule::FS, ErrorSummary::NotFound, ErrorLevel::Status);
         } else {
             // Create the file
