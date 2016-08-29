@@ -127,6 +127,8 @@ void Open(Service::Interface* self) {
     LOG_CRITICAL(Service_CECD, "(STUBBED) called. title_id = 0x%08X, save_data_type = %d, option = 0x%08X",
         title_id, save_data_type, option);
 
+    FileSys::Path path(GetSaveDataPath(save_data_type, title_id).data());
+
     if (!IsSaveDataDir(save_data_type)) {
         FileSys::Mode mode = {};
         if((option & 7) == 2) {
@@ -141,7 +143,6 @@ void Open(Service::Interface* self) {
             UNREACHABLE();
         }
 
-        FileSys::Path path(GetSaveDataPath(save_data_type, title_id).data());
         auto open_result = Service::FS::OpenFileFromArchive(cec_system_save_data_archive, path, mode);
         if (!open_result.Succeeded()) {
             LOG_CRITICAL(Service_CECD, "failed");
@@ -153,7 +154,7 @@ void Open(Service::Interface* self) {
         auto file = open_result.MoveFrom();
         cmd_buff[2] = file->backend->GetSize();
     } else {
-        cmd_buff[1] = -1;
+        /*!*/cmd_buff[1] = Service::FS::CreateDirectoryFromArchive(cec_system_save_data_archive, path).raw;
         return;
         //ASSERT_MSG(false, "folder");
     }
@@ -250,9 +251,19 @@ void cecd9(Service::Interface* self) {
 void cecdA(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    //VAddr buffer_address = cmd_buff[1];
+    u32 size = cmd_buff[1];
+    u32 option = cmd_buff[2];
+    u32 option_data_size = cmd_buff[3];
+    ASSERT(IPC::MappedBufferDesc(option_data_size, IPC::R) == cmd_buff[4]);
+    VAddr option_data_address = cmd_buff[5];
+    ASSERT(IPC::MappedBufferDesc(size, IPC::W) == cmd_buff[6]);
+    VAddr buffer_address = cmd_buff[7];
+
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
-    LOG_CRITICAL(Service_CECD, "(STUBBED) called");
+    LOG_CRITICAL(Service_CECD, "(STUBBED) called, buffer_address = 0x%08X, size = 0x%X, option = 0x%08X, option_data = 0x%08X, option_data_size = 0x%X",
+        buffer_address, size, option, option_data_address, option_data_size);
 }
 
 void cecdB(Service::Interface* self) {
@@ -312,6 +323,38 @@ void OpenAndWrite(Service::Interface* self) {
 
     LOG_CRITICAL(Service_CECD, "(STUBBED) called. title_id = 0x%08X, save_data_type = %d, option = 0x%08X, buffer_address = 0x%08X, size = 0x%X",
         title_id, save_data_type, option, buffer_address, size);
+
+    FileSys::Mode mode = {};
+    if((option & 7) == 2) {
+        mode.read_flag.Assign(1);
+    } else if ((option & 7) == 4) {
+        mode.write_flag.Assign(1);
+        mode.create_flag.Assign(1);
+    } else if ((option & 7) == 6) {
+        mode.read_flag.Assign(1);
+        mode.write_flag.Assign(1);
+    } else {
+        UNREACHABLE();
+    }
+
+    FileSys::Path path(GetSaveDataPath(save_data_type, title_id).data());
+    auto open_result = Service::FS::OpenFileFromArchive(cec_system_save_data_archive, path, mode);
+    if (!open_result.Succeeded()) {
+        LOG_CRITICAL(Service_CECD, "failed");
+        cmd_buff[1] = open_result.Code().raw;
+        cmd_buff[2] = 0;
+        return;
+    }
+
+    auto file = open_result.MoveFrom();
+    std::vector<u8> buffer(size);
+    Memory::ReadBlock(buffer_address, buffer.data(), size);
+    size_t written_size = *(file->backend->Write(0, size, true, buffer.data()));
+
+    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    cmd_buff[2] = written_size;
+
+    LOG_CRITICAL(Service_CECD, "written %X", written_size);
 }
 
 void OpenAndRead(Service::Interface* self) {
