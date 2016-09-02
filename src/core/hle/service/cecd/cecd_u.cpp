@@ -18,7 +18,7 @@ static const Interface::FunctionInfo FunctionTable[] = {
     {0x00070106, WriteMessageAlt,           "WriteMessageAlt"},
     {0x00080102, Delete,                    "Delete"},
     {0x000900C2, cecd9,                     "cecd9"},
-    {0x000A00C4, cecdA,                     "cecdA"},
+    {0x000A00C4, GetSystemInfo,             "GetSystemInfo"},
     {0x000B0040, cecdB,                     "cecdB"},
     {0x000C0040, cecdC,                     "cecdC"},
     {0x000D0082, nullptr,                   "GetCecInfoBuffer"},

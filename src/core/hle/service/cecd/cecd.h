@@ -28,7 +28,7 @@ void WriteMessageAlt(Service::Interface* self);
 void Delete(Service::Interface* self);
 
 void cecd9(Service::Interface* self);
-void cecdA(Service::Interface* self);
+void GetSystemInfo(Service::Interface* self);
 void cecdB(Service::Interface* self);
 void cecdC(Service::Interface* self);
 

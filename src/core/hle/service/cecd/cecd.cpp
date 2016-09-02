@@ -248,22 +248,21 @@ void cecd9(Service::Interface* self) {
         title_id, option, buffer_address, size);
 }
 
-void cecdA(Service::Interface* self) {
+void GetSystemInfo(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
-    //VAddr buffer_address = cmd_buff[1];
-    u32 size = cmd_buff[1];
-    u32 option = cmd_buff[2];
-    u32 option_data_size = cmd_buff[3];
-    ASSERT(IPC::MappedBufferDesc(option_data_size, IPC::R) == cmd_buff[4]);
-    VAddr option_data_address = cmd_buff[5];
-    ASSERT(IPC::MappedBufferDesc(size, IPC::W) == cmd_buff[6]);
-    VAddr buffer_address = cmd_buff[7];
+    u32 info_size = cmd_buff[1];
+    u32 type = cmd_buff[2];
+    u32 param_size = cmd_buff[3];
+    ASSERT(IPC::MappedBufferDesc(param_size, IPC::R) == cmd_buff[4]);
+    VAddr param_addr = cmd_buff[5];
+    ASSERT(IPC::MappedBufferDesc(param_size, IPC::W) == cmd_buff[6]);
+    VAddr info_addr = cmd_buff[7];
+
+    LOG_CRITICAL(Service_CECD, "(STUBBED) called, info_addr = 0x%08X, info_size = 0x%X, type = %d, param_addr = 0x%08X, param_size = 0x%X",
+        info_addr, info_size, type, param_addr, param_size);
 
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-
-    LOG_CRITICAL(Service_CECD, "(STUBBED) called, buffer_address = 0x%08X, size = 0x%X, option = 0x%08X, option_data = 0x%08X, option_data_size = 0x%X",
-        buffer_address, size, option, option_data_address, option_data_size);
 }
 
 void cecdB(Service::Interface* self) {
