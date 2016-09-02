@@ -21,18 +21,18 @@ static void InterpreterFallback(u32 pc, Dynarmic::Jit* jit, void* user_arg) {
     state->Cpsr = jit->Cpsr();
     state->Reg[15] = pc;
     state->ExtReg = jit->ExtRegs();
-    state->VFP[1] = jit->Fpscr();
+    state->VFP[VFP_FPSCR] = jit->Fpscr();
     state->NumInstrsToExecute = 1;
 
     InterpreterMainLoop(state);
 
-    bool T = (state->Cpsr & (1 << 5)) != 0;
-    state->Reg[15] &= (T ? 0xFFFFFFFE : 0xFFFFFFFC);
+    bool is_thumb = (state->Cpsr & (1 << 5)) != 0;
+    state->Reg[15] &= (is_thumb ? 0xFFFFFFFE : 0xFFFFFFFC);
 
     jit->Regs() = state->Reg;
     jit->Cpsr() = state->Cpsr;
     jit->ExtRegs() = state->ExtReg;
-    jit->SetFpscr(state->VFP[1]);
+    jit->SetFpscr(state->VFP[VFP_FPSCR]);
 }
 
 static bool IsReadOnlyMemory(u32 vaddr) {
@@ -140,8 +140,8 @@ void ARM_Dynarmic::ResetContext(Core::ThreadContext& context, u32 stack_top, u32
 }
 
 void ARM_Dynarmic::SaveContext(Core::ThreadContext& ctx) {
-    memcpy(ctx.cpu_registers, &jit->Regs(), sizeof(ctx.cpu_registers));
-    memcpy(ctx.fpu_registers, &jit->ExtRegs(), sizeof(ctx.fpu_registers));
+    memcpy(ctx.cpu_registers, jit->Regs().data(), sizeof(ctx.cpu_registers));
+    memcpy(ctx.fpu_registers, jit->ExtRegs().data(), sizeof(ctx.fpu_registers));
 
     ctx.sp = jit->Regs()[13];
     ctx.lr = jit->Regs()[14];
@@ -149,11 +149,12 @@ void ARM_Dynarmic::SaveContext(Core::ThreadContext& ctx) {
     ctx.cpsr = jit->Cpsr();
 
     ctx.fpscr = jit->Fpscr();
+    ctx.fpexc = interpreter_state->VFP[VFP_FPEXC];
 }
 
 void ARM_Dynarmic::LoadContext(const Core::ThreadContext& ctx) {
-    memcpy(&jit->Regs(), ctx.cpu_registers, sizeof(ctx.cpu_registers));
-    memcpy(&jit->ExtRegs(), ctx.fpu_registers, sizeof(ctx.fpu_registers));
+    memcpy(jit->Regs().data(), ctx.cpu_registers, sizeof(ctx.cpu_registers));
+    memcpy(jit->ExtRegs().data(), ctx.fpu_registers, sizeof(ctx.fpu_registers));
 
     jit->Regs()[13] = ctx.sp;
     jit->Regs()[14] = ctx.lr;
@@ -161,6 +162,7 @@ void ARM_Dynarmic::LoadContext(const Core::ThreadContext& ctx) {
     jit->Cpsr() = ctx.cpsr;
 
     jit->SetFpscr(ctx.fpscr);
+    interpreter_state->VFP[VFP_FPEXC] = ctx.fpexc;
 }
 
 void ARM_Dynarmic::PrepareReschedule() {
