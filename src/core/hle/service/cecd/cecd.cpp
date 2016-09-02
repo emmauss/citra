@@ -210,9 +210,24 @@ void WriteMessage(Service::Interface* self) {
 void WriteMessageAlt(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
+    u32 title_id = cmd_buff[1];
+    u8 box_type = cmd_buff[2] & 0xFF;
+    u32 message_id_size = cmd_buff[3];
+    u32 buffer_size = cmd_buff[4];
+    ASSERT(IPC::MappedBufferDesc(buffer_size, IPC::R) == cmd_buff[5]);
+    VAddr buffer_addr = cmd_buff[6];
+    ASSERT(IPC::MappedBufferDesc(32, IPC::R) == cmd_buff[7]);
+    VAddr key_addr = cmd_buff[8];
+    ASSERT(IPC::MappedBufferDesc(message_id_size, IPC::RW) == cmd_buff[9]);
+    VAddr message_id_addr = cmd_buff[10];
+
+    LOG_CRITICAL(Service_CECD, "(STUBBED) called. title_id = 0x%08X, box_type = %d, "
+        "message_id_addr = 0x%08X, message_id_size = 0x%X, buffer_addr = 0x%08X, buffer_size = 0x%X, "
+        "key_addr = 0x%08X",
+        title_id, box_type, message_id_addr, message_id_size, buffer_addr, buffer_size, key_addr);
+
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
 
-    LOG_CRITICAL(Service_CECD, "(STUBBED) called");
 }
 
 void Delete(Service::Interface* self) {
@@ -220,7 +235,7 @@ void Delete(Service::Interface* self) {
 
     u32 title_id = cmd_buff[1];
     SaveDataType save_data_type = static_cast<SaveDataType>(cmd_buff[2]);
-    u32 box_type = cmd_buff[3];
+    u8 box_type = cmd_buff[2] & 0xFF;
     u32 message_id_size = cmd_buff[4];
     ASSERT(IPC::MappedBufferDesc(message_id_size, IPC::R) == cmd_buff[5]);
     VAddr message_id_addr = cmd_buff[6];
@@ -248,21 +263,60 @@ void cecd9(Service::Interface* self) {
         title_id, option, buffer_address, size);
 }
 
+enum class SystemInfoType {
+    EulaVersion = 1,
+    Eula = 2,
+    ParentControl = 3
+};
+
 void GetSystemInfo(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
     u32 info_size = cmd_buff[1];
-    u32 type = cmd_buff[2];
+    SystemInfoType type = static_cast<SystemInfoType>(cmd_buff[2]);
     u32 param_size = cmd_buff[3];
     ASSERT(IPC::MappedBufferDesc(param_size, IPC::R) == cmd_buff[4]);
     VAddr param_addr = cmd_buff[5];
-    ASSERT(IPC::MappedBufferDesc(param_size, IPC::W) == cmd_buff[6]);
+    ASSERT(IPC::MappedBufferDesc(info_size, IPC::W) == cmd_buff[6]);
     VAddr info_addr = cmd_buff[7];
 
     LOG_CRITICAL(Service_CECD, "(STUBBED) called, info_addr = 0x%08X, info_size = 0x%X, type = %d, param_addr = 0x%08X, param_size = 0x%X",
         info_addr, info_size, type, param_addr, param_size);
 
-    cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    switch(type) {
+    case SystemInfoType::EulaVersion:
+        if (info_size != 2) {
+            cmd_buff[1] = 0xC8810BEF;
+        } else {
+            // TODO read from cfg
+            Memory::Write16(info_addr, 1);
+            cmd_buff[1] = RESULT_SUCCESS.raw;
+        }
+        break;
+    case SystemInfoType::Eula:
+        if (info_size != 1) {
+            cmd_buff[1] = 0xC8810BEF;
+        } else {
+            // TODO read from cfg
+            Memory::Write8(info_addr, 1);
+            cmd_buff[1] = RESULT_SUCCESS.raw;
+        }
+        break;
+    case SystemInfoType::ParentControl:
+        if (info_size != 1) {
+            cmd_buff[1] = 0xC8810BEF;
+        } else {
+            // TODO read from cfg
+            Memory::Write8(info_addr, 0);
+            cmd_buff[1] = RESULT_SUCCESS.raw;
+        }
+        break;
+    default:
+        LOG_ERROR(Service_CECD, "Unknown system info type %d", type);
+        cmd_buff[1] = RESULT_SUCCESS.raw; // No error
+    }
+
+
 }
 
 void cecdB(Service::Interface* self) {
