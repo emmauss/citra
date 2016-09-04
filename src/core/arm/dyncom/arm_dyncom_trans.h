@@ -13,6 +13,8 @@ enum class TransExtData {
     SINGLE_STEP     = (1 << 8)
 };
 
+#pragma warning(disable : 4200)
+
 struct arm_inst {
     unsigned int idx;
     unsigned int cond;
