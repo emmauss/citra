@@ -40,7 +40,7 @@ static int enable_accelerometer_count = 0; // positive means enabled
 static int enable_gyroscope_count = 0; // positive means enabled
 
 static PadState GetCirclePadDirectionState(s16 circle_pad_x, s16 circle_pad_y) {
-    constexpr float TAN30 = 0.577350269, TAN60 = 1 / TAN30; // 30 degree and 60 degree are angular thresholds for directions
+    constexpr float TAN30 = 0.577350269f, TAN60 = 1 / TAN30; // 30 degree and 60 degree are angular thresholds for directions
     constexpr int CIRCLE_PAD_THRESHOLD_SQUARE = 40 * 40; // a circle pad radius greater than 40 will trigger circle pad direction
     PadState state;
     state.hex = 0;

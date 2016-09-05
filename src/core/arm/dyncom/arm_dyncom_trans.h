@@ -14,7 +14,6 @@ enum class TransExtData {
 };
 
 #pragma warning(disable : 4200)
-
 struct arm_inst {
     unsigned int idx;
     unsigned int cond;
