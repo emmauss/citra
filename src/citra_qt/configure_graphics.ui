@@ -7,13 +7,13 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>300</height>
+    <height>454</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Form</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
+  <layout class="QVBoxLayout" name="vertical_layout_2">
    <item>
     <layout class="QVBoxLayout" name="verticalLayout_3">
      <item>
@@ -22,48 +22,113 @@
         <string>Graphics</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_2">
-         <item>
-           <widget class="QCheckBox" name="toggle_hw_renderer">
-             <property name="text">
-               <string>Enable hardware renderer</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_shader_jit">
-             <property name="text">
-               <string>Enable shader JIT</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_scaled_resolution">
-             <property name="text">
-               <string>Enable scaled resolution</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_vsync">
-             <property name="text">
-               <string>Enable V-Sync</string>
-             </property>
-           </widget>
-         </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_hw_renderer">
+          <property name="text">
+           <string>Enable hardware renderer</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_shader_jit">
+          <property name="text">
+           <string>Enable shader JIT</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_scaled_resolution">
+          <property name="text">
+           <string>Enable scaled resolution</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_vsync">
+          <property name="text">
+           <string>Enable V-Sync</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </widget>
      </item>
     </layout>
    </item>
    <item>
+    <widget class="QGroupBox" name="groupBox_4">
+     <property name="title">
+      <string>General</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_6">
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_7">
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayout_9">
+          <item>
+           <widget class="QLabel" name="label1_2">
+            <property name="text">
+             <string>Screen Layout:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="layout_combo">
+            <item>
+             <property name="text">
+              <string notr="true">Default</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string notr="true">Single Screen</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string notr="true">Large Screen</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="swap_screens">
+          <property name="text">
+           <string>Swap Screens</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_5">
+     <property name="title">
+      <string>Custom Layout Parameters</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_8">
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_8"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
      </property>
+     <property name="sizeType">
+      <enum>QSizePolicy::Minimum</enum>
+     </property>
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>40</height>
+       <height>10</height>
       </size>
      </property>
     </spacer>
@@ -71,22 +136,5 @@
   </layout>
  </widget>
  <resources/>
- <connections>
-  <connection>
-   <sender>toggle_gdbstub</sender>
-   <signal>toggled(bool)</signal>
-   <receiver>gdbport_spinbox</receiver>
-   <slot>setEnabled(bool)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>84</x>
-     <y>157</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>342</x>
-     <y>158</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
 </ui>
