@@ -37,6 +37,8 @@ project(citra)
 option(ENABLE_SDL2 "Enable the SDL2 frontend" ON)
 option(CITRA_USE_BUNDLED_SDL2 "Download bundled SDL2 binaries" OFF)
 
+option(ENABLE_GLFW "Enable the GLFW frontend" OFF)
+
 option(ENABLE_QT "Enable the Qt frontend" ON)
 option(CITRA_USE_BUNDLED_QT "Download bundled Qt binaries" OFF)
 
@@ -156,6 +158,11 @@ if (ENABLE_SDL2)
     endif()
 else()
     set(SDL2_FOUND NO)
+endif()
+
+if (ENABLE_GLFW)
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(GLFW REQUIRED glfw3)
 endif()
 
 IF (APPLE)
