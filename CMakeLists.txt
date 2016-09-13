@@ -37,6 +37,8 @@ project(citra)
 option(ENABLE_SDL2 "Enable the SDL2 frontend" ON)
 option(CITRA_USE_BUNDLED_SDL2 "Download bundled SDL2 binaries" OFF)
 
+option(ENABLE_GLFW "Enable the GLFW frontend" OFF)
+
 option(ENABLE_QT "Enable the Qt frontend" ON)
 option(CITRA_USE_BUNDLED_QT "Download bundled Qt binaries" OFF)
 
@@ -118,12 +120,11 @@ else()
 endif()
 
 find_package(Boost 1.57.0 QUIET)
-if (Boost_FOUND)
-    include_directories(${Boost_INCLUDE_DIRS})
-else()
+if (NOT Boost_FOUND)
     message(STATUS "Boost 1.57.0 or newer not found, falling back to externals")
-    include_directories(externals/boost)
+    set(Boost_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/externals/boost")
 endif()
+include_directories(${Boost_INCLUDE_DIR})
 
 # Include bundled CMake modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/externals/cmake-modules")
@@ -157,6 +158,11 @@ if (ENABLE_SDL2)
     endif()
 else()
     set(SDL2_FOUND NO)
+endif()
+
+if (ENABLE_GLFW)
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(GLFW REQUIRED glfw3)
 endif()
 
 IF (APPLE)
@@ -226,6 +232,9 @@ git_branch_name(GIT_BRANCH)
 set(INI_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/externals/inih")
 include_directories(${INI_PREFIX})
 add_subdirectory(${INI_PREFIX})
+
+option(DYNARMIC_TESTS OFF)
+add_subdirectory(externals/dynarmic)
 
 add_subdirectory(externals/glad)
 include_directories(externals/microprofile)

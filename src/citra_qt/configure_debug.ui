@@ -26,6 +26,9 @@
          <layout class="QHBoxLayout" name="horizontalLayout_3">
           <item>
            <widget class="QCheckBox" name="toggle_gdbstub">
+            <property name="toolTip">
+             <string>Enable GDB STub.</string>
+            </property>
             <property name="text">
              <string>Enable GDB Stub</string>
             </property>

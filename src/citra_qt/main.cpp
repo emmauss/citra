@@ -16,6 +16,7 @@
 #include "qhexedit.h"
 
 #include "citra_qt/bootmanager.h"
+#include "citra_qt/cheat_gui.h"
 #include "citra_qt/config.h"
 #include "citra_qt/configure_dialog.h"
 #include "citra_qt/game_list.h"
@@ -35,6 +36,7 @@
 #include "citra_qt/debugger/profiler.h"
 #include "citra_qt/debugger/ramview.h"
 #include "citra_qt/debugger/registers.h"
+#include "citra_qt/debugger/wait_tree.h"
 
 #include "common/microprofile.h"
 #include "common/platform.h"
@@ -112,6 +114,10 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     auto graphicsSurfaceViewerAction = new QAction(tr("Create Pica surface viewer"), this);
     connect(graphicsSurfaceViewerAction, SIGNAL(triggered()), this, SLOT(OnCreateGraphicsSurfaceViewer()));
 
+    waitTreeWidget = new WaitTreeWidget(this);
+    addDockWidget(Qt::LeftDockWidgetArea, waitTreeWidget);
+    waitTreeWidget->hide();
+
     QMenu* debug_menu = ui.menu_View->addMenu(tr("Debugging"));
     debug_menu->addAction(graphicsSurfaceViewerAction);
     debug_menu->addSeparator();
@@ -127,6 +133,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     debug_menu->addAction(graphicsBreakpointsWidget->toggleViewAction());
     debug_menu->addAction(graphicsVertexShaderWidget->toggleViewAction());
     debug_menu->addAction(graphicsTracingWidget->toggleViewAction());
+    debug_menu->addAction(waitTreeWidget->toggleViewAction());
 
     // Set default UI state
     // geometry: 55% of the window contents are in the upper screen half, 45% in the lower half
@@ -147,6 +154,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     microProfileDialog->restoreGeometry(UISettings::values.microprofile_geometry);
     microProfileDialog->setVisible(UISettings::values.microprofile_visible);
 #endif
+    ui.action_Cheats->setEnabled(false);
 
     game_list->LoadInterfaceLayout();
 
@@ -169,6 +177,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     // Setup connections
     connect(game_list, SIGNAL(GameChosen(QString)), this, SLOT(OnGameListLoadFile(QString)), Qt::DirectConnection);
     connect(ui.action_Configure, SIGNAL(triggered()), this, SLOT(OnConfigure()));
+    connect(ui.action_Cheats, SIGNAL(triggered()), this, SLOT(OnCheats()));
     connect(ui.action_Load_File, SIGNAL(triggered()), this, SLOT(OnMenuLoadFile()),Qt::DirectConnection);
     connect(ui.action_Load_Symbol_Map, SIGNAL(triggered()), this, SLOT(OnMenuLoadSymbolMap()));
     connect(ui.action_Select_Game_List_Root, SIGNAL(triggered()), this, SLOT(OnMenuSelectGameListRoot()));
@@ -185,7 +194,8 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     connect(this, SIGNAL(EmulationStopping()), render_window, SLOT(OnEmulationStopping()));
     connect(this, SIGNAL(EmulationStarting(EmuThread*)), graphicsTracingWidget, SLOT(OnEmulationStarting(EmuThread*)));
     connect(this, SIGNAL(EmulationStopping()), graphicsTracingWidget, SLOT(OnEmulationStopping()));
-
+    connect(this, SIGNAL(EmulationStarting(EmuThread*)), waitTreeWidget, SLOT(OnEmulationStarting(EmuThread*)));
+    connect(this, SIGNAL(EmulationStopping()), waitTreeWidget, SLOT(OnEmulationStopping()));
 
     // Setup hotkeys
     RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
@@ -336,9 +346,11 @@ void GMainWindow::BootGame(const std::string& filename) {
     connect(emu_thread.get(), SIGNAL(DebugModeEntered()), disasmWidget, SLOT(OnDebugModeEntered()), Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), SIGNAL(DebugModeEntered()), registersWidget, SLOT(OnDebugModeEntered()), Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), SIGNAL(DebugModeEntered()), callstackWidget, SLOT(OnDebugModeEntered()), Qt::BlockingQueuedConnection);
+    connect(emu_thread.get(), SIGNAL(DebugModeEntered()), waitTreeWidget, SLOT(OnDebugModeEntered()), Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), SIGNAL(DebugModeLeft()), disasmWidget, SLOT(OnDebugModeLeft()), Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), SIGNAL(DebugModeLeft()), registersWidget, SLOT(OnDebugModeLeft()), Qt::BlockingQueuedConnection);
     connect(emu_thread.get(), SIGNAL(DebugModeLeft()), callstackWidget, SLOT(OnDebugModeLeft()), Qt::BlockingQueuedConnection);
+    connect(emu_thread.get(), SIGNAL(DebugModeLeft()), waitTreeWidget, SLOT(OnDebugModeLeft()), Qt::BlockingQueuedConnection);
 
     // Update the GUI
     registersWidget->OnDebugModeEntered();
@@ -376,6 +388,7 @@ void GMainWindow::ShutdownGame() {
     ui.action_Start->setText(tr("Start"));
     ui.action_Pause->setEnabled(false);
     ui.action_Stop->setEnabled(false);
+    ui.action_Cheats->setEnabled(false);
     render_window->hide();
     game_list->show();
 
@@ -467,6 +480,7 @@ void GMainWindow::OnStartGame() {
 
     ui.action_Start->setEnabled(false);
     ui.action_Start->setText(tr("Continue"));
+    ui.action_Cheats->setEnabled(true);
 
     ui.action_Pause->setEnabled(true);
     ui.action_Stop->setEnabled(true);
@@ -512,11 +526,16 @@ void GMainWindow::ToggleWindowMode() {
 void GMainWindow::OnConfigure() {
     ConfigureDialog configureDialog(this);
     auto result = configureDialog.exec();
-    if (result == QDialog::Accepted) {
+    if (result == QDialog::Accepted)
+    {
         configureDialog.applyConfiguration();
-        render_window->ReloadSetKeymaps();
         config->Save();
     }
+}
+
+void GMainWindow::OnCheats() {
+    CheatDialog cheatDialog(this);
+    cheatDialog.exec();
 }
 
 void GMainWindow::OnCreateGraphicsSurfaceViewer() {
