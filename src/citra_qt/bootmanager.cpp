@@ -163,7 +163,8 @@ void GRenderWindow::OnFramebufferSizeChanged()
     qreal pixelRatio = windowPixelRatio();
     unsigned width = child->QPaintDevice::width() * pixelRatio;
     unsigned height = child->QPaintDevice::height() * pixelRatio;
-    UpdateCurrentFramebufferLayout(width, height);
+
+    NotifyFramebufferLayoutChanged(EmuWindow::FramebufferLayout::DefaultScreenLayout(width, height));
 }
 
 void GRenderWindow::BackupGeometry()
