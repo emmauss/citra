@@ -34,10 +34,14 @@ pad_circle_right =
 pad_circle_modifier =
 
 # The applied modifier scale to circle pad.
-# Must be in range of 0.0-1.0. Defaults to 0.5
+# Must be in range of 0.0-1.0. Defaults to 0.4
 pad_circle_modifier_scale =
 
 [Core]
+# Whether to use the Just-In-Time (JIT) compiler for CPU emulation
+# 0: Interpreter (slow), 1 (default): JIT (fast)
+use_cpu_jit =
+
 # The applied frameskip amount. Must be a power of two.
 # 0 (default): No frameskip, 1: x2 frameskip, 2: x4 frameskip, 3: x8 frameskip, etc.
 frame_skip =
@@ -58,16 +62,6 @@ use_scaled_resolution =
 # Whether to enable V-Sync (caps the framerate at 60FPS) or not.
 # 0 (default): Off, 1: On
 use_vsync =
-
-[Layout]
-# Layout for the screen inside the render window.
-# 0 (default): Default Top Bottom Screen, 1: Single Screen Only, 2: Large Screen Small Screen
-layout_option =
-
-# Swaps the prominent screen with the other screen.
-# For example, if Single Screen is chosen, setting this to 1 will display the bottom screen instead of the top screen.
-# 0 (default): Top Screen is prominent, 1: Bottom Screen is prominent
-swap_screen =
 
 # The clear color for the renderer. What shows up on the sides of the bottom screen.
 # Must be in range of 0.0-1.0. Defaults to 1.0 for all.

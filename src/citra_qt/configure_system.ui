@@ -18,6 +18,9 @@
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
       <widget class="QGroupBox" name="group_system_settings">
+       <property name="toolTip">
+        <string>Configue 3DS system settings.</string>
+       </property>
        <property name="title">
         <string>System Settings</string>
        </property>
@@ -129,6 +132,9 @@
         </item>
         <item row="2" column="1">
          <widget class="QComboBox" name="combo_language">
+          <property name="toolTip">
+           <string>Selects system language.</string>
+          </property>
           <item>
            <property name="text">
             <string>Japanese (日本語)</string>
@@ -200,6 +206,9 @@
         </item>
         <item row="3" column="1">
          <widget class="QComboBox" name="combo_sound">
+          <property name="toolTip">
+           <string>Selects sound output mode.</string>
+          </property>
           <item>
            <property name="text">
             <string>Mono</string>
@@ -248,5 +257,12 @@
   </layout>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>combo_birthmonth</sender>
+   <signal>currentIndexChanged(int)</signal>
+   <receiver>ConfigureSystem</receiver>
+   <slot>updateBirthdayComboBox(int)</slot>
+  </connection>
+ </connections>
 </ui>

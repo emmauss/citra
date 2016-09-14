@@ -26,6 +26,9 @@
          <layout class="QVBoxLayout" name="verticalLayout_2">
           <item>
            <widget class="QCheckBox" name="toggle_deepscan">
+            <property name="toolTip">
+             <string>Scans all folders in the game directory.</string>
+            </property>
             <property name="text">
              <string>Recursive scan for game folder</string>
             </property>
@@ -33,6 +36,9 @@
           </item>
           <item>
            <widget class="QCheckBox" name="toggle_check_exit">
+            <property name="toolTip">
+             <string>Prompts the user when exiting Citra.</string>
+            </property>
             <property name="text">
              <string>Confirm exit while emulation is running</string>
             </property>
@@ -43,6 +49,26 @@
        </layout>
       </widget>
      </item>
+      <item>
+        <widget class="QGroupBox" name="groupBox_2">
+          <property name="title">
+            <string>Performance</string>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_7">
+            <item>
+              <layout class="QVBoxLayout" name="verticalLayout_5">
+                <item>
+                  <widget class="QCheckBox" name="toggle_cpu_jit">
+                    <property name="text">
+                      <string>Enable CPU JIT</string>
+                    </property>
+                  </widget>
+                </item>
+              </layout>
+            </item>
+          </layout>
+        </widget>
+      </item>
      <item>
       <widget class="QGroupBox" name="groupBox_4">
        <property name="title">
@@ -62,6 +88,9 @@
             </item>
             <item>
              <widget class="QComboBox" name="region_combobox">
+              <property name="toolTip">
+               <string>Selects emulated game region.</string>
+              </property>
               <item>
                <property name="text">
                 <string notr="true">JPN</string>

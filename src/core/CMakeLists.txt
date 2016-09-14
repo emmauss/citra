@@ -1,6 +1,7 @@
 set(SRCS
             arm/disassembler/arm_disasm.cpp
             arm/disassembler/load_symbol_map.cpp
+            arm/dynarmic/arm_dynarmic.cpp
             arm/dyncom/arm_dyncom.cpp
             arm/dyncom/arm_dyncom_dec.cpp
             arm/dyncom/arm_dyncom_interpreter.cpp
@@ -12,6 +13,7 @@ set(SRCS
             arm/skyeye_common/vfp/vfpdouble.cpp
             arm/skyeye_common/vfp/vfpinstr.cpp
             arm/skyeye_common/vfp/vfpsingle.cpp
+            cheat_core.cpp
             core.cpp
             core_timing.cpp
             file_sys/archive_backend.cpp
@@ -141,6 +143,7 @@ set(HEADERS
             arm/arm_interface.h
             arm/disassembler/arm_disasm.h
             arm/disassembler/load_symbol_map.h
+            arm/dynarmic/arm_dynarmic.h
             arm/dyncom/arm_dyncom.h
             arm/dyncom/arm_dyncom_dec.h
             arm/dyncom/arm_dyncom_interpreter.h
@@ -153,6 +156,7 @@ set(HEADERS
             arm/skyeye_common/vfp/asm_vfp.h
             arm/skyeye_common/vfp/vfp.h
             arm/skyeye_common/vfp/vfp_helper.h
+            cheat_core.h
             core.h
             core_timing.h
             file_sys/archive_backend.h
@@ -285,6 +289,10 @@ set(HEADERS
             system.h
             )
 
+include_directories(../../externals/dynarmic/include)
+
 create_directory_groups(${SRCS} ${HEADERS})
 
 add_library(core STATIC ${SRCS} ${HEADERS})
+
+target_link_libraries(core dynarmic)
