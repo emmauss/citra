@@ -6,16 +6,16 @@
 
 #include "common/logging/log.h"
 
-#include "core/arm/arm_interface.h"
-#include "core/arm/dynarmic/arm_dynarmic.h"
-#include "core/arm/dyncom/arm_dyncom.h"
 #include "core/core.h"
 #include "core/core_timing.h"
-#include "core/gdbstub/gdbstub.h"
+
+#include "core/arm/arm_interface.h"
+#include "core/arm/dyncom/arm_dyncom.h"
 #include "core/hle/hle.h"
 #include "core/hle/kernel/thread.h"
 #include "core/hw/hw.h"
-#include "core/settings.h"
+
+#include "core/gdbstub/gdbstub.h"
 
 namespace Core {
 
@@ -73,13 +73,8 @@ void Stop() {
 
 /// Initialize the core
 void Init() {
-    if (Settings::values.use_cpu_jit) {
-        g_sys_core = std::make_unique<ARM_Dynarmic>(USER32MODE);
-        g_app_core = std::make_unique<ARM_Dynarmic>(USER32MODE);
-    } else {
-        g_sys_core = std::make_unique<ARM_DynCom>(USER32MODE);
-        g_app_core = std::make_unique<ARM_DynCom>(USER32MODE);
-    }
+    g_sys_core = std::make_unique<ARM_DynCom>(USER32MODE);
+    g_app_core = std::make_unique<ARM_DynCom>(USER32MODE);
 
     LOG_DEBUG(Core, "Initialized OK");
 }
