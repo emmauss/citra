@@ -692,10 +692,7 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
     using PixelFormat = CachedSurface::PixelFormat;
     using SurfaceType = CachedSurface::SurfaceType;
 
-    if (config.is_texture_copy) {
-        // TODO(tfarley): Try to hardware accelerate this
-        return false;
-    }
+    DEBUG_ASSERT(config.is_texture_copy == 0);
 
     CachedSurface src_params;
     src_params.addr = config.GetPhysicalInputAddress();
@@ -749,6 +746,13 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
     dst_surface->dirty = true;
     res_cache.FlushRegion(config.GetPhysicalOutputAddress(), dst_size, dst_surface, true);
     return true;
+}
+
+bool RasterizerOpenGL::AccelerateTextureCopy(const GPU::Regs::DisplayTransferConfig& config) {
+    DEBUG_ASSERT(config.is_texture_copy == 1);
+
+    // TODO(tfarley): Try to hardware accelerate this
+    return false;
 }
 
 bool RasterizerOpenGL::AccelerateFill(const GPU::Regs::MemoryFillConfig& config) {
