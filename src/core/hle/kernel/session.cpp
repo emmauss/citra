@@ -7,7 +7,8 @@
 
 namespace IPC {
 
-bool CheckBufferMappingTranslation(MappedBufferPermissions mapping_type, u32 size, u32 translation) {
+bool CheckBufferMappingTranslation(MappedBufferPermissions mapping_type, u32 size,
+                                   u32 translation) {
     if (0x8 == translation) {
         return false;
     }
