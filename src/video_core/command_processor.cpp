@@ -232,14 +232,23 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
         DebugUtils::MemoryAccessTracker memory_accesses;
 
-        // Simple circular-replacement vertex cache
-        // The size has been tuned for optimal balance between hit-rate and the cost of lookup
-        const size_t VERTEX_CACHE_SIZE = 32;
-        std::array<u16, VERTEX_CACHE_SIZE> vertex_cache_ids;
-        std::array<Shader::OutputRegisters, VERTEX_CACHE_SIZE> vertex_cache;
+        // TODO: Vertex cache size. It is set to 5MB right now although some tuning could be
+        // done empirically.
+        constexpr uint32_t VERTEX_CACHE_SIZE = 5 * 1024;
+        // Actual container of the output vertex cache. The reason why we store it in a vector
+        // rather that into the cache map itself is because we want to avoid unordered_map's
+        // allocation cost. If data is stored in a vector, we can reserve it before the loop.
+        std::vector<Shader::OutputVertex> vertex_cache;
 
-        unsigned int vertex_cache_pos = 0;
-        vertex_cache_ids.fill(-1);
+        // Map cache that will map the input vertex to a position in the vertex_cache vector.
+        std::unordered_map<uint32_t, uint32_t> vertex_cache_map;
+
+        // We want to make sure we don't allocate as we go through the vertices, as it has a high
+        // impact on performance.
+        vertex_cache.reserve(VERTEX_CACHE_SIZE);
+        vertex_cache_map.reserve(VERTEX_CACHE_SIZE);
+
+        uint32_t vertex_cache_pos = 0;
 
         Shader::UnitState<false> shader_unit;
         g_state.vs.Setup();
@@ -256,6 +265,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
 
             bool vertex_cache_hit = false;
             Shader::OutputRegisters output_registers;
+            Shader::OutputVertex output_vertex;
 
             if (is_indexed) {
                 if (g_debug_context && Pica::g_debug_context->recorder) {
@@ -264,12 +274,10 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                                               size);
                 }
 
-                for (unsigned int i = 0; i < VERTEX_CACHE_SIZE; ++i) {
-                    if (vertex == vertex_cache_ids[i]) {
-                        output_registers = vertex_cache[i];
-                        vertex_cache_hit = true;
-                        break;
-                    }
+                // Cache checking.
+                if (vertex_cache_map.find(vertex) != vertex_cache_map.end()) {
+                    vertex_cache_hit = true;
+                    output_vertex = vertex_cache[vertex_cache_map[vertex]];
                 }
             }
 
@@ -285,15 +293,22 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                 g_state.vs.Run(shader_unit, input, loader.GetNumTotalAttributes());
                 output_registers = shader_unit.output_registers;
 
+                output_vertex = output_registers.ToVertex(regs.vs);
+
                 if (is_indexed) {
-                    vertex_cache[vertex_cache_pos] = output_registers;
-                    vertex_cache_ids[vertex_cache_pos] = vertex;
-                    vertex_cache_pos = (vertex_cache_pos + 1) % VERTEX_CACHE_SIZE;
+                    // Cache storing.
+                    vertex_cache[vertex_cache_pos] = output_vertex;
+                    vertex_cache_map.emplace(vertex, vertex_cache_pos);
+                    vertex_cache_pos++;
+
+                    // TODO: there might be a smarter way to handle the cache, such as a LRU policy.
+                    if (vertex_cache_pos >= VERTEX_CACHE_SIZE) {
+                        vertex_cache_map.clear();
+                        vertex_cache_pos = 0;
+                        LOG_CRITICAL(HW_GPU, "Clearing vertex cache");
+                    }
                 }
             }
-
-            // Retrieve vertex from register data
-            Shader::OutputVertex output_vertex = output_registers.ToVertex(regs.vs);
 
             // Send to renderer
             using Pica::Shader::OutputVertex;
