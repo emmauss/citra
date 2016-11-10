@@ -26,15 +26,6 @@ static QVariant GetDataForColumn(int col, const AggregatedDuration& duration) {
         return std::chrono::duration_cast<FloatMs>(dur).count();
     };
 
-    static auto duration_to_fps = [](Duration dur) -> float {
-        using FloatMs = std::chrono::duration<float, std::chrono::milliseconds::period>;
-        float fps = 1000/std::chrono::duration_cast<FloatMs>(dur).count();
-        if (dur.count() == 0) {
-            fps = 0;
-        }
-        return fps;
-    };
-
     switch (col) {
     case 1:
         return duration_to_float(duration.avg);
@@ -43,7 +34,8 @@ static QVariant GetDataForColumn(int col, const AggregatedDuration& duration) {
     case 3:
         return duration_to_float(duration.max);
     case 4:
-        return duration_to_fps(duration.avg);
+        float fps = 1000/duration_to_float(duration.avg);
+        return fps;
     default:
         return QVariant();
     }
