@@ -43,7 +43,7 @@ static QVariant GetDataForColumn(int col, const AggregatedDuration& duration) {
     case 3:
         return duration_to_float(duration.max);
     case 4:
-        return duration_to_fps(duration.max);
+        return duration_to_fps(duration.avg);
     default:
         return QVariant();
     }
