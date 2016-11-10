@@ -105,6 +105,15 @@ else()
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "/DEBUG /INCREMENTAL:NO /OPT:REF,ICF" CACHE STRING "" FORCE)
 endif()
 
+# Set file offset size to 64 bits.
+#
+# On modern Unixes, this is typically already the case. The lone exception is
+# glibc, which may default to 32 bits. glibc allows this to be configured
+# by setting _FILE_OFFSET_BITS.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_definitions(-D_FILE_OFFSET_BITS=64)
+endif()
+
 add_definitions(-DSINGLETHREADED)
 # CMake seems to only define _DEBUG on Windows
 set_property(DIRECTORY APPEND PROPERTY
@@ -118,12 +127,11 @@ else()
 endif()
 
 find_package(Boost 1.57.0 QUIET)
-if (Boost_FOUND)
-    include_directories(${Boost_INCLUDE_DIRS})
-else()
+if (NOT Boost_FOUND)
     message(STATUS "Boost 1.57.0 or newer not found, falling back to externals")
-    include_directories(externals/boost)
+    set(Boost_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/externals/boost")
 endif()
+include_directories(${Boost_INCLUDE_DIR})
 
 # Include bundled CMake modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/externals/cmake-modules")
@@ -161,22 +169,29 @@ endif()
 
 IF (APPLE)
     FIND_LIBRARY(COCOA_LIBRARY Cocoa)           # Umbrella framework for everything GUI-related
-    set(PLATFORM_LIBRARIES iconv ${COCOA_LIBRARY} ${IOKIT_LIBRARY} ${COREVIDEO_LIBRARY})
+    set(PLATFORM_LIBRARIES ${COCOA_LIBRARY} ${IOKIT_LIBRARY} ${COREVIDEO_LIBRARY})
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
 ELSEIF(MINGW)
-    # GCC does not support codecvt, so use iconv instead
     # PSAPI is the Process Status API
-    set(PLATFORM_LIBRARIES winmm ws2_32 psapi iconv)
+    set(PLATFORM_LIBRARIES winmm ws2_32 psapi)
 
     # WSAPoll functionality doesn't exist before WinNT 6.x (Vista and up)
     add_definitions(-D_WIN32_WINNT=0x0600)
 ELSEIF(WIN32)
     set(PLATFORM_LIBRARIES winmm ws2_32)
-ELSE()
+ELSEIF(CMAKE_SYSTEM_NAME MATCHES "^(Linux|kFreeBSD|GNU|SunOS)$")
     set(PLATFORM_LIBRARIES rt)
 ENDIF (APPLE)
+
+# MINGW: GCC does not support codecvt, so use iconv instead
+if (UNIX OR MINGW)
+    find_library(ICONV_LIBRARY NAMES iconv)
+    if (ICONV_LIBRARY)
+        list(APPEND PLATFORM_LIBRARIES ${ICONV_LIBRARY})
+    endif()
+endif()
 
 if (ENABLE_QT)
     if (CITRA_USE_BUNDLED_QT)
@@ -227,6 +242,9 @@ set(INI_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/externals/inih")
 include_directories(${INI_PREFIX})
 add_subdirectory(${INI_PREFIX})
 
+option(DYNARMIC_TESTS OFF)
+add_subdirectory(externals/dynarmic)
+
 add_subdirectory(externals/glad)
 include_directories(externals/microprofile)
 include_directories(externals/nihstro/include)
@@ -251,7 +269,7 @@ add_subdirectory(src)
 # http://standards.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html
 # http://standards.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
 # http://standards.freedesktop.org/shared-mime-info-spec/shared-mime-info-spec-latest.html
-if(${CMAKE_SYSTEM_NAME} MATCHES "Linux|FreeBSD|OpenBSD|NetBSD")
+if(ENABLE_QT AND UNIX AND NOT APPLE)
     install(FILES "${CMAKE_SOURCE_DIR}/dist/citra.desktop"
             DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications")
     install(FILES "${CMAKE_SOURCE_DIR}/dist/citra.svg"
