@@ -117,7 +117,8 @@ QVariant ProfilerModel::data(const QModelIndex& index, int role) const {
             } else {
                 return GetDataForColumn(index.column(), results.interframe_time);
             }
-        } else if (index.row() == 2) {
+        }
+        else if (index.row() == 2) {
             if (index.column() == 0) {
                 return tr("Frame per second, fps");
             }
