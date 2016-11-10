@@ -26,6 +26,8 @@ static QVariant GetDataForColumn(int col, const AggregatedDuration& duration) {
         return std::chrono::duration_cast<FloatMs>(dur).count();
     };
 
+    float fps = 1000 / duration_to_float(duration.avg);
+
     switch (col) {
     case 1:
         return duration_to_float(duration.avg);
@@ -33,6 +35,8 @@ static QVariant GetDataForColumn(int col, const AggregatedDuration& duration) {
         return duration_to_float(duration.min);
     case 3:
         return duration_to_float(duration.max);
+    case 4:
+        return fps;
     default:
         return QVariant();
     }
@@ -72,6 +76,8 @@ QVariant ProfilerModel::headerData(int section, Qt::Orientation orientation, int
             return tr("Min");
         case 3:
             return tr("Max");
+        case 4:
+            return tr("Fps(avg)");
         }
     }
 
@@ -87,7 +93,7 @@ QModelIndex ProfilerModel::parent(const QModelIndex& child) const {
 }
 
 int ProfilerModel::columnCount(const QModelIndex& parent) const {
-    return 4;
+    return 5;
 }
 
 int ProfilerModel::rowCount(const QModelIndex& parent) const {
@@ -103,13 +109,16 @@ QVariant ProfilerModel::data(const QModelIndex& index, int role) const {
         if (index.row() == 0) {
             if (index.column() == 0) {
                 return tr("Frame");
-            } else {
+            }
+            else {
                 return GetDataForColumn(index.column(), results.frame_time);
             }
-        } else if (index.row() == 1) {
+        }
+        else if (index.row() == 1) {
             if (index.column() == 0) {
                 return tr("Frame (with swapping)");
-            } else {
+            }
+            else {
                 return GetDataForColumn(index.column(), results.interframe_time);
             }
         }
