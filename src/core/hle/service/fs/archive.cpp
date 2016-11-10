@@ -549,6 +549,12 @@ void RegisterArchiveTypes() {
         LOG_ERROR(Service_FS, "Can't instantiate SDMC archive with path %s",
                   sdmc_directory.c_str());
 
+    auto sdmcwo_factory = std::make_unique<FileSys::ArchiveFactory_SDMC>(sdmc_directory);
+    if (sdmcwo_factory->Initialize())
+        RegisterArchiveType(std::move(sdmcwo_factory), ArchiveIdCode::SDMCWriteOnly);
+    else
+        LOG_ERROR(Service_FS, "Can't instantiate SDMCWriteOnly archive with path %s", sdmc_directory.c_str());
+
     // Create the SaveData archive
     auto savedata_factory = std::make_unique<FileSys::ArchiveFactory_SaveData>(sdmc_directory);
     RegisterArchiveType(std::move(savedata_factory), ArchiveIdCode::SaveData);
