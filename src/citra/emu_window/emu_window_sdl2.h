@@ -33,6 +33,9 @@ public:
     /// Load keymap from configuration
     void ReloadSetKeymaps() override;
 
+   /// Sets fullscreen
+    void setfullscreen();
+
 private:
     /// Called by PollEvents when a key is pressed or released.
     void OnKeyEvent(int key, u8 state);

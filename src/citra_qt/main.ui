@@ -45,7 +45,7 @@
      <x>0</x>
      <y>0</y>
      <width>1081</width>
-     <height>19</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_File">
@@ -81,6 +81,7 @@
     </property>
     <addaction name="action_Single_Window_Mode"/>
     <addaction name="actionDisplay_widget_title_bars"/>
+    <addaction name="actionFullscreen"/>
    </widget>
    <widget class="QMenu" name="menu_Help">
     <property name="title">
@@ -165,6 +166,17 @@
    </property>
    <property name="toolTip">
     <string>Selects a folder to display in the game list</string>
+   </property>
+  </action>
+  <action name="actionFullscreen">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Fullscreen</string>
+   </property>
+   <property name="shortcut">
+    <string>F11</string>
    </property>
   </action>
  </widget>

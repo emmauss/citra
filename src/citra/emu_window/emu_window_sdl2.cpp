@@ -178,3 +178,7 @@ void EmuWindow_SDL2::ReloadSetKeymaps() {
 void EmuWindow_SDL2::OnMinimalClientAreaChangeRequest(const std::pair<unsigned, unsigned>& minimal_size) {
     SDL_SetWindowMinimumSize(render_window, minimal_size.first, minimal_size.second);
 }
+
+void EmuWindow_SDL2::setfullscreen() {
+    SDL_SetWindowFullscreen(render_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+}

@@ -43,6 +43,7 @@
 static void PrintHelp(const char *argv0)
 {
     std::cout << "Usage: " << argv0 << " [options] <filename>\n"
+                 "-f, --fulscreen       starts emulation in fullscreen mode\n"
                  "-g, --gdbport=NUMBER  Enable gdb stub on port NUMBER\n"
                  "-h, --help            Display this help and exit\n"
                  "-v, --version         Output version information and exit\n";
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
     bool use_gdbstub = Settings::values.use_gdbstub;
     u32 gdb_port = static_cast<u32>(Settings::values.gdbstub_port);
     char *endarg;
+    bool set_fscreen = false;
 #ifdef _WIN32
     int argc_w;
     auto argv_w = CommandLineToArgvW(GetCommandLineW(), &argc_w);
@@ -72,6 +74,7 @@ int main(int argc, char **argv) {
     std::string boot_filename;
 
     static struct option long_options[] = {
+        { "fullscreen", -no_argument, 0, 'f'},
         { "gdbport", required_argument, 0, 'g' },
         { "help", no_argument, 0, 'h' },
         { "version", no_argument, 0, 'v' },
@@ -79,9 +82,11 @@ int main(int argc, char **argv) {
     };
 
     while (optind < argc) {
-        char arg = getopt_long(argc, argv, "g:hv", long_options, &option_index);
+        char arg = getopt_long(argc, argv, "fg:hv", long_options, &option_index);
         if (arg != -1) {
             switch (arg) {
+            case 'f':
+                set_fscreen = true;
             case 'g':
                 errno = 0;
                 gdb_port = strtoul(optarg, &endarg, 0);
@@ -147,6 +152,9 @@ int main(int argc, char **argv) {
         LOG_CRITICAL(Frontend, "Failed to load ROM (Error %i)!", load_result);
         return -1;
     }
+
+    if (set_fscreen == true)
+        emu_window->setfullscreen();
 
     while (emu_window->IsOpen()) {
         Core::RunLoop();

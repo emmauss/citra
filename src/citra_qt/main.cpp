@@ -191,9 +191,11 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr)
     RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
     RegisterHotkey("Main Window", "Start Emulation");
     LoadHotkeys();
+    //QShortcut *toggle_fulls = new QShortcut(QKeySequence::FullScreen, this, SLOT(ToggleFullscreen()));
 
     connect(GetHotkey("Main Window", "Load File", this), SIGNAL(activated()), this, SLOT(OnMenuLoadFile()));
     connect(GetHotkey("Main Window", "Start Emulation", this), SIGNAL(activated()), this, SLOT(OnStartGame()));
+    connect(ui.actionFullscreen, SIGNAL(triggered(bool)), this , SLOT(ToggleFullscreen()));
 
     std::string window_title = Common::StringFromFormat("Citra | %s-%s", Common::g_scm_branch, Common::g_scm_desc);
     setWindowTitle(window_title.c_str());
@@ -564,6 +566,13 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     render_window->close();
 
     QWidget::closeEvent(event);
+}
+
+void GMainWindow::ToggleFullscreen() {
+    if (ui.actionFullscreen)
+        QMainWindow::showFullScreen();
+    else
+        QMainWindow::showNormal();
 }
 
 #ifdef main

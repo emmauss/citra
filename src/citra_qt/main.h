@@ -94,6 +94,11 @@ private:
     bool ConfirmClose();
     void closeEvent(QCloseEvent* event) override;
 
+    /**
+     *Toggle fullscreem
+     */
+    void ToggleFullscreen();
+
 private slots:
     void OnStartGame();
     void OnPauseGame();
