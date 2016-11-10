@@ -30,16 +30,15 @@ OutputVertex OutputRegisters::ToVertex(const Regs::ShaderConfig& config) {
     OutputVertex ret;
     // TODO(neobrain): Under some circumstances, up to 16 attributes may be output. We need to
     // figure out what those circumstances are and enable the remaining outputs then.
-    unsigned index = 0;
-    for (unsigned i = 0; i < 7; ++i) {
 
-        if (index >= g_state.regs.vs_output_total)
+    for (unsigned i = 0; i < 7; ++i) {
+        if (i >= g_state.regs.vs_output_total)
             break;
 
         if ((config.output_mask & (1 << i)) == 0)
             continue;
 
-        const auto& output_register_map = g_state.regs.vs_output_attributes[index];
+        const auto& output_register_map = g_state.regs.vs_output_attributes[i];
 
         u32 semantics[4] = {output_register_map.map_x, output_register_map.map_y,
                             output_register_map.map_z, output_register_map.map_w};
@@ -51,11 +50,9 @@ OutputVertex OutputRegisters::ToVertex(const Regs::ShaderConfig& config) {
             } else {
                 // Zero output so that attributes which aren't output won't have denormals in them,
                 // which would slow us down later.
-                memset(out, 0, sizeof(*out));
+                out->Zero();
             }
         }
-
-        index++;
     }
 
     // The hardware takes the absolute and saturates vertex colors like this, *before* doing
