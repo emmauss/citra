@@ -150,6 +150,15 @@ void RendererOpenGL::SwapBuffers() {
     {
         auto aggregator = Common::Profiling::GetTimingResultsAggregator();
         aggregator->AddFrame(profiler.GetPreviousFrameResults());
+        Common::Profiling::Duration frametime = (std::chrono::milliseconds)1000/60;
+        if (aggregator->GetAggregatedResults().frame_time.avg < frametime)
+        {
+            static auto duration_to_float = [](Common::Profiling::Duration dur) -> float {
+                using FloatMs = std::chrono::duration<float, std::chrono::milliseconds::period>;
+                return std::chrono::duration_cast<FloatMs>(dur).count();
+            };
+            std::this_thread::sleep_for(std::chrono::milliseconds(long(duration_to_float(frametime) - duration_to_float(aggregator->GetAggregatedResults().frame_time.avg))));
+        };
     }
 
     // Swap buffers
