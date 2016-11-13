@@ -22,34 +22,44 @@
         <string>Graphics</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_2">
-         <item>
-           <widget class="QCheckBox" name="toggle_hw_renderer">
-             <property name="text">
-               <string>Enable hardware renderer</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_shader_jit">
-             <property name="text">
-               <string>Enable shader JIT</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_scaled_resolution">
-             <property name="text">
-               <string>Enable scaled resolution</string>
-             </property>
-           </widget>
-         </item>
-         <item>
-           <widget class="QCheckBox" name="toggle_vsync">
-             <property name="text">
-               <string>Enable V-Sync</string>
-             </property>
-           </widget>
-         </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_hw_renderer">
+          <property name="text">
+           <string>Enable hardware renderer</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_shader_jit">
+          <property name="text">
+           <string>Enable shader JIT</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_scaled_resolution">
+          <property name="text">
+           <string>Enable scaled resolution</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_vsync">
+          <property name="text">
+           <string>Enable V-Sync</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="toggle_framelimit">
+          <property name="enabled">
+           <bool>true</bool>
+          </property>
+          <property name="text">
+           <string>Limit framerate</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </widget>
      </item>
@@ -71,22 +81,5 @@
   </layout>
  </widget>
  <resources/>
- <connections>
-  <connection>
-   <sender>toggle_gdbstub</sender>
-   <signal>toggled(bool)</signal>
-   <receiver>gdbport_spinbox</receiver>
-   <slot>setEnabled(bool)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>84</x>
-     <y>157</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>342</x>
-     <y>158</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
 </ui>
