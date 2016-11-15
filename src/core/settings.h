@@ -83,6 +83,7 @@ struct Values {
     bool use_shader_jit;
     bool use_scaled_resolution;
     bool use_vsync;
+    bool toggle_framelimit;
 
     float bg_red;
     float bg_green;

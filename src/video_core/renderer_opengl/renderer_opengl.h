@@ -5,9 +5,11 @@
 #pragma once
 
 #include <array>
+#include <thread>
 #include <glad/glad.h>
 #include "common/common_types.h"
 #include "common/math_util.h"
+#include "common/profiler_reporting.h"
 #include "core/hw/gpu.h"
 #include "video_core/renderer_base.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
@@ -59,6 +61,7 @@ private:
     void DrawScreens();
     void DrawSingleScreenRotated(const ScreenInfo& screen_info, float x, float y, float w, float h);
     void UpdateFramerate();
+    void FrameLimiter(const float& average_frame_time);
 
     // Loads framebuffer from emulated memory into the display information structure
     void LoadFBToScreenInfo(const GPU::Regs::FramebufferConfig& framebuffer,
