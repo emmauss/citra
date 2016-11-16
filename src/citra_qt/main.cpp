@@ -48,6 +48,10 @@
 #include "qhexedit.h"
 #include "video_core/video_core.h"
 
+#ifdef QT_STATICPLUGIN
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
+#endif
+
 GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
     Pica::g_debug_context = Pica::DebugContext::Construct();
 
@@ -196,6 +200,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
 
     // Setup hotkeys
     RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
+    RegisterHotkey("Main Window", "Swap Screens", QKeySequence::NextChild);
     RegisterHotkey("Main Window", "Start Emulation");
     LoadHotkeys();
 
@@ -203,6 +208,8 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
             SLOT(OnMenuLoadFile()));
     connect(GetHotkey("Main Window", "Start Emulation", this), SIGNAL(activated()), this,
             SLOT(OnStartGame()));
+    connect(GetHotkey("Main Window", "Swap Screens", this), SIGNAL(activated()), this,
+            SLOT(OnSwapScreens()));
 
     std::string window_title =
         Common::StringFromFormat("Citra | %s-%s", Common::g_scm_branch, Common::g_scm_desc);
@@ -548,6 +555,11 @@ void GMainWindow::OnConfigure() {
         render_window->ReloadSetKeymaps();
         config->Save();
     }
+}
+
+void GMainWindow::OnSwapScreens() {
+    Settings::values.swap_screen = !Settings::values.swap_screen;
+    Settings::Apply();
 }
 
 void GMainWindow::OnCreateGraphicsSurfaceViewer() {
