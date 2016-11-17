@@ -60,7 +60,6 @@ private:
     void DrawScreens();
     void DrawSingleScreenRotated(const ScreenInfo& screen_info, float x, float y, float w, float h);
     void UpdateFramerate();
-    void FrameLimiter(const std::chrono::microseconds& average_frame_time);
 
     // Loads framebuffer from emulated memory into the display information structure
     void LoadFBToScreenInfo(const GPU::Regs::FramebufferConfig& framebuffer,

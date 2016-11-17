@@ -151,13 +151,6 @@ void RendererOpenGL::SwapBuffers() {
     {
         auto aggregator = Common::Profiling::GetTimingResultsAggregator();
         aggregator->AddFrame(profiler.GetPreviousFrameResults());
-        if (VideoCore::g_toggle_framelimit_enabled) {
-            Common::Profiling::Duration frame_time =
-                aggregator->GetAggregatedResults().frame_time.avg;
-            //using FloatMs = std::chrono::duration<float, std::chrono::milliseconds::period>;
-            std::chrono::microseconds average_frame_time = std::chrono::duration_cast<std::chrono::microseconds>(frame_time);
-            FrameLimiter(average_frame_time);
-        }
     }
 
     // Swap buffers
@@ -512,16 +505,6 @@ bool RendererOpenGL::Init() {
     RefreshRasterizerSetting();
 
     return true;
-}
-
-void RendererOpenGL::FrameLimiter(const std::chrono::microseconds& average_frame_time) {
-    // calculate  difference between average frame time and frame time
-    // for the framelimit, and sleep for the difference in time.
-    std::chrono::microseconds frame_time = std::chrono::microseconds(16666);
-    if (average_frame_time < frame_time) {
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds( std::chrono::duration_cast<std::chrono::milliseconds>(frame_time - average_frame_time)));
-    }
 }
 
 /// Shutdown the renderer
