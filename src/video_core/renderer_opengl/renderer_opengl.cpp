@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
+#include <thread>
 #include <glad/glad.h>
 #include "common/assert.h"
 #include "common/bit_field.h"
