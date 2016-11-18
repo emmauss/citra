@@ -95,8 +95,7 @@ else()
     # /W3 - Level 3 warnings
     # /MP - Multi-threaded compilation
     # /Zi - Output debugging information
-    # /Zo - enahnced debug info for optimized builds
-    set(CMAKE_C_FLAGS   "/W3 /MP /Zi /Zo" CACHE STRING "" FORCE)
+    set(CMAKE_C_FLAGS   "/W3 /MP /Zi" CACHE STRING "" FORCE)
     # /EHsc - C++-only exception handling semantics
     set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} /EHsc" CACHE STRING "" FORCE)
 
@@ -107,7 +106,8 @@ else()
     # /O2 - Optimization level 2
     # /GS- - No stack buffer overflow checks
     # /MD - Multi-threaded runtime DLL
-    set(CMAKE_C_FLAGS_RELEASE   "/O2 /GS- /MD" CACHE STRING "" FORCE)
+    # /Zo - enahnced debug info for optimized builds
+    set(CMAKE_C_FLAGS_RELEASE   "/Zo /O2 /GS- /MD" CACHE STRING "" FORCE)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}" CACHE STRING "" FORCE)
 
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG   "/DEBUG" CACHE STRING "" FORCE)
@@ -184,7 +184,7 @@ IF (APPLE)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
 ELSEIF(MINGW)
     # PSAPI is the Process Status API
-    set(PLATFORM_LIBRARIES winmm ws2_32 psapi imm32 version)
+    set(PLATFORM_LIBRARIES winmm ws2_32 psapi)
 
     # WSAPoll functionality doesn't exist before WinNT 6.x (Vista and up)
     add_definitions(-D_WIN32_WINNT=0x0600)
