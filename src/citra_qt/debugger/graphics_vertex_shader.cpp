@@ -522,7 +522,8 @@ void GraphicsVertexShaderWidget::Reload(bool replace_vertex_data, void* vertex_d
     info.labels.insert({entry_point, "main"});
 
     // Generate debug information
-    debug_data = Pica::g_state.vs.ProduceDebugInfo(input_vertex, num_attributes, shader_config);
+    debug_data = Pica::g_state.vs.ProduceDebugInfo(input_vertex, num_attributes, shader_config,
+                                                   shader_setup);
 
     // Reload widget state
     for (int attr = 0; attr < num_attributes; ++attr) {
