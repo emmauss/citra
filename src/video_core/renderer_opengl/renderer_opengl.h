@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <thread>
 #include <glad/glad.h>
 #include "common/common_types.h"
 #include "common/math_util.h"

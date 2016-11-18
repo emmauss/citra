@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <numeric>
+#include <thread>
 #include <type_traits>
 #include "common/color.h"
 #include "common/common_types.h"
@@ -39,6 +40,8 @@ static int vblank_event;
 static u64 frame_count;
 /// True if the last frame was skipped
 static bool last_skip_frame;
+/// Start clock for frame limiter
+std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
 template <typename T>
 inline void Read(T& var, const u32 raw_addr) {
@@ -547,6 +550,18 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
+
+    // Frame limiting
+    if (Settings::values.toggle_framelimit) {
+        uint32_t time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::high_resolution_clock::now() - t1)
+                                 .count();
+        static const float ex = 1000.0f / 60.0f;
+        if (time_diff < ex) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(long(ex - time_diff)));
+        }
+    }
+    t1 = std::chrono::high_resolution_clock::now();
 }
 
 /// Initialize hardware
