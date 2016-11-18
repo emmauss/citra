@@ -87,7 +87,7 @@ public:
      * @return Opened file, or error code
      */
     virtual ResultVal<std::unique_ptr<FileBackend>> OpenFile(const Path& path,
-                                                             const Mode& mode) const = 0;
+                                                             const Mode mode) const = 0;
 
     /**
      * Delete a file specified by its path
@@ -100,53 +100,53 @@ public:
      * Rename a File specified by its path
      * @param src_path Source path relative to the archive
      * @param dest_path Destination path relative to the archive
-     * @return Result of the operation
+     * @return Whether rename succeeded
      */
-    virtual ResultCode RenameFile(const Path& src_path, const Path& dest_path) const = 0;
+    virtual bool RenameFile(const Path& src_path, const Path& dest_path) const = 0;
 
     /**
      * Delete a directory specified by its path
      * @param path Path relative to the archive
-     * @return Result of the operation
+     * @return Whether the directory could be deleted
      */
-    virtual ResultCode DeleteDirectory(const Path& path) const = 0;
+    virtual bool DeleteDirectory(const Path& path) const = 0;
 
     /**
      * Delete a directory specified by its path and anything under it
      * @param path Path relative to the archive
-     * @return Result of the operation
+     * @return Whether the directory could be deleted
      */
-    virtual ResultCode DeleteDirectoryRecursively(const Path& path) const = 0;
+    virtual bool DeleteDirectoryRecursively(const Path& path) const = 0;
 
     /**
      * Create a file specified by its path
      * @param path Path relative to the Archive
      * @param size The size of the new file, filled with zeroes
-     * @return Result of the operation
+     * @return File creation result code
      */
     virtual ResultCode CreateFile(const Path& path, u64 size) const = 0;
 
     /**
      * Create a directory specified by its path
      * @param path Path relative to the archive
-     * @return Result of the operation
+     * @return Whether the directory could be created
      */
-    virtual ResultCode CreateDirectory(const Path& path) const = 0;
+    virtual bool CreateDirectory(const Path& path) const = 0;
 
     /**
      * Rename a Directory specified by its path
      * @param src_path Source path relative to the archive
      * @param dest_path Destination path relative to the archive
-     * @return Result of the operation
+     * @return Whether rename succeeded
      */
-    virtual ResultCode RenameDirectory(const Path& src_path, const Path& dest_path) const = 0;
+    virtual bool RenameDirectory(const Path& src_path, const Path& dest_path) const = 0;
 
     /**
      * Open a directory specified by its path
      * @param path Path relative to the archive
-     * @return Opened directory, or error code
+     * @return Opened directory, or nullptr
      */
-    virtual ResultVal<std::unique_ptr<DirectoryBackend>> OpenDirectory(const Path& path) const = 0;
+    virtual std::unique_ptr<DirectoryBackend> OpenDirectory(const Path& path) const = 0;
 
     /**
      * Get the free space
