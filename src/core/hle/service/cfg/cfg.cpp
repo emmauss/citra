@@ -45,7 +45,8 @@ static_assert(sizeof(SaveFileConfig) == 0x455C,
 enum ConfigBlockID {
     StereoCameraSettingsBlockID = 0x00050005,
     SoundOutputModeBlockID = 0x00070001,
-    ConsoleUniqueIDBlockID = 0x00090001,
+    ConsoleUniqueID1BlockID = 0x00090000,
+    ConsoleUniqueID2BlockID = 0x00090001,
     UsernameBlockID = 0x000A0000,
     BirthdayBlockID = 0x000A0001,
     LanguageBlockID = 0x000A0002,
@@ -359,7 +360,7 @@ ResultCode CreateConfigInfoBlk(u32 block_id, u16 size, u16 flags, const void* da
 }
 
 ResultCode DeleteConfigNANDSaveFile() {
-    FileSys::Path path("config");
+    FileSys::Path path("/config");
     return Service::FS::DeleteFileFromArchive(cfg_system_save_data_archive, path);
 }
 
@@ -368,7 +369,7 @@ ResultCode UpdateConfigNANDSavegame() {
     mode.write_flag.Assign(1);
     mode.create_flag.Assign(1);
 
-    FileSys::Path path("config");
+    FileSys::Path path("/config");
 
     auto config_result = Service::FS::OpenFileFromArchive(cfg_system_save_data_archive, path, mode);
     ASSERT_MSG(config_result.Succeeded(), "could not open file");
@@ -382,8 +383,9 @@ ResultCode UpdateConfigNANDSavegame() {
 ResultCode FormatConfig() {
     ResultCode res = DeleteConfigNANDSaveFile();
     // The delete command fails if the file doesn't exist, so we have to check that too
-    if (!res.IsSuccess() && res.description != ErrorDescription::FS_NotFound)
+    if (!res.IsSuccess() && res.description != ErrorDescription::FS_FileNotFound) {
         return res;
+    }
     // Delete the old data
     cfg_config_file_buffer.fill(0);
     // Create the header
@@ -409,7 +411,12 @@ ResultCode FormatConfig() {
     if (!res.IsSuccess())
         return res;
 
-    res = CreateConfigInfoBlk(ConsoleUniqueIDBlockID, sizeof(CONSOLE_UNIQUE_ID), 0xE,
+    res = CreateConfigInfoBlk(ConsoleUniqueID1BlockID, sizeof(CONSOLE_UNIQUE_ID), 0xE,
+                              &CONSOLE_UNIQUE_ID);
+    if (!res.IsSuccess())
+        return res;
+
+    res = CreateConfigInfoBlk(ConsoleUniqueID2BlockID, sizeof(CONSOLE_UNIQUE_ID), 0xE,
                               &CONSOLE_UNIQUE_ID);
     if (!res.IsSuccess())
         return res;
@@ -504,7 +511,7 @@ ResultCode LoadConfigNANDSaveFile() {
 
     cfg_system_save_data_archive = *archive_result;
 
-    FileSys::Path config_path("config");
+    FileSys::Path config_path("/config");
     FileSys::Mode open_mode = {};
     open_mode.read_flag.Assign(1);
 

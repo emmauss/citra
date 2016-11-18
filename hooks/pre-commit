@@ -25,6 +25,13 @@ END
     exit 1
 fi
 
+if ! hash "clang-format" 2> /dev/null; then
+    cat<<END
+Error: You must have clang-format installed on your system for codestyle checking purposes.
+END
+    exit 1
+fi
+
 for f in $(git diff --name-only --diff-filter=ACMRTUXB --cached); do
     if ! echo "$f" | egrep -q "[.](cpp|h)$"; then
         continue

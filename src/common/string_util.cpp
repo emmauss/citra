@@ -11,7 +11,6 @@
 #include "common/common_paths.h"
 #include "common/logging/log.h"
 #include "common/string_util.h"
-
 #ifdef _WIN32
 #include <codecvt>
 #include <Windows.h>

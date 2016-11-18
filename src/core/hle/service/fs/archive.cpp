@@ -13,11 +13,13 @@
 #include "common/common_types.h"
 #include "common/file_util.h"
 #include "common/logging/log.h"
+#include "common/string_util.h"
 #include "core/file_sys/archive_backend.h"
 #include "core/file_sys/archive_extsavedata.h"
+#include "core/file_sys/archive_ncch.h"
 #include "core/file_sys/archive_savedata.h"
-#include "core/file_sys/archive_savedatacheck.h"
 #include "core/file_sys/archive_sdmc.h"
+#include "core/file_sys/archive_sdmcwriteonly.h"
 #include "core/file_sys/archive_systemsavedata.h"
 #include "core/file_sys/directory_backend.h"
 #include "core/file_sys/file_backend.h"
@@ -283,6 +285,53 @@ ResultVal<ArchiveHandle> OpenArchive(ArchiveIdCode id_code, FileSys::Path& archi
     return MakeResult<ArchiveHandle>(next_handle++);
 }
 
+bool CheckArchiveHandle(ArchiveHandle handle) {
+    const auto handle_map_end_itr = handle_map.end();
+    for (auto itr = handle_map.begin(); itr != handle_map_end_itr; ++itr) {
+        if (itr->first == handle) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ResultCode CommitSavedata(ArchiveHandle handle) {
+    ResultCode result = RESULT_SUCCESS;
+
+    if (CheckArchiveHandle(handle)) {
+        result = RESULT_SUCCESS;
+    } else {
+        result = ResultCode(ErrorDescription::FS_ArchiveNotMounted, ErrorModule::FS,
+                            ErrorSummary::NotFound, ErrorLevel::Status); // 0xC8804465
+    }
+
+    u32 level = result.raw >> 27;
+    if (result.raw & 0x80000000) {
+        level -= 32;
+    }
+    if (level == 0xFFFFFFFF) {
+        LOG_ERROR(Service_FS, "Fatal Error : Invalid operation");
+    }
+    return result;
+}
+
+ResultCode GetTimeStamp(u32& input_buffer, u32& input_size, u32& output_buffer, u32& output_size) {
+    const std::string filepath = Common::UTF16ToUTF8(
+        std::u16string(reinterpret_cast<char16_t*>(Memory::GetPointer(input_buffer), input_size)));
+
+    u64 timestamp = FileUtil::GetFileModificationTimestamp(filepath);
+
+    if (timestamp != 0) {
+        Memory::WriteBlock(output_buffer, &timestamp, output_size);
+        LOG_DEBUG(Service_FS, "timestamp=0x016llX", timestamp);
+        return RESULT_SUCCESS;
+    } else {
+        LOG_ERROR(Service_FS, "File was not exist, filepath :%s", filepath.c_str());
+        return ResultCode(ErrorDescription::FS_NotFound, ErrorModule::FS, ErrorSummary::NotFound,
+                          ErrorLevel::Permanent);
+    }
+}
+
 ResultCode CloseArchive(ArchiveHandle handle) {
     if (handle_map.erase(handle) == 0)
         return ERR_INVALID_ARCHIVE_HANDLE;
@@ -338,17 +387,11 @@ ResultCode RenameFileBetweenArchives(ArchiveHandle src_archive_handle,
         return ERR_INVALID_ARCHIVE_HANDLE;
 
     if (src_archive == dest_archive) {
-        if (src_archive->RenameFile(src_path, dest_path))
-            return RESULT_SUCCESS;
+        return src_archive->RenameFile(src_path, dest_path);
     } else {
         // TODO: Implement renaming across archives
         return UnimplementedFunction(ErrorModule::FS);
     }
-
-    // TODO(yuriks): This code probably isn't right, it'll return a Status even if the file didn't
-    // exist or similar. Verify.
-    return ResultCode(ErrorDescription::NoData, ErrorModule::FS, // TODO: verify description
-                      ErrorSummary::NothingHappened, ErrorLevel::Status);
 }
 
 ResultCode DeleteDirectoryFromArchive(ArchiveHandle archive_handle, const FileSys::Path& path) {
@@ -356,10 +399,7 @@ ResultCode DeleteDirectoryFromArchive(ArchiveHandle archive_handle, const FileSy
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
 
-    if (archive->DeleteDirectory(path))
-        return RESULT_SUCCESS;
-    return ResultCode(ErrorDescription::NoData, ErrorModule::FS, // TODO: verify description
-                      ErrorSummary::Canceled, ErrorLevel::Status);
+    return archive->DeleteDirectory(path);
 }
 
 ResultCode DeleteDirectoryRecursivelyFromArchive(ArchiveHandle archive_handle,
@@ -368,10 +408,7 @@ ResultCode DeleteDirectoryRecursivelyFromArchive(ArchiveHandle archive_handle,
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
 
-    if (archive->DeleteDirectoryRecursively(path))
-        return RESULT_SUCCESS;
-    return ResultCode(ErrorDescription::NoData, ErrorModule::FS, // TODO: verify description
-                      ErrorSummary::Canceled, ErrorLevel::Status);
+    return archive->DeleteDirectoryRecursively(path);
 }
 
 ResultCode CreateFileInArchive(ArchiveHandle archive_handle, const FileSys::Path& path,
@@ -388,10 +425,7 @@ ResultCode CreateDirectoryFromArchive(ArchiveHandle archive_handle, const FileSy
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
 
-    if (archive->CreateDirectory(path))
-        return RESULT_SUCCESS;
-    return ResultCode(ErrorDescription::NoData, ErrorModule::FS, // TODO: verify description
-                      ErrorSummary::Canceled, ErrorLevel::Status);
+    return archive->CreateDirectory(path);
 }
 
 ResultCode RenameDirectoryBetweenArchives(ArchiveHandle src_archive_handle,
@@ -404,17 +438,11 @@ ResultCode RenameDirectoryBetweenArchives(ArchiveHandle src_archive_handle,
         return ERR_INVALID_ARCHIVE_HANDLE;
 
     if (src_archive == dest_archive) {
-        if (src_archive->RenameDirectory(src_path, dest_path))
-            return RESULT_SUCCESS;
+        return src_archive->RenameDirectory(src_path, dest_path);
     } else {
         // TODO: Implement renaming across archives
         return UnimplementedFunction(ErrorModule::FS);
     }
-
-    // TODO(yuriks): This code probably isn't right, it'll return a Status even if the file didn't
-    // exist or similar. Verify.
-    return ResultCode(ErrorDescription::NoData, ErrorModule::FS, // TODO: verify description
-                      ErrorSummary::NothingHappened, ErrorLevel::Status);
 }
 
 ResultVal<Kernel::SharedPtr<Directory>> OpenDirectoryFromArchive(ArchiveHandle archive_handle,
@@ -423,13 +451,11 @@ ResultVal<Kernel::SharedPtr<Directory>> OpenDirectoryFromArchive(ArchiveHandle a
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
 
-    std::unique_ptr<FileSys::DirectoryBackend> backend = archive->OpenDirectory(path);
-    if (backend == nullptr) {
-        return ResultCode(ErrorDescription::FS_NotFound, ErrorModule::FS, ErrorSummary::NotFound,
-                          ErrorLevel::Permanent);
-    }
+    auto backend = archive->OpenDirectory(path);
+    if (backend.Failed())
+        return backend.Code();
 
-    auto directory = Kernel::SharedPtr<Directory>(new Directory(std::move(backend), path));
+    auto directory = Kernel::SharedPtr<Directory>(new Directory(backend.MoveFrom(), path));
     return MakeResult<Kernel::SharedPtr<Directory>>(std::move(directory));
 }
 
@@ -543,11 +569,15 @@ void RegisterArchiveTypes() {
     std::string sdmc_directory = FileUtil::GetUserPath(D_SDMC_IDX);
     std::string nand_directory = FileUtil::GetUserPath(D_NAND_IDX);
     auto sdmc_factory = std::make_unique<FileSys::ArchiveFactory_SDMC>(sdmc_directory);
-    if (sdmc_factory->Initialize())
+    if (sdmc_factory->Initialize()) {
+        auto sdmcwriteonly_factory =
+            std::make_unique<FileSys::ArchiveFactory_SDMCWriteOnly>(*sdmc_factory);
         RegisterArchiveType(std::move(sdmc_factory), ArchiveIdCode::SDMC);
-    else
+        RegisterArchiveType(std::move(sdmcwriteonly_factory), ArchiveIdCode::SDMCWriteOnly);
+    } else {
         LOG_ERROR(Service_FS, "Can't instantiate SDMC archive with path %s",
                   sdmc_directory.c_str());
+    }
 
     // Create the SaveData archive
     auto savedata_factory = std::make_unique<FileSys::ArchiveFactory_SaveData>(sdmc_directory);
@@ -569,10 +599,9 @@ void RegisterArchiveTypes() {
         LOG_ERROR(Service_FS, "Can't instantiate SharedExtSaveData archive with path %s",
                   sharedextsavedata_factory->GetMountPoint().c_str());
 
-    // Create the SaveDataCheck archive, basically a small variation of the RomFS archive
-    auto savedatacheck_factory =
-        std::make_unique<FileSys::ArchiveFactory_SaveDataCheck>(nand_directory);
-    RegisterArchiveType(std::move(savedatacheck_factory), ArchiveIdCode::SaveDataCheck);
+    // Create the NCCH archive, basically a small variation of the RomFS archive
+    auto savedatacheck_factory = std::make_unique<FileSys::ArchiveFactory_NCCH>(nand_directory);
+    RegisterArchiveType(std::move(savedatacheck_factory), ArchiveIdCode::NCCH);
 
     auto systemsavedata_factory =
         std::make_unique<FileSys::ArchiveFactory_SystemSaveData>(nand_directory);
