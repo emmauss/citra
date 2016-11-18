@@ -285,6 +285,9 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
                                              (void*)&input);
                 g_state.vs.Run(vs_shader_unit, input, loader.GetNumTotalAttributes(), regs.vs);
                 output_registers = vs_shader_unit.output_registers;
+                
+                // Retrieve vertex from register data
+                output_vertex = output_registers.ToVertex(regs.vs);
 
                 if (is_indexed) {
                     vertex_cache[vertex_cache_pos] = output_vertex;
