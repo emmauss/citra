@@ -385,6 +385,7 @@ void StartLibraryApplet(Service::Interface* self);
  *  Inputs:
  *      1 : Parameter Size (capped to 0x300)
  *      2 : StartupArgumentType
+ *      65 : Output buffer for startup argument
  *  Outputs:
  *      0 : Return header
  *      1 : u8, Exists (0 = does not exist, 1 = exists)
