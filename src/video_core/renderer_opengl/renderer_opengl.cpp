@@ -150,8 +150,11 @@ void RendererOpenGL::SwapBuffers() {
     {
         auto aggregator = Common::Profiling::GetTimingResultsAggregator();
         aggregator->AddFrame(profiler.GetPreviousFrameResults());
+        if (Settings::values.toggle_framelimit) {
+            GPU::FrameLimiter(aggregator->GetAggregatedResults().frame_time.avg);
+        }
     }
-
+    
     // Swap buffers
     render_window->PollEvents();
     render_window->SwapBuffers();
