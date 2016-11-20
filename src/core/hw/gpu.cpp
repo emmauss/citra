@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <numeric>
+#include <thread>
 #include <type_traits>
 #include "common/color.h"
 #include "common/common_types.h"
@@ -547,6 +548,7 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
+
 }
 
 /// Initialize hardware
@@ -587,6 +589,16 @@ void Init() {
     CoreTiming::ScheduleEvent(frame_ticks, vblank_event);
 
     LOG_DEBUG(HW_GPU, "initialized OK");
+}
+
+// Frame Limiter
+void FrameLimiter(std::chrono::high_resolution_clock::duration time) {
+    uint32_t frame_limit = 60;
+    const std::chrono::milliseconds expected_frame_time =
+        std::chrono::milliseconds(1000 / frame_limit);
+    if (time < expected_frame_time) {
+        std::this_thread::sleep_for(expected_frame_time - time);
+    }
 }
 
 /// Shutdown hardware

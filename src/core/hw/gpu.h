@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <thread>
 #include <type_traits>
 #include "common/assert.h"
 #include "common/bit_field.h"
@@ -326,6 +327,9 @@ void Write(u32 addr, const T data);
 
 /// Initialize hardware
 void Init();
+
+/// Frame Limiter
+void FrameLimiter(std::chrono::high_resolution_clock::duration time);
 
 /// Shutdown hardware
 void Shutdown();

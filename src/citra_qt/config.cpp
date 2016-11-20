@@ -48,6 +48,7 @@ void Config::ReadValues() {
     Settings::values.use_scaled_resolution =
         qt_config->value("use_scaled_resolution", false).toBool();
     Settings::values.use_vsync = qt_config->value("use_vsync", false).toBool();
+    Settings::values.toggle_framelimit = qt_config->value("toggle_framelimit", true).toBool();
 
     Settings::values.bg_red = qt_config->value("bg_red", 1.0).toFloat();
     Settings::values.bg_green = qt_config->value("bg_green", 1.0).toFloat();
