@@ -41,9 +41,14 @@ static u64 frame_count;
 /// True if the last frame was skipped
 static bool last_skip_frame;
 /// Start clock for frame limiter
-static std::chrono::high_resolution_clock::time_point update_time_point =
-    std::chrono::high_resolution_clock::now();
-std::chrono::duration<long , std::nano> previous_difference = std::chrono::milliseconds(16);
+static std::chrono::steady_clock::time_point update_time_point =
+    std::chrono::steady_clock::now();
+/// Frame time for last frame
+static std::chrono::steady_clock::duration last_frame_time;
+/// Frame time for current frame
+static std::chrono::steady_clock::duration frame_time;
+/// Frame rate mode(true for 30fps mode)
+static bool switch_check;
 
 template <typename T>
 inline void Read(T& var, const u32 raw_addr) {
@@ -522,19 +527,30 @@ template void Write<u16>(u32 addr, const u16 data);
 template void Write<u8>(u32 addr, const u8 data);
 
 static void FrameLimiter() {
-    const auto time_difference =
-        (std::chrono::high_resolution_clock::now() - update_time_point);
-    if ((previous_difference / time_difference) > 10){
-        previous_difference = time_difference;
-        return;
-    }
-    const u32 frame_limit = 60;
-    constexpr auto milliseconds_per_frame =
+    u32 frame_limit;
+    (switch_check ? frame_limit = 30 : frame_limit = 60);
+    const auto milliseconds_per_frame =
         std::chrono::milliseconds(1000 / frame_limit);
-    if (time_difference < milliseconds_per_frame) {
-        std::this_thread::sleep_for(milliseconds_per_frame - time_difference);
+    if (switch_check) {
+        if ((frame_time + last_frame_time) < milliseconds_per_frame) {
+            std::this_thread::sleep_for(milliseconds_per_frame - (frame_time + last_frame_time));
+        }
+    } else {
+        if (frame_time < milliseconds_per_frame) {
+            std::this_thread::sleep_for(milliseconds_per_frame - frame_time);
+        }
     }
-    previous_difference = time_difference;
+}
+static void mode_check() {
+    static bool first_check = false;
+    int n;
+    (switch_check ? n = 2 : n = 5);
+    if (frame_time < (last_frame_time / n) || frame_time >(last_frame_time * n)) {
+        first_check = true;
+    }
+    if (first_check && frame_time < (last_frame_time / n)) {
+        switch_check = true;
+    } else switch_check = false;
 }
 
 /// Update hardware
@@ -542,6 +558,7 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
     frame_count++;
     last_skip_frame = g_skip_frame;
     g_skip_frame = (frame_count & Settings::values.frame_skip) != 0;
+    bool is_skipped = false;
 
     // Swap buffers based on the frameskip mode, which is a little bit tricky. When
     // a frame is being skipped, nothing is being rendered to the internal framebuffer(s).
@@ -551,10 +568,12 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
     //  - If frameskip > 1, swap buffers every frameskip^n frames (starting from the second frame)
     if ((((Settings::values.frame_skip != 1) ^ last_skip_frame) &&
          last_skip_frame != g_skip_frame) ||
-        Settings::values.frame_skip == 0) {
+        Settings::values.frame_skip == 0 && !switch_check) {
         VideoCore::g_renderer->SwapBuffers();
-    }
+        is_skipped = false;
+    }else is_skipped = true;
 
+    
     // Signal to GSP that GPU interrupt has occurred
     // TODO(yuriks): hwtest to determine if PDC0 is for the Top screen and PDC1 for the Sub
     // screen, or if both use the same interrupts and these two instead determine the
@@ -568,10 +587,18 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
+    
+    frame_time = std::chrono::steady_clock::now() - update_time_point;
 
-    if (Settings::values.toggle_framelimit) {
+    // messy hack for determining 30 fps games
+    if(!Settings::values.use_vsync) {
+        mode_check();
+    }
+
+    if (Settings::values.toggle_framelimit && !is_skipped) {
         FrameLimiter();
     }
+    last_frame_time = frame_time;
     update_time_point = std::chrono::high_resolution_clock::now();
 }
 
@@ -607,6 +634,7 @@ void Init() {
 
     last_skip_frame = false;
     g_skip_frame = false;
+    switch_check = false;
     frame_count = 0;
 
     vblank_event = CoreTiming::RegisterEvent("GPU::VBlankCallback", VBlankCallback);

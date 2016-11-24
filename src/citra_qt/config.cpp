@@ -155,6 +155,7 @@ void Config::SaveValues() {
     qt_config->setValue("use_shader_jit", Settings::values.use_shader_jit);
     qt_config->setValue("use_scaled_resolution", Settings::values.use_scaled_resolution);
     qt_config->setValue("use_vsync", Settings::values.use_vsync);
+    qt_config->setValue("toggle_framelimit", Settings::values.toggle_framelimit);
 
     // Cast to double because Qt's written float values are not human-readable
     qt_config->setValue("bg_red", (double)Settings::values.bg_red);
