@@ -8,6 +8,8 @@
 #include "common/color.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
+#include "common/timer.h"
+#include "common/thread.h"
 #include "common/microprofile.h"
 #include "common/vector_math.h"
 #include "core/core_timing.h"
@@ -35,6 +37,10 @@ const u64 frame_ticks = 268123480ull / 60;
 static int vblank_event;
 /// Total number of frames drawn
 static u64 frame_count;
+static uint32_t time_point;
+static float time_delay = 0;
+const float fixed_frame_time = 1000.0f / 60;
+static const float MAX_LAG_TIME = 50;
 
 template <typename T>
 inline void Read(T& var, const u32 raw_addr) {
@@ -528,8 +534,26 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
     // Check for user input updates
     Service::HID::Update();
 
+    time_delay += fixed_frame_time;
+    const int32_t desired_time = static_cast<int32_t>(time_delay);
+    const int32_t elapsed_time = Common::Timer::GetTimeMs() - time_point;
+
+    if (elapsed_time < desired_time /*&& (desired_time - elapsed_time)>0*/) {
+        Common::SleepCurrentThread(desired_time - elapsed_time);
+    }
+
+
+    static int32_t frame_time = Common::Timer::GetTimeMs() - time_point;
+
+    time_delay -= frame_time;
+    if (time_delay > MAX_LAG_TIME) {
+        time_delay = MAX_LAG_TIME;
+    }
+
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
+
+    time_point = Common::Timer::GetTimeMs();
 }
 
 /// Initialize hardware
@@ -563,6 +587,7 @@ void Init() {
     framebuffer_sub.active_fb = 0;
 
     frame_count = 0;
+    time_point = Common::Timer::GetTimeMs();
 
     vblank_event = CoreTiming::RegisterEvent("GPU::VBlankCallback", VBlankCallback);
     CoreTiming::ScheduleEvent(frame_ticks, vblank_event);
