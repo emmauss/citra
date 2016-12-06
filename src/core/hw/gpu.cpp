@@ -38,13 +38,15 @@ static int vblank_event;
 /// Total number of frames drawn
 static u64 frame_count;
 /// Start clock for frame limiter
-static u32 time_point = Common::Timer::GetTimeMs();
-/// Frame time for last frame
-static u32 last_frame_time;
+static u32 time_point;
 /// Frame time for current frame
 static u32 frame_time;
-/// Frame rate mode(true for 30fps mode)
-static bool thirty_fps_mode;
+/// Total delay caused by slow frames
+static float time_delay;
+const float fixed_frame_time = 1000.0f / 60;
+/// Adjusted to compensate for too many slow frames. Higher values increases time
+/// needed to limit frame rate after spikes
+static const float MAX_LAG_TIME = 16.6667;
 
 template <typename T>
 inline void Read(T& var, const u32 raw_addr) {
@@ -523,37 +525,24 @@ template void Write<u16>(u32 addr, const u16 data);
 template void Write<u8>(u32 addr, const u8 data);
 
 static void FrameLimiter() {
-    static const u32 frame_limit = 60;
-    int32_t time_to_sleep;
-    const float milliseconds_per_frame = 1000.0f / frame_limit;
-    u32 excess = last_frame_time - milliseconds_per_frame;
-    if (thirty_fps_mode && frame_time < last_frame_time) {
-        time_to_sleep = milliseconds_per_frame - (frame_time + excess);
-        if (frame_time < milliseconds_per_frame && time_to_sleep > 0) {
-            Common::SleepCurrentThread(time_to_sleep);
-        }
-    } else if (!thirty_fps_mode && frame_time < milliseconds_per_frame) {
-        time_to_sleep = milliseconds_per_frame - frame_time;
-        Common::SleepCurrentThread(time_to_sleep);
-    }
-}
+    time_delay += fixed_frame_time;
+    if (time_delay > MAX_LAG_TIME) {
+        time_delay = MAX_LAG_TIME;
 
-static void frame_rate_mode_check() {
-    static bool first_check = false;
-    const float milliseconds_per_frame = 1000.0f / 60.0f;
-    if (first_check && frame_time > milliseconds_per_frame) {
-        thirty_fps_mode = true;
-        return;
-    } else if (!first_check) {
-        thirty_fps_mode = false;
+    } else if (time_delay < -MAX_LAG_TIME) {
+        time_delay = -MAX_LAG_TIME;
     }
-    if (last_frame_time < milliseconds_per_frame) {
-        if (frame_time > milliseconds_per_frame) {
-            first_check = true;
-        } else {
-            first_check = false;
-        }
+    int32_t desired_time = static_cast<int32_t>(time_delay);
+    int32_t elapsed_time = Common::Timer::GetTimeMs() - time_point;
+
+    if (elapsed_time < desired_time) {
+        Common::SleepCurrentThread(desired_time - elapsed_time);
     }
+
+    int32_t frame_time = Common::Timer::GetTimeMs() - time_point;
+
+    time_delay -= frame_time;
+    
 }
 
 /// Update hardware
@@ -576,13 +565,9 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
 
     if (!Settings::values.use_vsync) {
         if (Settings::values.toggle_framelimit) {
-            frame_rate_mode_check();
             FrameLimiter();
-        } else {
-            thirty_fps_mode = false;
         }
     }
-    last_frame_time = frame_time;
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
@@ -620,8 +605,9 @@ void Init() {
     framebuffer_sub.color_format.Assign(Regs::PixelFormat::RGB8);
     framebuffer_sub.active_fb = 0;
 
-    thirty_fps_mode = false;
     frame_count = 0;
+    time_point = Common::Timer::GetTimeMs();
+    time_delay = 0;
 
     vblank_event = CoreTiming::RegisterEvent("GPU::VBlankCallback", VBlankCallback);
     CoreTiming::ScheduleEvent(frame_ticks, vblank_event);
