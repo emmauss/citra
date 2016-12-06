@@ -8,9 +8,9 @@
 #include "common/color.h"
 #include "common/common_types.h"
 #include "common/logging/log.h"
-#include "common/timer.h"
-#include "common/thread.h"
 #include "common/microprofile.h"
+#include "common/thread.h"
+#include "common/timer.h"
 #include "common/vector_math.h"
 #include "core/core_timing.h"
 #include "core/hle/service/gsp_gpu.h"
@@ -535,20 +535,20 @@ static void VBlankCallback(u64 userdata, int cycles_late) {
     Service::HID::Update();
 
     time_delay += fixed_frame_time;
-    const int32_t desired_time = static_cast<int32_t>(time_delay);
-    const int32_t elapsed_time = Common::Timer::GetTimeMs() - time_point;
+    if (time_delay > MAX_LAG_TIME) {
+        time_delay = MAX_LAG_TIME;
+    } else if (time_delay < -MAX_LAG_TIME) {
+        time_delay = -MAX_LAG_TIME;
+    }
+    int32_t desired_time = static_cast<int32_t>(time_delay);
+    int32_t elapsed_time = Common::Timer::GetTimeMs() - time_point;
 
     if (elapsed_time < desired_time /*&& (desired_time - elapsed_time)>0*/) {
         Common::SleepCurrentThread(desired_time - elapsed_time);
     }
 
-
-    static int32_t frame_time = Common::Timer::GetTimeMs() - time_point;
-
+    int32_t frame_time = Common::Timer::GetTimeMs() - time_point;
     time_delay -= frame_time;
-    if (time_delay > MAX_LAG_TIME) {
-        time_delay = MAX_LAG_TIME;
-    }
 
     // Reschedule recurrent event
     CoreTiming::ScheduleEvent(frame_ticks - cycles_late, vblank_event);
