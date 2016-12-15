@@ -189,10 +189,6 @@ void RasterizerOpenGL::DrawTriangles() {
         GL_DRAW_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
         (has_stencil && depth_surface != nullptr) ? depth_surface->texture.handle : 0, 0);
 
-    if (OpenGLState::CheckFBStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        return;
-    }
-
     // Sync the viewport
     // These registers hold half-width and half-height, so must be multiplied by 2
     GLsizei viewport_width = (GLsizei)Pica::float24::FromRaw(regs.viewport_size_x).ToFloat32() * 2;
@@ -213,12 +209,16 @@ void RasterizerOpenGL::DrawTriangles() {
 
     // Scissor checks are window-, not viewport-relative, which means that if the cached texture
     // sub-rect changes, the scissor bounds also need to be updated.
-    GLint scissor_x1 = rect.left + regs.scissor_test.x1 * color_surface->res_scale_width;
-    GLint scissor_y1 = rect.bottom + regs.scissor_test.y1 * color_surface->res_scale_height;
+    GLint scissor_x1 =
+        static_cast<GLint>(rect.left + regs.scissor_test.x1 * color_surface->res_scale_width);
+    GLint scissor_y1 =
+        static_cast<GLint>(rect.bottom + regs.scissor_test.y1 * color_surface->res_scale_height);
     // x2, y2 have +1 added to cover the entire pixel area, otherwise you might get cracks when
     // scaling or doing multisampling.
-    GLint scissor_x2 = rect.left + (regs.scissor_test.x2 + 1) * color_surface->res_scale_width;
-    GLint scissor_y2 = rect.bottom + (regs.scissor_test.y2 + 1) * color_surface->res_scale_height;
+    GLint scissor_x2 =
+        static_cast<GLint>(rect.left + (regs.scissor_test.x2 + 1) * color_surface->res_scale_width);
+    GLint scissor_y2 = static_cast<GLint>(
+        rect.bottom + (regs.scissor_test.y2 + 1) * color_surface->res_scale_height);
 
     if (uniform_block_data.data.scissor_x1 != scissor_x1 ||
         uniform_block_data.data.scissor_x2 != scissor_x2 ||
@@ -711,7 +711,11 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
 
     CachedSurface src_params;
     src_params.addr = config.GetPhysicalInputAddress();
-    src_params.width = config.output_width;
+    // It's important to use the correct source input width to properly skip over parts of the input
+    // image which will be cropped from the output but still affect the stride of the input image.
+    src_params.width = config.input_width;
+    // Using the output's height is fine because we don't read or skip over the remaining part of
+    // the image, and it allows for smaller texture cache lookup rectangles.
     src_params.height = config.output_height;
     src_params.is_tiled = !config.input_linear;
     src_params.pixel_format = CachedSurface::PixelFormatFromGPUPixelFormat(config.input_format);
@@ -730,6 +734,11 @@ bool RasterizerOpenGL::AccelerateDisplayTransfer(const GPU::Regs::DisplayTransfe
 
     if (src_surface == nullptr) {
         return false;
+    }
+
+    // Adjust the source rectangle to take into account parts of the input lines being cropped
+    if (config.input_width > config.output_width) {
+        src_rect.right -= (config.input_width - config.output_width) * src_surface->res_scale_width;
     }
 
     // Require destination surface to have same resolution scale as source to preserve scaling
@@ -793,10 +802,6 @@ bool RasterizerOpenGL::AccelerateFill(const GPU::Regs::MemoryFillConfig& config)
                                dst_surface->texture.handle, 0);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0,
                                0);
-
-        if (OpenGLState::CheckFBStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            return false;
-        }
 
         GLfloat color_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -882,10 +887,6 @@ bool RasterizerOpenGL::AccelerateFill(const GPU::Regs::MemoryFillConfig& config)
                                dst_surface->texture.handle, 0);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 
-        if (OpenGLState::CheckFBStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            return false;
-        }
-
         GLfloat value_float;
         if (dst_surface->pixel_format == CachedSurface::PixelFormat::D16) {
             value_float = config.value_32bit / 65535.0f; // 2^16 - 1
@@ -900,10 +901,6 @@ bool RasterizerOpenGL::AccelerateFill(const GPU::Regs::MemoryFillConfig& config)
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
                                dst_surface->texture.handle, 0);
-
-        if (OpenGLState::CheckFBStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            return false;
-        }
 
         GLfloat value_float = (config.value_32bit & 0xFFFFFF) / 16777215.0f; // 2^24 - 1
         GLint value_int = (config.value_32bit >> 24);
@@ -934,7 +931,7 @@ bool RasterizerOpenGL::AccelerateDisplay(const GPU::Regs::FramebufferConfig& con
     src_params.addr = framebuffer_addr;
     src_params.width = config.width;
     src_params.height = config.height;
-    src_params.stride = pixel_stride;
+    src_params.pixel_stride = pixel_stride;
     src_params.is_tiled = false;
     src_params.pixel_format = CachedSurface::PixelFormatFromGPUPixelFormat(config.color_format);
 
@@ -1070,7 +1067,9 @@ void RasterizerOpenGL::SetShader() {
         GLint block_size;
         glGetActiveUniformBlockiv(current_shader->shader.handle, block_index,
                                   GL_UNIFORM_BLOCK_DATA_SIZE, &block_size);
-        ASSERT_MSG(block_size == sizeof(UniformData), "Uniform block size did not match!");
+        ASSERT_MSG(block_size == sizeof(UniformData),
+                   "Uniform block size did not match! Got %d, expected %zu",
+                   static_cast<int>(block_size), sizeof(UniformData));
         glUniformBlockBinding(current_shader->shader.handle, block_index, 0);
 
         // Update uniforms

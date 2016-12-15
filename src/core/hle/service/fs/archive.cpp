@@ -16,6 +16,7 @@
 #include "core/file_sys/archive_backend.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/archive_ncch.h"
+#include "core/file_sys/archive_other_savedata.h"
 #include "core/file_sys/archive_savedata.h"
 #include "core/file_sys/archive_sdmc.h"
 #include "core/file_sys/archive_sdmcwriteonly.h"
@@ -23,6 +24,7 @@
 #include "core/file_sys/directory_backend.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/hle.h"
+#include "core/hle/kernel/client_session.h"
 #include "core/hle/result.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/fs/fs_user.h"
@@ -92,7 +94,7 @@ File::File(std::unique_ptr<FileSys::FileBackend>&& backend, const FileSys::Path&
 
 File::~File() {}
 
-ResultVal<bool> File::SyncRequest() {
+void File::HandleSyncRequest(Kernel::SharedPtr<Kernel::ServerSession> server_session) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     FileCommand cmd = static_cast<FileCommand>(cmd_buff[0]);
     switch (cmd) {
@@ -115,7 +117,7 @@ ResultVal<bool> File::SyncRequest() {
         ResultVal<size_t> read = backend->Read(offset, data.size(), data.data());
         if (read.Failed()) {
             cmd_buff[1] = read.Code().raw;
-            return read.Code();
+            return;
         }
         Memory::WriteBlock(address, data.data(), *read);
         cmd_buff[2] = static_cast<u32>(*read);
@@ -136,7 +138,7 @@ ResultVal<bool> File::SyncRequest() {
         ResultVal<size_t> written = backend->Write(offset, data.size(), flush != 0, data.data());
         if (written.Failed()) {
             cmd_buff[1] = written.Code().raw;
-            return written.Code();
+            return;
         }
         cmd_buff[2] = static_cast<u32>(*written);
         break;
@@ -172,7 +174,11 @@ ResultVal<bool> File::SyncRequest() {
 
     case FileCommand::OpenLinkFile: {
         LOG_WARNING(Service_FS, "(STUBBED) File command OpenLinkFile %s", GetName().c_str());
-        cmd_buff[3] = Kernel::g_handle_table.Create(this).ValueOr(INVALID_HANDLE);
+        auto sessions = Kernel::ServerSession::CreateSessionPair(GetName(), shared_from_this());
+        ClientConnected(std::get<Kernel::SharedPtr<Kernel::ServerSession>>(sessions));
+        cmd_buff[3] = Kernel::g_handle_table
+                          .Create(std::get<Kernel::SharedPtr<Kernel::ClientSession>>(sessions))
+                          .ValueOr(INVALID_HANDLE);
         break;
     }
 
@@ -193,10 +199,9 @@ ResultVal<bool> File::SyncRequest() {
         LOG_ERROR(Service_FS, "Unknown command=0x%08X!", cmd);
         ResultCode error = UnimplementedFunction(ErrorModule::FS);
         cmd_buff[1] = error.raw; // TODO(Link Mauve): use the correct error code for that.
-        return error;
+        return;
     }
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    return MakeResult<bool>(false);
 }
 
 Directory::Directory(std::unique_ptr<FileSys::DirectoryBackend>&& backend,
@@ -205,11 +210,10 @@ Directory::Directory(std::unique_ptr<FileSys::DirectoryBackend>&& backend,
 
 Directory::~Directory() {}
 
-ResultVal<bool> Directory::SyncRequest() {
+void Directory::HandleSyncRequest(Kernel::SharedPtr<Kernel::ServerSession> server_session) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
     DirectoryCommand cmd = static_cast<DirectoryCommand>(cmd_buff[0]);
     switch (cmd) {
-
     // Read from directory...
     case DirectoryCommand::Read: {
         u32 count = cmd_buff[1];
@@ -236,10 +240,9 @@ ResultVal<bool> Directory::SyncRequest() {
         LOG_ERROR(Service_FS, "Unknown command=0x%08X!", cmd);
         ResultCode error = UnimplementedFunction(ErrorModule::FS);
         cmd_buff[1] = error.raw; // TODO(Link Mauve): use the correct error code for that.
-        return MakeResult<bool>(false);
+        return;
     }
     cmd_buff[1] = RESULT_SUCCESS.raw; // No error
-    return MakeResult<bool>(false);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -306,9 +309,9 @@ ResultCode RegisterArchiveType(std::unique_ptr<FileSys::ArchiveFactory>&& factor
     return RESULT_SUCCESS;
 }
 
-ResultVal<Kernel::SharedPtr<File>> OpenFileFromArchive(ArchiveHandle archive_handle,
-                                                       const FileSys::Path& path,
-                                                       const FileSys::Mode mode) {
+ResultVal<std::shared_ptr<File>> OpenFileFromArchive(ArchiveHandle archive_handle,
+                                                     const FileSys::Path& path,
+                                                     const FileSys::Mode mode) {
     ArchiveBackend* archive = GetArchive(archive_handle);
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
@@ -317,8 +320,8 @@ ResultVal<Kernel::SharedPtr<File>> OpenFileFromArchive(ArchiveHandle archive_han
     if (backend.Failed())
         return backend.Code();
 
-    auto file = Kernel::SharedPtr<File>(new File(backend.MoveFrom(), path));
-    return MakeResult<Kernel::SharedPtr<File>>(std::move(file));
+    auto file = std::shared_ptr<File>(new File(backend.MoveFrom(), path));
+    return MakeResult<std::shared_ptr<File>>(std::move(file));
 }
 
 ResultCode DeleteFileFromArchive(ArchiveHandle archive_handle, const FileSys::Path& path) {
@@ -397,8 +400,8 @@ ResultCode RenameDirectoryBetweenArchives(ArchiveHandle src_archive_handle,
     }
 }
 
-ResultVal<Kernel::SharedPtr<Directory>> OpenDirectoryFromArchive(ArchiveHandle archive_handle,
-                                                                 const FileSys::Path& path) {
+ResultVal<std::shared_ptr<Directory>> OpenDirectoryFromArchive(ArchiveHandle archive_handle,
+                                                               const FileSys::Path& path) {
     ArchiveBackend* archive = GetArchive(archive_handle);
     if (archive == nullptr)
         return ERR_INVALID_ARCHIVE_HANDLE;
@@ -407,8 +410,8 @@ ResultVal<Kernel::SharedPtr<Directory>> OpenDirectoryFromArchive(ArchiveHandle a
     if (backend.Failed())
         return backend.Code();
 
-    auto directory = Kernel::SharedPtr<Directory>(new Directory(backend.MoveFrom(), path));
-    return MakeResult<Kernel::SharedPtr<Directory>>(std::move(directory));
+    auto directory = std::shared_ptr<Directory>(new Directory(backend.MoveFrom(), path));
+    return MakeResult<std::shared_ptr<Directory>>(std::move(directory));
 }
 
 ResultVal<u64> GetFreeBytesInArchive(ArchiveHandle archive_handle) {
@@ -535,8 +538,17 @@ void RegisterArchiveTypes() {
                   sdmc_directory.c_str());
 
     // Create the SaveData archive
-    auto savedata_factory = std::make_unique<FileSys::ArchiveFactory_SaveData>(sdmc_directory);
+    auto sd_savedata_source = std::make_shared<FileSys::ArchiveSource_SDSaveData>(sdmc_directory);
+    auto savedata_factory = std::make_unique<FileSys::ArchiveFactory_SaveData>(sd_savedata_source);
     RegisterArchiveType(std::move(savedata_factory), ArchiveIdCode::SaveData);
+    auto other_savedata_permitted_factory =
+        std::make_unique<FileSys::ArchiveFactory_OtherSaveDataPermitted>(sd_savedata_source);
+    RegisterArchiveType(std::move(other_savedata_permitted_factory),
+                        ArchiveIdCode::OtherSaveDataPermitted);
+    auto other_savedata_general_factory =
+        std::make_unique<FileSys::ArchiveFactory_OtherSaveDataGeneral>(sd_savedata_source);
+    RegisterArchiveType(std::move(other_savedata_general_factory),
+                        ArchiveIdCode::OtherSaveDataGeneral);
 
     auto extsavedata_factory =
         std::make_unique<FileSys::ArchiveFactory_ExtSaveData>(sdmc_directory, false);
