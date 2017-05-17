@@ -27,6 +27,8 @@ static bool shell_open;
 
 static bool battery_is_charging;
 
+static bool counting_steps;
+
 void GetAdapterState(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
 
@@ -67,6 +69,18 @@ void GetBatteryChargeState(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
     cmd_buff[2] = battery_is_charging ? 1 : 0;
+
+    LOG_WARNING(Service_PTM, "(STUBBED) called");
+}
+
+void GetPedometerState(Service::Interface* self) {
+    u32* cmd_buff = Kernel::GetCommandBuffer();
+
+    // TODO: This function is only a stub,
+    // it returns 0 as the total step count
+
+    cmd_buff[1] = RESULT_SUCCESS.raw;
+    cmd_buff[2] = counting_steps ? 1 : 0;
 
     LOG_WARNING(Service_PTM, "(STUBBED) called");
 }
@@ -121,6 +135,7 @@ void Init() {
 
     shell_open = true;
     battery_is_charging = true;
+    counting_steps = false;
 
     // Open the SharedExtSaveData archive 0xF000000B and create the gamecoin.dat file if it doesn't
     // exist
